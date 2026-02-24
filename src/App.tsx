@@ -77,11 +77,13 @@ export default function App() {
         fetchData();
       } else {
         let errorMessage = 'Erro desconhecido';
+        const text = await res.text();
+        console.log("Server response error text:", text);
         try {
-          const errorData = await res.json();
+          const errorData = JSON.parse(text);
           errorMessage = errorData.error || errorMessage;
         } catch (e) {
-          errorMessage = `Erro do servidor (${res.status})`;
+          errorMessage = `Erro do servidor (${res.status}): ${text.substring(0, 100)}...`;
         }
         alert(`Erro ao salvar: ${errorMessage}`);
       }
@@ -103,6 +105,9 @@ export default function App() {
       if (res.ok) {
         setSelectedEntry(null);
         fetchData();
+      } else {
+        const text = await res.text();
+        console.error("Update error response:", text);
       }
     } catch (error) {
       console.error("Error updating entry:", error);

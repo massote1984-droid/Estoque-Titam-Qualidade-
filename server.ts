@@ -57,17 +57,29 @@ async function startServer() {
 
   // API Routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", database: !!db });
+    console.log("Health check hit");
+    res.json({ 
+      status: "ok", 
+      database: !!db, 
+      time: new Date().toISOString(),
+      node_env: process.env.NODE_ENV 
+    });
   });
 
   app.get("/api/entries", (req, res) => {
-    const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
-    res.json(entries);
+    console.log("GET /api/entries hit");
+    try {
+      const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
+      res.json(entries);
+    } catch (error: any) {
+      console.error("Database Error in GET /api/entries:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.post("/api/entries", (req, res) => {
+    console.log("POST /api/entries hit with body:", JSON.stringify(req.body).substring(0, 100));
     try {
-      console.log("Received POST /api/entries", req.body);
       const {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
@@ -166,7 +178,14 @@ async function startServer() {
 
   // API 404 handler
   app.all("/api/*", (req, res) => {
+    console.log(`API 404: ${req.method} ${req.url}`);
     res.status(404).json({ error: `Route ${req.method} ${req.url} not found` });
+  });
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error("GLOBAL ERROR:", err);
+    res.status(500).json({ error: err.message || "Internal Server Error" });
   });
 
   // Vite middleware for development
@@ -185,6 +204,8 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+    console.log(`DATABASE_PATH: ${path.join(process.cwd(), "stock.db")}`);
   });
 }
 
