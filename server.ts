@@ -22,16 +22,16 @@ function log(msg: string) {
 
 log("Starting server process...");
 
-async function startServer() {
-  log("startServer function called");
-  let db: Database.Database;
+let db: Database.Database | null = null;
+
+function getDb() {
+  if (db) return db;
+  
   try {
     const dbPath = process.env.VERCEL ? path.join("/tmp", "stock.db") : path.join(process.cwd(), "stock.db");
-    log(`Using database at: ${dbPath}`);
+    log(`Initializing database at: ${dbPath}`);
     db = new Database(dbPath);
-    log("Database initialized");
     
-    // Initialize Database
     db.exec(`
       CREATE TABLE IF NOT EXISTS entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,32 +60,47 @@ async function startServer() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    log("Tables checked/created");
+    log("Database initialized successfully");
+    return db;
   } catch (err: any) {
-    log(`Failed to initialize database: ${err.message}`);
-    if (!process.env.VERCEL) {
-      process.exit(1);
-    }
-    // On Vercel, we'll continue but routes will fail gracefully if db is undefined
+    log(`Database Initialization Error: ${err.message}`);
+    throw err;
   }
+}
 
+async function startServer() {
+  log("startServer function called");
   const app = express();
   const PORT = 3000;
 
-  // Health check should be as early as possible
+  // Health check
   app.get("/api/health", (req, res) => {
     log("Health check hit");
+    let dbStatus = false;
+    try {
+      dbStatus = !!getDb();
+    } catch (e) {
+      dbStatus = false;
+    }
     res.json({ 
       status: "ok", 
-      database: !!db,
+      database: dbStatus,
       env: process.env.VERCEL ? 'vercel' : 'local'
     });
   });
 
   app.use((req, res, next) => {
     log(`${req.method} ${req.url}`);
-    if (!db && req.url.startsWith('/api/') && req.url !== '/api/health') {
-      return res.status(500).json({ error: "Database not initialized. Check server logs." });
+    if (req.url.startsWith('/api/') && req.url !== '/api/health') {
+      try {
+        getDb();
+      } catch (err: any) {
+        return res.status(500).json({ 
+          error: "Database Error", 
+          message: err.message,
+          hint: "This often happens on Vercel with native modules like better-sqlite3."
+        });
+      }
     }
     next();
   });
@@ -96,23 +111,25 @@ async function startServer() {
   app.get("/api/entries", (req, res) => {
     log("GET /api/entries hit");
     try {
-      const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
+      const database = getDb();
+      const entries = database.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
       res.json(entries);
     } catch (error: any) {
-      log(`Database Error in GET /api/entries: ${error.message}`);
+      log(`Error in GET /api/entries: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
   app.post("/api/entries", (req, res) => {
-    log(`POST /api/entries hit with body: ${JSON.stringify(req.body).substring(0, 100)}`);
+    log(`POST /api/entries hit`);
     try {
+      const database = getDb();
       const {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
       } = req.body;
 
-      const stmt = db.prepare(`
+      const stmt = database.prepare(`
         INSERT INTO entries (
           mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
           data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
@@ -127,7 +144,7 @@ async function startServer() {
       log(`Entry saved successfully, ID: ${result.lastInsertRowid}`);
       res.json({ id: result.lastInsertRowid });
     } catch (error: any) {
-      log(`Database Error in POST /api/entries: ${error.message}`);
+      log(`Error in POST /api/entries: ${error.message}`);
       res.status(500).json({ error: error.message || "Failed to save entry" });
     }
   });
@@ -136,28 +153,38 @@ async function startServer() {
     const { id } = req.params;
     const updates = req.body;
     
-    const keys = Object.keys(updates);
-    if (keys.length === 0) return res.status(400).json({ error: "No updates provided" });
+    try {
+      const database = getDb();
+      const keys = Object.keys(updates);
+      if (keys.length === 0) return res.status(400).json({ error: "No updates provided" });
 
-    const setClause = keys.map(key => `${key} = ?`).join(", ");
-    const values = [...Object.values(updates), id];
+      const setClause = keys.map(key => `${key} = ?`).join(", ");
+      const values = [...Object.values(updates), id];
 
-    const stmt = db.prepare(`UPDATE entries SET ${setClause} WHERE id = ?`);
-    stmt.run(...values);
+      const stmt = database.prepare(`UPDATE entries SET ${setClause} WHERE id = ?`);
+      stmt.run(...values);
 
-    res.json({ success: true });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.get("/api/stock-summary", (req, res) => {
-    const summary = db.prepare(`
-      SELECT 
-        fornecedor,
-        SUM(CASE WHEN status IN ('Estoque', 'Rejeitado') THEN 1 ELSE 0 END) as in_stock,
-        SUM(CASE WHEN status IN ('Embarcado', 'Devolvido') THEN 1 ELSE 0 END) as exited
-      FROM entries
-      GROUP BY fornecedor
-    `).all();
-    res.json(summary);
+    try {
+      const database = getDb();
+      const summary = database.prepare(`
+        SELECT 
+          fornecedor,
+          SUM(CASE WHEN status IN ('Estoque', 'Rejeitado') THEN 1 ELSE 0 END) as in_stock,
+          SUM(CASE WHEN status IN ('Embarcado', 'Devolvido') THEN 1 ELSE 0 END) as exited
+        FROM entries
+        GROUP BY fornecedor
+      `).all();
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.post("/api/parse-nfe", async (req, res) => {
