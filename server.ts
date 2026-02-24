@@ -50,6 +50,7 @@ function getDb() {
         destino TEXT,
         data_faturamento_vli TEXT,
         cte_vli TEXT,
+        numero_vagao TEXT,
         hora_chegada TEXT,
         hora_entrada TEXT,
         hora_saida TEXT,
@@ -126,19 +127,25 @@ async function startServer() {
       const database = getDb();
       const {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
-        data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
+        data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
+        data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
+        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
       } = req.body;
 
       const stmt = database.prepare(`
         INSERT INTO entries (
           mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
-          data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
+          data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
+          data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
-        data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
+        data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
+        data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
+        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
       );
 
       log(`Entry saved successfully, ID: ${result.lastInsertRowid}`);
@@ -170,6 +177,20 @@ async function startServer() {
     }
   });
 
+  app.delete("/api/entries/:id", (req, res) => {
+    const { id } = req.params;
+    log(`DELETE /api/entries/${id} hit`);
+    try {
+      const database = getDb();
+      const result = database.prepare("DELETE FROM entries WHERE id = ?").run(id);
+      log(`Delete result for ID ${id}: ${result.changes} rows affected`);
+      res.json({ success: true, changes: result.changes });
+    } catch (error: any) {
+      log(`Error in DELETE /api/entries: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/stock-summary", (req, res) => {
     try {
       const database = getDb();
@@ -180,6 +201,25 @@ async function startServer() {
           SUM(CASE WHEN status IN ('Embarcado', 'Devolvido') THEN 1 ELSE 0 END) as exited
         FROM entries
         GROUP BY fornecedor
+      `).all();
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/stock-by-product-destination", (req, res) => {
+    try {
+      const database = getDb();
+      const summary = database.prepare(`
+        SELECT 
+          descricao_produto,
+          destino,
+          COUNT(*) as total_entries,
+          SUM(CASE WHEN status IN ('Estoque', 'Rejeitado') THEN 1 ELSE 0 END) as in_stock,
+          SUM(CASE WHEN status IN ('Embarcado', 'Devolvido') THEN 1 ELSE 0 END) as exited
+        FROM entries
+        GROUP BY descricao_produto, destino
       `).all();
       res.json(summary);
     } catch (error: any) {

@@ -15,6 +15,7 @@ export interface Entry {
   destino: string;
   data_faturamento_vli?: string;
   cte_vli?: string;
+  numero_vagao?: string;
   hora_chegada?: string;
   hora_entrada?: string;
   hora_saida?: string;
@@ -23,6 +24,7 @@ export interface Entry {
   data_emissao_cte?: string;
   cte_transportador?: string;
   created_at: string;
+  isPending?: boolean;
 }
 
 export interface StockSummary {

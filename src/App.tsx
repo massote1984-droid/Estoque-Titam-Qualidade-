@@ -15,8 +15,26 @@ import {
   X,
   Download,
   FileJson,
-  Calendar
+  Calendar,
+  RefreshCw,
+  Trash2,
+  TrendingUp,
+  BarChart3,
+  Activity
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line, 
+  Legend,
+  Cell
+} from 'recharts';
 import { Entry, StockSummary } from './types';
 
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios';
@@ -25,6 +43,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [summary, setSummary] = useState<StockSummary[]>([]);
+  const [productDestSummary, setProductDestSummary] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
@@ -34,31 +53,78 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
 
+  const syncOfflineData = async () => {
+    const localData = localStorage.getItem('stock_entries');
+    if (!localData) return;
+
+    const entries = JSON.parse(localData);
+    const pendingEntries = entries.filter((e: any) => e.isPending);
+
+    if (pendingEntries.length === 0) return;
+
+    console.log(`Sincronizando ${pendingEntries.length} registros pendentes...`);
+    
+    for (const entry of pendingEntries) {
+      try {
+        const { id, isPending, ...dataToSync } = entry;
+        const res = await fetch('/api/entries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSync),
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          const updatedEntries = JSON.parse(localStorage.getItem('stock_entries') || '[]');
+          const finalEntries = updatedEntries.map((e: any) => 
+            e.id === id ? { ...e, id: result.id, isPending: false } : e
+          );
+          localStorage.setItem('stock_entries', JSON.stringify(finalEntries));
+          setEntries(finalEntries);
+        }
+      } catch (error) {
+        console.error("Erro ao sincronizar registro:", error);
+      }
+    }
+  };
+
   const fetchData = async () => {
     try {
       const healthRes = await fetch(`/api/health?t=${Date.now()}`);
       if (healthRes.ok) {
-        setServerStatus('online');
+        if (serverStatus !== 'online') {
+          setServerStatus('online');
+          syncOfflineData();
+        }
       } else {
         throw new Error('Server offline');
       }
 
-      const [entriesRes, summaryRes] = await Promise.all([
+      const [entriesRes, summaryRes, productDestRes] = await Promise.all([
         fetch('/api/entries'),
-        fetch('/api/stock-summary')
+        fetch('/api/stock-summary'),
+        fetch('/api/stock-by-product-destination')
       ]);
       
-      if (!entriesRes.ok || !summaryRes.ok) {
+      if (!entriesRes.ok || !summaryRes.ok || !productDestRes.ok) {
         throw new Error('Failed to fetch entries or summary');
       }
 
       const entriesData = await entriesRes.json();
       const summaryData = await summaryRes.json();
-      setEntries(entriesData);
-      setSummary(summaryData);
+      const productDestData = await productDestRes.json();
       
-      // Sync local storage
-      localStorage.setItem('stock_entries', JSON.stringify(entriesData));
+      // Merge local pending entries with server data
+      const localData = localStorage.getItem('stock_entries');
+      const localEntries = localData ? JSON.parse(localData) : [];
+      const pendingEntries = localEntries.filter((e: any) => e.isPending);
+      
+      const mergedEntries = [...pendingEntries, ...entriesData];
+      setEntries(mergedEntries);
+      setSummary(summaryData);
+      setProductDestSummary(productDestData);
+      
+      localStorage.setItem('stock_entries', JSON.stringify(mergedEntries));
     } catch (error) {
       console.error("Error fetching data, falling back to local storage:", error);
       setServerStatus('offline');
@@ -76,6 +142,20 @@ export default function App() {
           exited: parsedData.filter((e: any) => e.fornecedor === s && ['Embarcado', 'Devolvido'].includes(e.status)).length
         }));
         setSummary(localSummary);
+
+        // Calculate product/dest summary locally
+        const productDests = [...new Set(parsedData.map((e: any) => `${e.descricao_produto}|${e.destino}`))];
+        const localProductDestSummary = productDests.map(pd => {
+          const [prod, dest] = (pd as string).split('|');
+          const filtered = parsedData.filter((e: any) => e.descricao_produto === prod && e.destino === dest);
+          return {
+            descricao_produto: prod,
+            destino: dest,
+            in_stock: filtered.filter((e: any) => ['Estoque', 'Rejeitado'].includes(e.status)).length,
+            exited: filtered.filter((e: any) => ['Embarcado', 'Devolvido'].includes(e.status)).length
+          };
+        });
+        setProductDestSummary(localProductDestSummary);
       }
     } finally {
       setLoading(false);
@@ -85,6 +165,46 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const calculateTimeInMinutes = (start?: string, end?: string) => {
+    if (!start || !end) return 0;
+    try {
+      const [h1, m1] = start.split(':').map(Number);
+      const [h2, m2] = end.split(':').map(Number);
+      const d1 = new Date(2000, 0, 1, h1, m1);
+      const d2 = new Date(2000, 0, 1, h2, m2);
+      let diff = (d2.getTime() - d1.getTime()) / 1000 / 60;
+      if (diff < 0) diff += 24 * 60;
+      return diff;
+    } catch (e) {
+      return 0;
+    }
+  };
+
+  const chartDataDaily = React.useMemo(() => {
+    const dailyMap: Record<string, any> = {};
+    entries.forEach(entry => {
+      const date = entry.data_nf;
+      if (!dailyMap[date]) {
+        dailyMap[date] = { date, 'Cal Dolomítico': 0, 'Cal Calcítico': 0, total: 0 };
+      }
+      if (entry.descricao_produto === 'Cal Dolomítico') dailyMap[date]['Cal Dolomítico'] += entry.tonelada;
+      if (entry.descricao_produto === 'Cal Calcítico') dailyMap[date]['Cal Calcítico'] += entry.tonelada;
+      dailyMap[date].total += entry.tonelada;
+    });
+    return Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+  }, [entries]);
+
+  const performanceChartData = React.useMemo(() => {
+    return entries
+      .filter(e => e.hora_chegada && e.hora_saida)
+      .slice(-10)
+      .map(e => ({
+        nf: `NF ${e.nf_numero}`,
+        total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
+        descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
+      }));
+  }, [entries]);
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -104,30 +224,29 @@ export default function App() {
           setFormData({});
           fetchData();
         } else {
-          let errorMessage = 'Erro desconhecido';
-          const text = await res.text();
-          try {
-            const errorData = JSON.parse(text);
-            errorMessage = errorData.error || errorMessage;
-          } catch (e) {
-            errorMessage = `Erro do servidor (${res.status}): ${text.substring(0, 100)}...`;
-          }
-          throw new Error(errorMessage);
+          throw new Error('Server error');
         }
       } else {
         // Fallback to LocalStorage
         const newId = Date.now();
-        const newItem = { ...data, id: newId, created_at: new Date().toISOString() };
+        const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
         const newEntries = [newItem, ...entries];
         setEntries(newEntries as Entry[]);
         localStorage.setItem('stock_entries', JSON.stringify(newEntries));
         setShowForm(false);
         setFormData({});
-        alert("Aviso: Servidor offline. Registro salvo localmente no navegador.");
+        alert("Aviso: Servidor offline. Registro salvo localmente e será sincronizado automaticamente quando a conexão voltar.");
       }
     } catch (error: any) {
-      console.error("Error creating entry:", error);
-      alert(`Erro ao salvar registro: ${error.message}`);
+      const newId = Date.now();
+      const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
+      const newEntries = [newItem, ...entries];
+      setEntries(newEntries as Entry[]);
+      localStorage.setItem('stock_entries', JSON.stringify(newEntries));
+      setShowForm(false);
+      setFormData({});
+      setServerStatus('offline');
+      alert("Conexão perdida. Registro salvo localmente e será sincronizado automaticamente.");
     } finally {
       setIsSaving(false);
     }
@@ -158,6 +277,35 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error updating entry:", error);
+    }
+  };
+
+  const handleDeleteEntry = async (id: number) => {
+    if (!confirm("Tem certeza que deseja excluir este registro?")) return;
+    
+    try {
+      if (serverStatus === 'online') {
+        const res = await fetch(`/api/entries/${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.changes === 0) {
+            alert("Aviso: Nenhum registro foi encontrado no banco de dados para excluir.");
+          }
+          fetchData();
+        } else {
+          const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+          throw new Error(errorData.error || 'Erro ao excluir no servidor');
+        }
+      } else {
+        const newEntries = entries.filter(e => e.id !== id);
+        setEntries(newEntries);
+        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
+        alert("Registro excluído localmente.");
+      }
+    } catch (error: any) {
+      alert(`Erro ao excluir: ${error.message}`);
     }
   };
 
@@ -291,35 +439,128 @@ export default function App() {
                 />
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                  <h2 className="font-semibold text-gray-900">Estoque por Fornecedor</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Bar Chart: Entradas por Dia */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <BarChart3 size={18} className="text-indigo-600" />
+                      Entradas por Dia (Toneladas)
+                    </h3>
+                  </div>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartDataDaily}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                        <XAxis 
+                          dataKey="date" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fontSize: 12, fill: '#64748B' }}
+                          tickFormatter={(val) => val.split('-').slice(1).reverse().join('/')}
+                        />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                        />
+                        <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                        <Bar dataKey="Cal Dolomítico" fill="#6366F1" radius={[4, 4, 0, 0]} barSize={20} />
+                        <Bar dataKey="Cal Calcítico" fill="#10B981" radius={[4, 4, 0, 0]} barSize={20} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="px-6 py-3 data-grid-header">Fornecedor</th>
-                        <th className="px-6 py-3 data-grid-header">Em Estoque</th>
-                        <th className="px-6 py-3 data-grid-header">Saídas</th>
-                        <th className="px-6 py-3 data-grid-header">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {summary.map((s, i) => (
-                        <tr key={i} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4 font-medium text-gray-900">{s.fornecedor}</td>
-                          <td className="px-6 py-4 mono-value">{s.in_stock}</td>
-                          <td className="px-6 py-4 mono-value">{s.exited}</td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.in_stock > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
-                              {s.in_stock > 0 ? 'Ativo' : 'Vazio'}
-                            </span>
-                          </td>
+
+                {/* Line Chart: Performance */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <Activity size={18} className="text-amber-600" />
+                      Performance Logística (Minutos)
+                    </h3>
+                  </div>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={performanceChartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                        <XAxis 
+                          dataKey="nf" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fontSize: 10, fill: '#64748B' }}
+                        />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                        />
+                        <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                        <Line type="monotone" dataKey="total" name="Tempo Total" stroke="#F59E0B" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="descarga" name="Tempo Descarga" stroke="#6366F1" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                    <h2 className="font-semibold text-gray-900">Estoque por Fornecedor</h2>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                          <th className="px-6 py-3 data-grid-header">Em Estoque</th>
+                          <th className="px-6 py-3 data-grid-header">Saídas</th>
+                          <th className="px-6 py-3 data-grid-header">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {summary.map((s, i) => (
+                          <tr key={i} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-gray-900">{s.fornecedor}</td>
+                            <td className="px-6 py-4 mono-value">{s.in_stock}</td>
+                            <td className="px-6 py-4 mono-value">{s.exited}</td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.in_stock > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+                                {s.in_stock > 0 ? 'Ativo' : 'Vazio'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                    <h2 className="font-semibold text-gray-900">Estoque por Produto e Destino</h2>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="px-6 py-3 data-grid-header">Produto</th>
+                          <th className="px-6 py-3 data-grid-header">Destino</th>
+                          <th className="px-6 py-3 data-grid-header">Estoque</th>
+                          <th className="px-6 py-3 data-grid-header">Saídas</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {productDestSummary.map((s, i) => (
+                          <tr key={i} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-gray-900">{s.descricao_produto}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600">{s.destino}</td>
+                            <td className="px-6 py-4 mono-value text-indigo-600 font-bold">{s.in_stock}</td>
+                            <td className="px-6 py-4 mono-value text-gray-400">{s.exited}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -338,6 +579,7 @@ export default function App() {
                 { key: 'status', label: 'Status' }
               ]}
               onEdit={setSelectedEntry}
+              onDelete={handleDeleteEntry}
             />
           )}
 
@@ -349,9 +591,11 @@ export default function App() {
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
                 { key: 'cte_vli', label: 'CTE VLI' },
+                { key: 'numero_vagao', label: 'Nº Vagão' },
                 { key: 'status', label: 'Status' }
               ]}
               onEdit={setSelectedEntry}
+              onDelete={handleDeleteEntry}
             />
           )}
 
@@ -364,9 +608,11 @@ export default function App() {
                 { key: 'hora_chegada', label: 'Chegada' },
                 { key: 'hora_entrada', label: 'Entrada' },
                 { key: 'hora_saida', label: 'Saída' },
-                { key: 'placa_veiculo', label: 'Placa' }
+                { key: 'total_time' as any, label: 'Tempo Total' },
+                { key: 'descarga_time' as any, label: 'Tempo Descarga' }
               ]}
               onEdit={setSelectedEntry}
+              onDelete={handleDeleteEntry}
             />
           )}
 
@@ -382,6 +628,7 @@ export default function App() {
                 { key: 'cte_transportador', label: 'CTE Transp.' }
               ]}
               onEdit={setSelectedEntry}
+              onDelete={handleDeleteEntry}
             />
           )}
 
@@ -397,6 +644,7 @@ export default function App() {
                 { key: 'data_nf', label: 'Data NF' }
               ]}
               onEdit={setSelectedEntry}
+              onDelete={handleDeleteEntry}
             />
           )}
 
@@ -439,7 +687,14 @@ export default function App() {
                 <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
                 <Input label="Tonelada" name="tonelada" type="number" step="0.01" required defaultValue={formData.tonelada} />
                 <Input label="Valor" name="valor" type="number" step="0.01" required defaultValue={formData.valor} />
-                <Input label="Descrição Produto" name="descricao_produto" required defaultValue={formData.descricao_produto} />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
+                    <option value="" disabled>Selecione o produto</option>
+                    <option value="Cal Dolomítico">Cal Dolomítico</option>
+                    <option value="Cal Calcítico">Cal Calcítico</option>
+                  </select>
+                </div>
                 <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                 <div className="flex flex-col gap-1">
@@ -454,7 +709,15 @@ export default function App() {
                 <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
                 <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} />
                 <Input label="Container" name="container" required defaultValue={formData.container} />
-                <Input label="Destino" name="destino" required defaultValue={formData.destino} />
+                <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
+                    <option value="" disabled>Selecione o destino</option>
+                    <option value="Serra - ES">Serra - ES</option>
+                    <option value="Resende - RJ">Resende - RJ</option>
+                  </select>
+                </div>
                 
                 <div className="md:col-span-3 flex justify-end gap-3 mt-4">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" disabled={isSaving}>Cancelar</button>
@@ -546,6 +809,35 @@ export default function App() {
                 </button>
               </div>
               <div className="p-8 space-y-8">
+                {/* Section: Informações Gerais */}
+                <section className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                      <select 
+                        defaultValue={selectedEntry.descricao_produto}
+                        onChange={(e) => handleUpdateEntry(selectedEntry.id, { descricao_produto: e.target.value })}
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                      >
+                        <option value="Cal Dolomítico">Cal Dolomítico</option>
+                        <option value="Cal Calcítico">Cal Calcítico</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                      <select 
+                        defaultValue={selectedEntry.destino}
+                        onChange={(e) => handleUpdateEntry(selectedEntry.id, { destino: e.target.value })}
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                      >
+                        <option value="Serra - ES">Serra - ES</option>
+                        <option value="Resende - RJ">Resende - RJ</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
                 {/* Section: Saída */}
                 {(activeTab === 'saida' || activeTab === 'lista') && (
                   <section className="space-y-4">
@@ -561,6 +853,11 @@ export default function App() {
                         label="CTE VLI" 
                         defaultValue={selectedEntry.cte_vli} 
                         onBlur={(e) => handleUpdateEntry(selectedEntry.id, { cte_vli: e.target.value })}
+                      />
+                      <Input 
+                        label="Nº Vagão" 
+                        defaultValue={selectedEntry.numero_vagao} 
+                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { numero_vagao: e.target.value })}
                       />
                       <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
@@ -855,7 +1152,30 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
   );
 }
 
-function DataView({ title, entries, columns, onEdit }: { title: string, entries: Entry[], columns: { key: keyof Entry, label: string }[], onEdit: (e: Entry) => void }) {
+function DataView({ title, entries, columns, onEdit, onDelete }: { 
+  title: string, 
+  entries: Entry[], 
+  columns: { key: keyof Entry, label: string }[], 
+  onEdit: (e: Entry) => void,
+  onDelete: (id: number) => void
+}) {
+  const calculateTimeDiff = (start?: string, end?: string) => {
+    if (!start || !end) return '-';
+    try {
+      const [h1, m1] = start.split(':').map(Number);
+      const [h2, m2] = end.split(':').map(Number);
+      const d1 = new Date(2000, 0, 1, h1, m1);
+      const d2 = new Date(2000, 0, 1, h2, m2);
+      let diff = (d2.getTime() - d1.getTime()) / 1000 / 60;
+      if (diff < 0) diff += 24 * 60;
+      const hours = Math.floor(diff / 60);
+      const minutes = Math.round(diff % 60);
+      return `${hours}h ${minutes}m`;
+    } catch (e) {
+      return '-';
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -895,16 +1215,38 @@ function DataView({ title, entries, columns, onEdit }: { title: string, entries:
                 <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-4 text-sm text-gray-600">
-                      {entry[col.key] || '-'}
+                      <div className="flex items-center gap-2">
+                        {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
+                         (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
+                         (entry[col.key] || '-')}
+                        {col.key === 'nf_numero' && entry.isPending && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-bold uppercase flex items-center gap-1">
+                            <RefreshCw size={10} className="animate-spin" />
+                            Pendente
+                          </span>
+                        )}
+                      </div>
                     </td>
                   ))}
                   <td className="px-6 py-4">
-                    <button 
-                      onClick={() => onEdit(entry)}
-                      className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                    >
-                      Editar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => onEdit(entry)}
+                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                      >
+                        Editar
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(entry.id);
+                        }}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors group"
+                        title="Excluir Registro"
+                      >
+                        <Trash2 size={18} className="group-hover:scale-110 transition-transform" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
