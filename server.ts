@@ -2,20 +2,28 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-console.log("Starting server process...");
+const logFile = path.join(process.cwd(), "server.log");
+function log(msg: string) {
+  const entry = `${new Date().toISOString()} - ${msg}\n`;
+  fs.appendFileSync(logFile, entry);
+  console.log(msg);
+}
+
+log("Starting server process...");
 
 async function startServer() {
-  console.log("startServer function called");
+  log("startServer function called");
   let db: Database.Database;
   try {
     db = new Database("stock.db");
-    console.log("Database initialized");
+    log("Database initialized");
     
     // Initialize Database
     db.exec(`
@@ -46,8 +54,9 @@ async function startServer() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-  } catch (err) {
-    console.error("Failed to initialize database:", err);
+    log("Tables checked/created");
+  } catch (err: any) {
+    log(`Failed to initialize database: ${err.message}`);
     process.exit(1);
   }
 
@@ -56,11 +65,12 @@ async function startServer() {
 
   // Health check should be as early as possible
   app.get("/api/health", (req, res) => {
+    log("Health check hit");
     res.json({ status: "ok" });
   });
 
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    log(`${req.method} ${req.url}`);
     next();
   });
 
@@ -68,18 +78,18 @@ async function startServer() {
 
   // API Routes
   app.get("/api/entries", (req, res) => {
-    console.log("GET /api/entries hit");
+    log("GET /api/entries hit");
     try {
       const entries = db.prepare("SELECT * FROM entries ORDER BY created_at DESC").all();
       res.json(entries);
     } catch (error: any) {
-      console.error("Database Error in GET /api/entries:", error);
+      log(`Database Error in GET /api/entries: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
   app.post("/api/entries", (req, res) => {
-    console.log("POST /api/entries hit with body:", JSON.stringify(req.body).substring(0, 100));
+    log(`POST /api/entries hit with body: ${JSON.stringify(req.body).substring(0, 100)}`);
     try {
       const {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
@@ -98,10 +108,10 @@ async function startServer() {
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
       );
 
-      console.log("Entry saved successfully, ID:", result.lastInsertRowid);
+      log(`Entry saved successfully, ID: ${result.lastInsertRowid}`);
       res.json({ id: result.lastInsertRowid });
     } catch (error: any) {
-      console.error("Database Error in POST /api/entries:", error);
+      log(`Database Error in POST /api/entries: ${error.message}`);
       res.status(500).json({ error: error.message || "Failed to save entry" });
     }
   });
@@ -179,13 +189,13 @@ async function startServer() {
 
   // API 404 handler
   app.all("/api/*", (req, res) => {
-    console.log(`API 404: ${req.method} ${req.url}`);
+    log(`API 404: ${req.method} ${req.url}`);
     res.status(404).json({ error: `Route ${req.method} ${req.url} not found` });
   });
 
   // Global Error Handler
   app.use((err: any, req: any, res: any, next: any) => {
-    console.error("GLOBAL ERROR:", err);
+    log(`GLOBAL ERROR: ${err.message}`);
     res.status(500).json({ error: err.message || "Internal Server Error" });
   });
 
@@ -203,14 +213,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
-    console.log(`DATABASE_PATH: ${path.join(process.cwd(), "stock.db")}`);
-  });
+  if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      log(`Server running on http://localhost:${PORT}`);
+      log(`NODE_ENV: ${process.env.NODE_ENV}`);
+      log(`DATABASE_PATH: ${path.join(process.cwd(), "stock.db")}`);
+    });
+  }
+
+  return app;
 }
 
-startServer().catch(err => {
-  console.error("CRITICAL SERVER STARTUP ERROR:", err);
+const appPromise = startServer().catch(err => {
+  log(`CRITICAL SERVER STARTUP ERROR: ${err.message}`);
   process.exit(1);
 });
+
+export default appPromise;
