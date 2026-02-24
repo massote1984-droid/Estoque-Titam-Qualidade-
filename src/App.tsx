@@ -283,6 +283,9 @@ export default function App() {
   const handleDeleteEntry = async (id: number) => {
     if (!confirm("Tem certeza que deseja excluir este registro?")) return;
     
+    const previousEntries = [...entries];
+    setEntries(entries.filter(e => e.id !== id));
+    
     try {
       if (serverStatus === 'online') {
         const res = await fetch(`/api/entries/${id}`, {
@@ -292,9 +295,14 @@ export default function App() {
           const data = await res.json();
           if (data.changes === 0) {
             alert("Aviso: Nenhum registro foi encontrado no banco de dados para excluir.");
+            setEntries(previousEntries);
+          } else {
+            const newEntries = previousEntries.filter(e => e.id !== id);
+            localStorage.setItem('stock_entries', JSON.stringify(newEntries));
+            fetchData();
           }
-          fetchData();
         } else {
+          setEntries(previousEntries);
           const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
           throw new Error(errorData.error || 'Erro ao excluir no servidor');
         }
@@ -305,6 +313,7 @@ export default function App() {
         alert("Registro excluído localmente.");
       }
     } catch (error: any) {
+      setEntries(previousEntries);
       alert(`Erro ao excluir: ${error.message}`);
     }
   };
@@ -576,6 +585,7 @@ export default function App() {
                 { key: 'tonelada', label: 'Tonelada' },
                 { key: 'valor', label: 'Valor' },
                 { key: 'fornecedor', label: 'Fornecedor' },
+                { key: 'container', label: 'Container' },
                 { key: 'status', label: 'Status' }
               ]}
               onEdit={setSelectedEntry}
@@ -589,6 +599,7 @@ export default function App() {
               entries={entries}
               columns={[
                 { key: 'nf_numero', label: 'N.F' },
+                { key: 'container', label: 'Container' },
                 { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
                 { key: 'cte_vli', label: 'CTE VLI' },
                 { key: 'numero_vagao', label: 'Nº Vagão' },
@@ -640,6 +651,7 @@ export default function App() {
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'descricao_produto', label: 'Produto' },
                 { key: 'fornecedor', label: 'Fornecedor' },
+                { key: 'container', label: 'Container' },
                 { key: 'status', label: 'Status' },
                 { key: 'data_nf', label: 'Data NF' }
               ]}
@@ -835,6 +847,11 @@ export default function App() {
                         <option value="Resende - RJ">Resende - RJ</option>
                       </select>
                     </div>
+                    <Input 
+                      label="Container" 
+                      defaultValue={selectedEntry.container} 
+                      onBlur={(e) => handleUpdateEntry(selectedEntry.id, { container: e.target.value })}
+                    />
                   </div>
                 </section>
 
