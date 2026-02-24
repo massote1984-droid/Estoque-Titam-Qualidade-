@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 console.log("Starting server process...");
 
 async function startServer() {
+  console.log("startServer function called");
   let db: Database.Database;
   try {
     db = new Database("stock.db");
@@ -53,19 +54,19 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Health check should be as early as possible
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+  });
+
   app.use(express.json());
 
   // API Routes
-  app.get("/api/health", (req, res) => {
-    console.log("Health check hit");
-    res.json({ 
-      status: "ok", 
-      database: !!db, 
-      time: new Date().toISOString(),
-      node_env: process.env.NODE_ENV 
-    });
-  });
-
   app.get("/api/entries", (req, res) => {
     console.log("GET /api/entries hit");
     try {
@@ -209,4 +210,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("CRITICAL SERVER STARTUP ERROR:", err);
+  process.exit(1);
+});

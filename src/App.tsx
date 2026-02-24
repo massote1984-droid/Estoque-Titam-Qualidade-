@@ -36,20 +36,34 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const healthRes = await fetch('/api/health');
-      if (healthRes.ok) setServerStatus('online');
-      else setServerStatus('offline');
+      const healthRes = await fetch(`/api/health?t=${Date.now()}`);
+      if (healthRes.ok) {
+        setServerStatus('online');
+      } else {
+        setServerStatus('offline');
+        // Retry after 2 seconds if offline
+        setTimeout(fetchData, 2000);
+        return;
+      }
 
       const [entriesRes, summaryRes] = await Promise.all([
         fetch('/api/entries'),
         fetch('/api/stock-summary')
       ]);
+      
+      if (!entriesRes.ok || !summaryRes.ok) {
+        throw new Error('Failed to fetch entries or summary');
+      }
+
       const entriesData = await entriesRes.json();
       const summaryData = await summaryRes.json();
       setEntries(entriesData);
       setSummary(summaryData);
     } catch (error) {
       console.error("Error fetching data:", error);
+      setServerStatus('offline');
+      // Retry after 5 seconds on error
+      setTimeout(fetchData, 5000);
     } finally {
       setLoading(false);
     }
@@ -188,6 +202,14 @@ export default function App() {
                 serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
               }`} />
               {serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Sistema Offline' : 'Verificando...'}
+              {serverStatus === 'offline' && (
+                <button 
+                  onClick={() => fetchData()} 
+                  className="ml-2 underline hover:text-red-800 transition-colors"
+                >
+                  Reconectar
+                </button>
+              )}
             </div>
           </div>
           {activeTab !== 'dashboard' && (
