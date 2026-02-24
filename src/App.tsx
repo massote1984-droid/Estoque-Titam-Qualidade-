@@ -40,10 +40,7 @@ export default function App() {
       if (healthRes.ok) {
         setServerStatus('online');
       } else {
-        setServerStatus('offline');
-        // Retry after 2 seconds if offline
-        setTimeout(fetchData, 2000);
-        return;
+        throw new Error('Server offline');
       }
 
       const [entriesRes, summaryRes] = await Promise.all([
@@ -59,11 +56,27 @@ export default function App() {
       const summaryData = await summaryRes.json();
       setEntries(entriesData);
       setSummary(summaryData);
+      
+      // Sync local storage
+      localStorage.setItem('stock_entries', JSON.stringify(entriesData));
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error fetching data, falling back to local storage:", error);
       setServerStatus('offline');
-      // Retry after 5 seconds on error
-      setTimeout(fetchData, 5000);
+      
+      const localData = localStorage.getItem('stock_entries');
+      if (localData) {
+        const parsedData = JSON.parse(localData);
+        setEntries(parsedData);
+        
+        // Calculate summary locally
+        const suppliers = [...new Set(parsedData.map((e: any) => e.fornecedor))];
+        const localSummary = suppliers.map(s => ({
+          fornecedor: s,
+          in_stock: parsedData.filter((e: any) => e.fornecedor === s && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+          exited: parsedData.filter((e: any) => e.fornecedor === s && ['Embarcado', 'Devolvido'].includes(e.status)).length
+        }));
+        setSummary(localSummary);
+      }
     } finally {
       setLoading(false);
     }
@@ -80,30 +93,41 @@ export default function App() {
     const data = Object.fromEntries(formDataObj.entries());
     
     try {
-      const res = await fetch('/api/entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (res.ok) {
+      if (serverStatus === 'online') {
+        const res = await fetch('/api/entries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (res.ok) {
+          setShowForm(false);
+          setFormData({});
+          fetchData();
+        } else {
+          let errorMessage = 'Erro desconhecido';
+          const text = await res.text();
+          try {
+            const errorData = JSON.parse(text);
+            errorMessage = errorData.error || errorMessage;
+          } catch (e) {
+            errorMessage = `Erro do servidor (${res.status}): ${text.substring(0, 100)}...`;
+          }
+          throw new Error(errorMessage);
+        }
+      } else {
+        // Fallback to LocalStorage
+        const newId = Date.now();
+        const newItem = { ...data, id: newId, created_at: new Date().toISOString() };
+        const newEntries = [newItem, ...entries];
+        setEntries(newEntries as Entry[]);
+        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
         setShowForm(false);
         setFormData({});
-        fetchData();
-      } else {
-        let errorMessage = 'Erro desconhecido';
-        const text = await res.text();
-        console.log("Server response error text:", text);
-        try {
-          const errorData = JSON.parse(text);
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          errorMessage = `Erro do servidor (${res.status}): ${text.substring(0, 100)}...`;
-        }
-        alert(`Erro ao salvar: ${errorMessage}`);
+        alert("Aviso: Servidor offline. Registro salvo localmente no navegador.");
       }
     } catch (error: any) {
       console.error("Error creating entry:", error);
-      alert(`Erro de conexão ao salvar registro: ${error.message || 'Erro desconhecido'}`);
+      alert(`Erro ao salvar registro: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -111,17 +135,26 @@ export default function App() {
 
   const handleUpdateEntry = async (id: number, updates: Partial<Entry>) => {
     try {
-      const res = await fetch(`/api/entries/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        setSelectedEntry(null);
-        fetchData();
+      if (serverStatus === 'online') {
+        const res = await fetch(`/api/entries/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        });
+        if (res.ok) {
+          setSelectedEntry(null);
+          fetchData();
+        } else {
+          const text = await res.text();
+          console.error("Update error response:", text);
+        }
       } else {
-        const text = await res.text();
-        console.error("Update error response:", text);
+        // Fallback to LocalStorage
+        const newEntries = entries.map(e => e.id === id ? { ...e, ...updates } : e);
+        setEntries(newEntries);
+        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
+        setSelectedEntry(null);
+        alert("Aviso: Servidor offline. Alteração salva localmente no navegador.");
       }
     } catch (error) {
       console.error("Error updating entry:", error);
@@ -201,14 +234,16 @@ export default function App() {
                 serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
                 serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
               }`} />
-              {serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Sistema Offline' : 'Verificando...'}
+              {serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Modo Offline (Local)' : 'Verificando...'}
               {serverStatus === 'offline' && (
-                <button 
-                  onClick={() => fetchData()} 
-                  className="ml-2 underline hover:text-red-800 transition-colors"
-                >
-                  Reconectar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => fetchData()} 
+                    className="ml-2 underline hover:text-red-800 transition-colors"
+                  >
+                    Tentar Reconectar
+                  </button>
+                </div>
               )}
             </div>
           </div>
