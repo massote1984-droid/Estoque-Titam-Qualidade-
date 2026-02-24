@@ -76,8 +76,14 @@ export default function App() {
         setFormData({});
         fetchData();
       } else {
-        const errorData = await res.json();
-        alert(`Erro ao salvar: ${errorData.error || 'Erro desconhecido'}`);
+        let errorMessage = 'Erro desconhecido';
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          errorMessage = `Erro do servidor (${res.status})`;
+        }
+        alert(`Erro ao salvar: ${errorMessage}`);
       }
     } catch (error: any) {
       console.error("Error creating entry:", error);

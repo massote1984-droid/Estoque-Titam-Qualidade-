@@ -66,8 +66,8 @@ async function startServer() {
   });
 
   app.post("/api/entries", (req, res) => {
-    console.log("Received POST /api/entries", req.body);
     try {
+      console.log("Received POST /api/entries", req.body);
       const {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
@@ -85,10 +85,11 @@ async function startServer() {
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino
       );
 
+      console.log("Entry saved successfully, ID:", result.lastInsertRowid);
       res.json({ id: result.lastInsertRowid });
-    } catch (error) {
-      console.error("Database Error:", error);
-      res.status(500).json({ error: "Failed to save entry" });
+    } catch (error: any) {
+      console.error("Database Error in POST /api/entries:", error);
+      res.status(500).json({ error: error.message || "Failed to save entry" });
     }
   });
 
@@ -161,6 +162,11 @@ async function startServer() {
       console.error("Gemini Error:", error);
       res.status(500).json({ error: "Failed to parse NF-e" });
     }
+  });
+
+  // API 404 handler
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `Route ${req.method} ${req.url} not found` });
   });
 
   // Vite middleware for development
