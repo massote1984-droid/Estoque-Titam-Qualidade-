@@ -9,10 +9,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const logFile = path.join(process.cwd(), "server.log");
+const logFile = process.env.VERCEL ? path.join("/tmp", "server.log") : path.join(process.cwd(), "server.log");
 function log(msg: string) {
   const entry = `${new Date().toISOString()} - ${msg}\n`;
-  fs.appendFileSync(logFile, entry);
+  try {
+    fs.appendFileSync(logFile, entry);
+  } catch (e) {
+    // Ignore log errors in production if filesystem is read-only
+  }
   console.log(msg);
 }
 
@@ -22,7 +26,9 @@ async function startServer() {
   log("startServer function called");
   let db: Database.Database;
   try {
-    db = new Database("stock.db");
+    const dbPath = process.env.VERCEL ? path.join("/tmp", "stock.db") : path.join(process.cwd(), "stock.db");
+    log(`Using database at: ${dbPath}`);
+    db = new Database(dbPath);
     log("Database initialized");
     
     // Initialize Database
@@ -57,7 +63,10 @@ async function startServer() {
     log("Tables checked/created");
   } catch (err: any) {
     log(`Failed to initialize database: ${err.message}`);
-    process.exit(1);
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
+    // On Vercel, we'll continue but routes will fail gracefully if db is undefined
   }
 
   const app = express();
@@ -66,11 +75,18 @@ async function startServer() {
   // Health check should be as early as possible
   app.get("/api/health", (req, res) => {
     log("Health check hit");
-    res.json({ status: "ok" });
+    res.json({ 
+      status: "ok", 
+      database: !!db,
+      env: process.env.VERCEL ? 'vercel' : 'local'
+    });
   });
 
   app.use((req, res, next) => {
     log(`${req.method} ${req.url}`);
+    if (!db && req.url.startsWith('/api/') && req.url !== '/api/health') {
+      return res.status(500).json({ error: "Database not initialized. Check server logs." });
+    }
     next();
   });
 
@@ -226,7 +242,10 @@ async function startServer() {
 
 const appPromise = startServer().catch(err => {
   log(`CRITICAL SERVER STARTUP ERROR: ${err.message}`);
-  process.exit(1);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
+  return null;
 });
 
 export default appPromise;
