@@ -22,6 +22,7 @@ export interface Entry {
   data_emissao_nf?: string;
   cte_intertex?: string;
   data_emissao_cte?: string;
+  data_emissao_cte_transp?: string;
   cte_transportador?: string;
   created_at: string;
   isPending?: boolean;

@@ -632,10 +632,11 @@ export default function App() {
               title="Faturamento e CTEs"
               entries={entries}
               columns={[
-                { key: 'nf_numero', label: 'N.F' },
                 { key: 'data_emissao_nf', label: 'Emissão NF' },
+                { key: 'nf_numero', label: 'N.F' },
+                { key: 'data_emissao_cte', label: 'Emissão CTE Intertex' },
                 { key: 'cte_intertex', label: 'CTE Intertex' },
-                { key: 'data_emissao_cte', label: 'Emissão CTE' },
+                { key: 'data_emissao_cte_transp', label: 'Emissão CTE Transp.' },
                 { key: 'cte_transportador', label: 'CTE Transp.' }
               ]}
               onEdit={setSelectedEntry}
@@ -931,15 +932,21 @@ export default function App() {
                         onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_nf: e.target.value })}
                       />
                       <Input 
+                        label="Emissão CTE Intertex" 
+                        type="date" 
+                        defaultValue={selectedEntry.data_emissao_cte} 
+                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_cte: e.target.value })}
+                      />
+                      <Input 
                         label="CTE Intertex" 
                         defaultValue={selectedEntry.cte_intertex} 
                         onBlur={(e) => handleUpdateEntry(selectedEntry.id, { cte_intertex: e.target.value })}
                       />
                       <Input 
-                        label="Data Emissão CTE" 
+                        label="Emissão CTE Transp." 
                         type="date" 
-                        defaultValue={selectedEntry.data_emissao_cte} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_cte: e.target.value })}
+                        defaultValue={selectedEntry.data_emissao_cte_transp} 
+                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_cte_transp: e.target.value })}
                       />
                       <Input 
                         label="CTE Transportador" 
@@ -989,14 +996,14 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       ? ['NF', 'Placa', 'Chegada', 'Entrada', 'Saída']
       : reportType === 'logistica_vli'
       ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
-      : ['NF', 'Emissão NF', 'CTE Intertex', 'Emissão CTE', 'CTE Transportador'];
+      : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_nf];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
-      return [e.nf_numero, e.data_emissao_nf, e.cte_intertex, e.data_emissao_cte, e.cte_transportador];
+      return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
     const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
@@ -1105,10 +1112,11 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                 )}
                 {reportType === 'faturamento_detalhado' && (
                   <>
-                    <th className="px-6 py-3 data-grid-header">NF</th>
                     <th className="px-6 py-3 data-grid-header">Emissão NF</th>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Emissão CTE Intertex</th>
                     <th className="px-6 py-3 data-grid-header">CTE Intertex</th>
-                    <th className="px-6 py-3 data-grid-header">Emissão CTE</th>
+                    <th className="px-6 py-3 data-grid-header">Emissão CTE Transp.</th>
                     <th className="px-6 py-3 data-grid-header">CTE Transp.</th>
                   </>
                 )}
@@ -1155,10 +1163,11 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                   )}
                   {reportType === 'faturamento_detalhado' && (
                     <>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_nf || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.cte_intertex || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.cte_intertex || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte_transp || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.cte_transportador || '-'}</td>
                     </>
                   )}
