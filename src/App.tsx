@@ -721,7 +721,6 @@ export default function App() {
                 <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
                 <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} />
                 <Input label="Container" name="container" required defaultValue={formData.container} />
-                <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                   <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
@@ -969,7 +968,7 @@ export default function App() {
 }
 
 function ReportsView({ entries }: { entries: Entry[] }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
@@ -986,12 +985,18 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       ? ['Fornecedor', 'Produto', 'Tonelada', 'Status', 'Data NF']
       : reportType === 'faturamento'
       ? ['NF', 'Valor', 'Data Emissão', 'CTE Intertex', 'CTE Transportador']
-      : ['NF', 'Placa', 'Chegada', 'Entrada', 'Saída'];
+      : reportType === 'performance'
+      ? ['NF', 'Placa', 'Chegada', 'Entrada', 'Saída']
+      : reportType === 'logistica_vli'
+      ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
+      : ['NF', 'Emissão NF', 'CTE Intertex', 'Emissão CTE', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_nf];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
-      return [e.nf_numero, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida];
+      if (reportType === 'performance') return [e.nf_numero, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida];
+      if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
+      return [e.nf_numero, e.data_emissao_nf, e.cte_intertex, e.data_emissao_cte, e.cte_transportador];
     });
 
     const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
@@ -1023,6 +1028,8 @@ function ReportsView({ entries }: { entries: Entry[] }) {
             <option value="estoque">Estoque por Fornecedor</option>
             <option value="faturamento">Faturamento Mensal</option>
             <option value="performance">Performance de Descarga</option>
+            <option value="logistica_vli">Logística VLI</option>
+            <option value="faturamento_detalhado">Faturamento Detalhado</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -1087,6 +1094,24 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                     <th className="px-6 py-3 data-grid-header">Saída</th>
                   </>
                 )}
+                {reportType === 'logistica_vli' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Container</th>
+                    <th className="px-6 py-3 data-grid-header">Vagão</th>
+                    <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
+                  </>
+                )}
+                {reportType === 'faturamento_detalhado' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Emissão NF</th>
+                    <th className="px-6 py-3 data-grid-header">CTE Intertex</th>
+                    <th className="px-6 py-3 data-grid-header">Emissão CTE</th>
+                    <th className="px-6 py-3 data-grid-header">CTE Transp.</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1117,6 +1142,24 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_chegada || '-'}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_entrada || '-'}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_saida || '-'}</td>
+                    </>
+                  )}
+                  {reportType === 'logistica_vli' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
+                    </>
+                  )}
+                  {reportType === 'faturamento_detalhado' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_nf || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.cte_intertex || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.cte_transportador || '-'}</td>
                     </>
                   )}
                 </tr>
