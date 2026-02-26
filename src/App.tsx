@@ -349,12 +349,6 @@ export default function App() {
             onClick={() => setActiveTab('saida')} 
           />
           <NavItem 
-            icon={<Clock size={18} />} 
-            label="Performance" 
-            active={activeTab === 'performance'} 
-            onClick={() => setActiveTab('performance')} 
-          />
-          <NavItem 
             icon={<FileText size={18} />} 
             label="Faturamento" 
             active={activeTab === 'faturamento'} 
@@ -581,11 +575,18 @@ export default function App() {
               entries={entries}
               columns={[
                 { key: 'mes', label: 'Mês' },
+                { key: 'data_nf', label: 'Data NF' },
                 { key: 'nf_numero', label: 'N.F' },
+                { key: 'data_descarga', label: 'Data Descarga' },
                 { key: 'tonelada', label: 'Tonelada' },
                 { key: 'valor', label: 'Valor' },
                 { key: 'fornecedor', label: 'Fornecedor' },
                 { key: 'container', label: 'Container' },
+                { key: 'hora_chegada', label: 'Chegada' },
+                { key: 'hora_entrada', label: 'Entrada' },
+                { key: 'hora_saida', label: 'Saída' },
+                { key: 'total_time' as any, label: 'Tempo Total' },
+                { key: 'descarga_time' as any, label: 'Tempo Descarga' },
                 { key: 'status', label: 'Status' }
               ]}
               onEdit={setSelectedEntry}
@@ -604,23 +605,6 @@ export default function App() {
                 { key: 'cte_vli', label: 'CTE VLI' },
                 { key: 'numero_vagao', label: 'Nº Vagão' },
                 { key: 'status', label: 'Status' }
-              ]}
-              onEdit={setSelectedEntry}
-              onDelete={handleDeleteEntry}
-            />
-          )}
-
-          {activeTab === 'performance' && (
-            <DataView 
-              title="Performance Logística"
-              entries={entries}
-              columns={[
-                { key: 'nf_numero', label: 'N.F' },
-                { key: 'hora_chegada', label: 'Chegada' },
-                { key: 'hora_entrada', label: 'Entrada' },
-                { key: 'hora_saida', label: 'Saída' },
-                { key: 'total_time' as any, label: 'Tempo Total' },
-                { key: 'descarga_time' as any, label: 'Tempo Descarga' }
               ]}
               onEdit={setSelectedEntry}
               onDelete={handleDeleteEntry}
@@ -729,6 +713,12 @@ export default function App() {
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
                   </select>
+                </div>
+
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
+                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
+                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
                 </div>
                 
                 <div className="md:col-span-3 flex justify-end gap-3 mt-4">
@@ -1006,8 +996,8 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
-    const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -1228,6 +1218,16 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
   onEdit: (e: Entry) => void,
   onDelete: (id: number) => void
 }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+
+  const filteredEntries = entries.filter(entry => {
+    const searchStr = searchTerm.toLowerCase();
+    return Object.values(entry).some(val => 
+      val && val.toString().toLowerCase().includes(searchStr)
+    );
+  });
+
   const calculateTimeDiff = (start?: string, end?: string) => {
     if (!start || !end) return '-';
     try {
@@ -1252,9 +1252,30 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
       className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
     >
       <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-        <h2 className="font-semibold text-gray-900">{title}</h2>
+        <div className="flex items-center gap-4 flex-1">
+          <h2 className="font-semibold text-gray-900 whitespace-nowrap">{title}</h2>
+          {showSearch && (
+            <motion.div 
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: '100%', opacity: 1 }}
+              className="max-w-md"
+            >
+              <input 
+                type="text"
+                placeholder="Pesquisar em todos os campos..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                autoFocus
+              />
+            </motion.div>
+          )}
+        </div>
         <div className="flex gap-2">
-          <button className="p-2 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg">
+          <button 
+            onClick={() => setShowSearch(!showSearch)}
+            className={`p-2 border rounded-lg transition-colors ${showSearch ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'text-gray-400 hover:text-gray-600 border-gray-200'}`}
+          >
             <Search size={18} />
           </button>
           <button className="p-2 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg">
@@ -1273,14 +1294,14 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {entries.length === 0 ? (
+            {filteredEntries.length === 0 ? (
               <tr>
                 <td colSpan={columns.length + 1} className="px-6 py-12 text-center text-gray-400">
                   Nenhum registro encontrado.
                 </td>
               </tr>
             ) : (
-              entries.map((entry) => (
+              filteredEntries.map((entry) => (
                 <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-4 text-sm text-gray-600">
