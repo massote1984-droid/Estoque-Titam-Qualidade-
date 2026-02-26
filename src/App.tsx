@@ -1290,7 +1290,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
               {columns.map(col => (
                 <th key={col.key as string} className="px-6 py-3 data-grid-header">{col.label}</th>
               ))}
-              <th className="px-6 py-3 data-grid-header">Ações</th>
+              <th className="px-6 py-3 data-grid-header sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1302,7 +1302,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
               </tr>
             ) : (
               filteredEntries.map((entry) => (
-                <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={entry.id} className="group hover:bg-gray-50 transition-colors">
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-4 text-sm text-gray-600">
                       <div className="flex items-center gap-2">
@@ -1318,7 +1318,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                       </div>
                     </td>
                   ))}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 sticky right-0 bg-white group-hover:bg-gray-50 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] transition-colors">
                     <div className="flex items-center gap-3">
                       <button 
                         onClick={() => onEdit(entry)}
