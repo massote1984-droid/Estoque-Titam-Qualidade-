@@ -964,6 +964,23 @@ export default function App() {
   );
 }
 
+const calculateTimeDiff = (start?: string, end?: string) => {
+  if (!start || !end) return '-';
+  try {
+    const [h1, m1] = start.split(':').map(Number);
+    const [h2, m2] = end.split(':').map(Number);
+    const d1 = new Date(2000, 0, 1, h1, m1);
+    const d2 = new Date(2000, 0, 1, h2, m2);
+    let diff = (d2.getTime() - d1.getTime()) / 1000 / 60;
+    if (diff < 0) diff += 24 * 60;
+    const hours = Math.floor(diff / 60);
+    const minutes = Math.round(diff % 60);
+    return `${hours}h ${minutes}m`;
+  } catch (e) {
+    return '-';
+  }
+};
+
 function ReportsView({ entries }: { entries: Entry[] }) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado'>('estoque');
   const [startDate, setStartDate] = useState('');
@@ -983,7 +1000,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       : reportType === 'faturamento'
       ? ['NF', 'Valor', 'Data Emissão', 'CTE Intertex', 'CTE Transportador']
       : reportType === 'performance'
-      ? ['NF', 'Placa', 'Chegada', 'Entrada', 'Saída']
+      ? ['NF', 'Data Descarga', 'Fornecedor', 'Produto', 'Placa', 'Chegada', 'Entrada', 'Saída', 'Tempo Descarga', 'Tempo Total']
       : reportType === 'logistica_vli'
       ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
@@ -991,7 +1008,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_nf];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
-      if (reportType === 'performance') return [e.nf_numero, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida];
+      if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
@@ -1014,7 +1031,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tipo de Relatório</label>
           <select 
@@ -1028,6 +1045,16 @@ function ReportsView({ entries }: { entries: Entry[] }) {
             <option value="logistica_vli">Logística VLI</option>
             <option value="faturamento_detalhado">Faturamento Detalhado</option>
           </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filtrar Fornecedor</label>
+          <input 
+            type="text" 
+            placeholder="Nome do fornecedor..."
+            value={filterFornecedor}
+            onChange={(e) => setFilterFornecedor(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Início</label>
@@ -1085,10 +1112,15 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                 {reportType === 'performance' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Data Descarga</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                    <th className="px-6 py-3 data-grid-header">Produto</th>
                     <th className="px-6 py-3 data-grid-header">Placa</th>
                     <th className="px-6 py-3 data-grid-header">Chegada</th>
                     <th className="px-6 py-3 data-grid-header">Entrada</th>
                     <th className="px-6 py-3 data-grid-header">Saída</th>
+                    <th className="px-6 py-3 data-grid-header">T. Descarga</th>
+                    <th className="px-6 py-3 data-grid-header">T. Total</th>
                   </>
                 )}
                 {reportType === 'logistica_vli' && (
@@ -1136,10 +1168,15 @@ function ReportsView({ entries }: { entries: Entry[] }) {
                   {reportType === 'performance' && (
                     <>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.placa_veiculo}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_chegada || '-'}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_entrada || '-'}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.hora_saida || '-'}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{calculateTimeDiff(e.hora_entrada, e.hora_saida)}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{calculateTimeDiff(e.hora_chegada, e.hora_saida)}</td>
                     </>
                   )}
                   {reportType === 'logistica_vli' && (
@@ -1227,23 +1264,6 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
       val && val.toString().toLowerCase().includes(searchStr)
     );
   });
-
-  const calculateTimeDiff = (start?: string, end?: string) => {
-    if (!start || !end) return '-';
-    try {
-      const [h1, m1] = start.split(':').map(Number);
-      const [h2, m2] = end.split(':').map(Number);
-      const d1 = new Date(2000, 0, 1, h1, m1);
-      const d2 = new Date(2000, 0, 1, h2, m2);
-      let diff = (d2.getTime() - d1.getTime()) / 1000 / 60;
-      if (diff < 0) diff += 24 * 60;
-      const hours = Math.floor(diff / 60);
-      const minutes = Math.round(diff % 60);
-      return `${hours}h ${minutes}m`;
-    } catch (e) {
-      return '-';
-    }
-  };
 
   return (
     <motion.div 
