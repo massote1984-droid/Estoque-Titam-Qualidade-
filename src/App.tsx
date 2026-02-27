@@ -321,15 +321,41 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#F8F9FA]">
       {/* Sidebar */}
-      <aside className="w-64 border-r border-gray-200 bg-white flex flex-col">
-        <div className="p-6 border-b border-gray-100">
-          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xl">
-            <Package size={24} />
-            <span>StockPro</span>
+      <aside className="w-64 bg-titam-deep flex flex-col text-white shadow-xl">
+        <div className="p-8 border-b border-white/10">
+          <div className="w-full px-2">
+            <svg viewBox="0 0 300 195" className="w-full h-auto text-titam-lime fill-current">
+              {/* Icon: Road and Rail crossing (The X shape) */}
+              <g transform="translate(75, 10) scale(1.0)">
+                {/* Road side (Left) */}
+                <path d="M0 20 L50 20 M0 50 L50 50" stroke="currentColor" strokeWidth="8" strokeLinecap="round" fill="none" />
+                <path d="M10 35 L40 35" stroke="currentColor" strokeWidth="3" strokeDasharray="8 6" fill="none" />
+                
+                {/* Crossing/Twist (The X) */}
+                <path d="M50 20 C80 20, 80 50, 110 50" stroke="currentColor" strokeWidth="8" strokeLinecap="round" fill="none" />
+                <path d="M50 50 C80 50, 80 20, 110 20" stroke="currentColor" strokeWidth="8" strokeLinecap="round" fill="none" />
+
+                {/* Rail side (Right) */}
+                <path d="M110 20 L160 20 M110 50 L160 50" stroke="currentColor" strokeWidth="8" strokeLinecap="round" fill="none" />
+                <path d="M120 15 L120 55 M135 15 L135 55 M150 15 L150 55" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+              </g>
+
+              {/* Text: titam */}
+              <g transform="translate(150, 145)" textAnchor="middle">
+                <text style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 900, fontSize: '84px', letterSpacing: '-0.04em' }}>titam</text>
+              </g>
+
+              {/* Slogan */}
+              <g transform="translate(150, 175)" textAnchor="middle">
+                <text style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '11px', letterSpacing: '0.28em' }} opacity="0.85">
+                  INTERMODAIS INTELIGENTES
+                </text>
+              </g>
+            </svg>
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-2 mt-4">
           <NavItem 
             icon={<LayoutDashboard size={18} />} 
             label="Dashboard" 
@@ -404,7 +430,7 @@ export default function App() {
                 setFormData({});
                 setShowForm(true);
               }}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+              className="flex items-center gap-2 bg-titam-lime text-titam-deep px-4 py-2 rounded-lg hover:opacity-90 transition-colors shadow-sm font-bold"
             >
               <Plus size={18} />
               Nova Entrada
@@ -426,19 +452,19 @@ export default function App() {
                   title="Total em Estoque" 
                   value={summary.reduce((acc, s) => acc + s.in_stock, 0)} 
                   subtitle="Unidades ativas"
-                  icon={<Package className="text-indigo-600" />}
+                  icon={<Package className="text-titam-deep" />}
                 />
                 <StatCard 
                   title="Total Saídas" 
                   value={summary.reduce((acc, s) => acc + s.exited, 0)} 
                   subtitle="Unidades embarcadas"
-                  icon={<ArrowUpRight className="text-emerald-600" />}
+                  icon={<ArrowUpRight className="text-titam-deep" />}
                 />
                 <StatCard 
                   title="Fornecedores" 
                   value={summary.length} 
                   subtitle="Parceiros ativos"
-                  icon={<Truck className="text-amber-600" />}
+                  icon={<Truck className="text-titam-deep" />}
                 />
               </div>
 
@@ -447,7 +473,7 @@ export default function App() {
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                      <BarChart3 size={18} className="text-indigo-600" />
+                      <BarChart3 size={18} className="text-titam-deep" />
                       Entradas por Dia (Toneladas)
                     </h3>
                   </div>
@@ -467,8 +493,8 @@ export default function App() {
                           contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                         />
                         <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-                        <Bar dataKey="Cal Dolomítico" fill="#6366F1" radius={[4, 4, 0, 0]} barSize={20} />
-                        <Bar dataKey="Cal Calcítico" fill="#10B981" radius={[4, 4, 0, 0]} barSize={20} />
+                        <Bar dataKey="Cal Dolomítico" fill="#B6D932" radius={[4, 4, 0, 0]} barSize={20} />
+                        <Bar dataKey="Cal Calcítico" fill="#1E3932" radius={[4, 4, 0, 0]} barSize={20} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -497,8 +523,8 @@ export default function App() {
                           contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                         />
                         <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-                        <Line type="monotone" dataKey="total" name="Tempo Total" stroke="#F59E0B" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                        <Line type="monotone" dataKey="descarga" name="Tempo Descarga" stroke="#6366F1" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="total" name="Tempo Total" stroke="#B6D932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="descarga" name="Tempo Descarga" stroke="#1E3932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -527,7 +553,7 @@ export default function App() {
                             <td className="px-6 py-4 mono-value">{s.in_stock}</td>
                             <td className="px-6 py-4 mono-value">{s.exited}</td>
                             <td className="px-6 py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.in_stock > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.in_stock > 0 ? 'bg-titam-lime/20 text-titam-deep' : 'bg-gray-100 text-gray-600'}`}>
                                 {s.in_stock > 0 ? 'Ativo' : 'Vazio'}
                               </span>
                             </td>
@@ -557,7 +583,7 @@ export default function App() {
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 font-medium text-gray-900">{s.descricao_produto}</td>
                             <td className="px-6 py-4 text-sm text-gray-600">{s.destino}</td>
-                            <td className="px-6 py-4 mono-value text-indigo-600 font-bold">{s.in_stock}</td>
+                            <td className="px-6 py-4 mono-value text-titam-deep font-bold">{s.in_stock}</td>
                             <td className="px-6 py-4 mono-value text-gray-400">{s.exited}</td>
                           </tr>
                         ))}
@@ -664,7 +690,7 @@ export default function App() {
                   <button 
                     type="button"
                     onClick={() => setImportingNfe(true)}
-                    className="flex items-center gap-2 text-indigo-600 border border-indigo-200 px-3 py-1 rounded-lg hover:bg-indigo-50 text-sm font-medium"
+                    className="flex items-center gap-2 text-titam-deep border border-titam-lime px-3 py-1 rounded-lg hover:bg-titam-lime/10 text-sm font-medium"
                   >
                     <FileJson size={16} />
                     Importar NF-e
@@ -686,7 +712,7 @@ export default function App() {
                 <Input label="Valor" name="valor" type="number" step="0.01" required defaultValue={formData.valor} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
+                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
                     <option value="" disabled>Selecione o produto</option>
                     <option value="Cal Dolomítico">Cal Dolomítico</option>
                     <option value="Cal Calcítico">Cal Calcítico</option>
@@ -696,7 +722,7 @@ export default function App() {
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                  <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
+                  <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
                     <option value="Estoque">Estoque</option>
                     <option value="Rejeitado">Rejeitado</option>
                     <option value="Embarcado">Embarcado</option>
@@ -708,7 +734,7 @@ export default function App() {
                 <Input label="Container" name="container" required defaultValue={formData.container} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white" required>
+                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
                     <option value="" disabled>Selecione o destino</option>
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
@@ -726,7 +752,7 @@ export default function App() {
                   <button 
                     type="submit" 
                     disabled={isSaving}
-                    className={`px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-semibold shadow-md active:scale-95 flex items-center gap-2 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className={`px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md active:scale-95 flex items-center gap-2 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
                     {isSaving ? (
                       <>
@@ -757,7 +783,7 @@ export default function App() {
               </div>
               <p className="text-gray-500 text-sm mb-4">Cole o conteúdo XML da Nota Fiscal ou o texto extraído para preenchimento automático.</p>
               <textarea 
-                className="w-full h-48 border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm mb-6"
+                className="w-full h-48 border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-titam-lime outline-none font-mono text-sm mb-6"
                 placeholder="Cole o XML aqui..."
                 value={nfeContent}
                 onChange={(e) => setNfeContent(e.target.value)}
@@ -786,7 +812,7 @@ export default function App() {
                       alert("Erro ao processar NF-e. Verifique o conteúdo.");
                     }
                   }}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                  className="px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 font-bold"
                 >
                   <Search size={18} />
                   Processar com IA
@@ -820,7 +846,7 @@ export default function App() {
                       <select 
                         defaultValue={selectedEntry.descricao_produto}
                         onChange={(e) => handleUpdateEntry(selectedEntry.id, { descricao_produto: e.target.value })}
-                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                       >
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
                         <option value="Cal Calcítico">Cal Calcítico</option>
@@ -831,7 +857,7 @@ export default function App() {
                       <select 
                         defaultValue={selectedEntry.destino}
                         onChange={(e) => handleUpdateEntry(selectedEntry.id, { destino: e.target.value })}
-                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                       >
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
@@ -848,7 +874,7 @@ export default function App() {
                 {/* Section: Saída */}
                 {(activeTab === 'saida' || activeTab === 'lista') && (
                   <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-indigo-600 uppercase tracking-widest">Informações de Saída</h3>
+                    <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <Input 
                         label="Data Faturamento VLI" 
@@ -871,7 +897,7 @@ export default function App() {
                         <select 
                           defaultValue={selectedEntry.status}
                           onChange={(e) => handleUpdateEntry(selectedEntry.id, { status: e.target.value as any })}
-                          className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                         >
                           <option value="Estoque">Estoque</option>
                           <option value="Rejeitado">Rejeitado</option>
@@ -950,7 +976,7 @@ export default function App() {
                 <div className="flex justify-end pt-4">
                   <button 
                     onClick={() => setSelectedEntry(null)} 
-                    className="px-8 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors"
+                    className="px-8 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md"
                   >
                     Concluir Edição
                   </button>
@@ -1037,7 +1063,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
           <select 
             value={reportType}
             onChange={(e) => setReportType(e.target.value as any)}
-            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
           >
             <option value="estoque">Estoque por Fornecedor</option>
             <option value="faturamento">Faturamento Mensal</option>
@@ -1053,7 +1079,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
             placeholder="Nome do fornecedor..."
             value={filterFornecedor}
             onChange={(e) => setFilterFornecedor(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -1062,7 +1088,7 @@ function ReportsView({ entries }: { entries: Entry[] }) {
             type="date" 
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -1071,12 +1097,12 @@ function ReportsView({ entries }: { entries: Entry[] }) {
             type="date" 
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none"
           />
         </div>
         <button 
           onClick={exportToCSV}
-          className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black transition-colors flex items-center justify-center gap-2"
+          className="bg-titam-lime text-titam-deep px-4 py-2 rounded-lg hover:opacity-90 transition-colors flex items-center justify-center gap-2 font-bold shadow-sm"
         >
           <Download size={18} />
           Exportar CSV
@@ -1212,7 +1238,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active ? 'bg-titam-lime text-titam-deep font-bold shadow-lg' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
     >
       {icon}
       <span>{label}</span>
@@ -1223,9 +1249,9 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 
 function StatCard({ title, value, subtitle, icon }: { title: string, value: number | string, subtitle: string, icon: React.ReactNode }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:border-titam-lime/30 transition-colors group">
       <div className="flex justify-between items-start mb-4">
-        <div className="p-2 bg-gray-50 rounded-lg">
+        <div className="p-2 bg-titam-lime/10 rounded-lg group-hover:bg-titam-lime/20 transition-colors">
           {icon}
         </div>
       </div>
@@ -1241,7 +1267,7 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
     <div className="flex flex-col gap-1">
       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</label>
       <input 
-        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow"
+        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-shadow"
         {...props}
       />
     </div>
@@ -1285,7 +1311,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                 placeholder="Pesquisar em todos os campos..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-titam-lime outline-none"
                 autoFocus
               />
             </motion.div>
@@ -1294,11 +1320,11 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
         <div className="flex gap-2">
           <button 
             onClick={() => setShowSearch(!showSearch)}
-            className={`p-2 border rounded-lg transition-colors ${showSearch ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'text-gray-400 hover:text-gray-600 border-gray-200'}`}
+            className={`p-2 border rounded-lg transition-colors ${showSearch ? 'bg-titam-lime/10 text-titam-deep border-titam-lime/30' : 'text-gray-400 hover:text-gray-600 border-gray-200'}`}
           >
             <Search size={18} />
           </button>
-          <button className="p-2 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg">
+          <button className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 border border-gray-200 rounded-lg transition-colors">
             <Filter size={18} />
           </button>
         </div>
@@ -1342,7 +1368,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                     <div className="flex items-center gap-3">
                       <button 
                         onClick={() => onEdit(entry)}
-                        className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                        className="text-titam-deep hover:opacity-70 text-sm font-medium"
                       >
                         Editar
                       </button>
