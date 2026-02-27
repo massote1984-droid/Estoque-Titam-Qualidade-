@@ -22,7 +22,9 @@ import {
   BarChart3,
   Activity,
   Bell,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  RefreshCw as SyncIcon
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -73,6 +75,44 @@ export default function App() {
     ];
     const alert = alerts[Math.floor(Math.random() * alerts.length)];
     addNotification(alert.msg, alert.type as any);
+  };
+
+  const exportBackup = () => {
+    const data = {
+      entries,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `titam_backup_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    addNotification("Backup exportado com sucesso!", "info");
+  };
+
+  const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.entries && Array.isArray(json.entries)) {
+          // If online, we should ideally push to server, but for now let's update local and ask for sync
+          const importedEntries = json.entries.map((ent: any) => ({ ...ent, isPending: serverStatus !== 'online' }));
+          setEntries(importedEntries);
+          localStorage.setItem('stock_entries', JSON.stringify(importedEntries));
+          addNotification(`${json.entries.length} registros importados. Sincronize para salvar no servidor.`, "info");
+          fetchData(); // Refresh summaries
+        }
+      } catch (err) {
+        addNotification("Erro ao importar backup. Arquivo inválido.", "error");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const syncOfflineData = async () => {
@@ -523,6 +563,17 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                addNotification("Iniciando sincronização manual...", "info");
+                fetchData();
+              }}
+              className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 rounded-lg transition-colors"
+              title="Sincronizar Dados"
+            >
+              <SyncIcon size={20} className={loading ? 'animate-spin' : ''} />
+            </button>
+
             <div className="relative">
               <button 
                 onClick={triggerTestAlert}
@@ -926,7 +977,11 @@ export default function App() {
           )}
 
           {activeTab === 'relatorios' && (
-            <ReportsView entries={entries} />
+            <ReportsView 
+              entries={entries} 
+              onExportBackup={exportBackup} 
+              onImportBackup={importBackup} 
+            />
           )}
         </AnimatePresence>
 
@@ -1261,7 +1316,15 @@ const calculateTimeDiff = (start?: string, end?: string) => {
   }
 };
 
-function ReportsView({ entries }: { entries: Entry[] }) {
+function ReportsView({ 
+  entries, 
+  onExportBackup, 
+  onImportBackup 
+}: { 
+  entries: Entry[], 
+  onExportBackup: () => void, 
+  onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void 
+}) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -1312,6 +1375,23 @@ function ReportsView({ entries }: { entries: Entry[] }) {
       className="space-y-6"
     >
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+        <div className="md:col-span-5 flex justify-between items-center mb-2 border-b border-gray-100 pb-4">
+          <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Ferramentas de Dados</h3>
+          <div className="flex gap-3">
+            <button 
+              onClick={onExportBackup}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-xs font-bold"
+            >
+              <Download size={14} />
+              Exportar Backup (JSON)
+            </button>
+            <label className="flex items-center gap-2 px-4 py-2 bg-titam-lime/20 text-titam-deep rounded-lg hover:bg-titam-lime/30 transition-colors text-xs font-bold cursor-pointer">
+              <Upload size={14} />
+              Importar Backup
+              <input type="file" accept=".json" onChange={onImportBackup} className="hidden" />
+            </label>
+          </div>
+        </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tipo de Relatório</label>
           <select 
