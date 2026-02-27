@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
+import { Resend } from "resend";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

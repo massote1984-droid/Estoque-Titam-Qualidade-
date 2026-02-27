@@ -20,7 +20,9 @@ import {
   Trash2,
   TrendingUp,
   BarChart3,
-  Activity
+  Activity,
+  Bell,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -52,6 +54,26 @@ export default function App() {
   const [formData, setFormData] = useState<Partial<Entry>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
+  const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const addNotification = (message: string, type: 'info' | 'warning' | 'error' = 'info') => {
+    const id = Math.random().toString(36).substring(7);
+    setNotifications(prev => [{id, message, type}, ...prev]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const triggerTestAlert = () => {
+    const alerts = [
+      { msg: "ALERTA: Estoque de Cal Dolomítico (Serra-ES) está abaixo do limite mínimo (150t)!", type: 'warning' },
+      { msg: "NOTIFICAÇÃO: 3 novos caminhões aguardando na portaria.", type: 'info' },
+      { msg: "ERRO: Falha na sincronização com o sistema VLI. Tentando novamente...", type: 'error' }
+    ];
+    const alert = alerts[Math.floor(Math.random() * alerts.length)];
+    addNotification(alert.msg, alert.type as any);
+  };
 
   const syncOfflineData = async () => {
     const localData = localStorage.getItem('stock_entries');
@@ -156,6 +178,13 @@ export default function App() {
           };
         });
         setProductDestSummary(localProductDestSummary);
+
+        // Check for low stock alerts (Automatic)
+        localProductDestSummary.forEach(item => {
+          if (item.in_stock > 0 && item.in_stock < 3) {
+            addNotification(`Estoque Crítico: ${item.descricao_produto} (${item.destino}) tem apenas ${item.in_stock} unidades.`, 'warning');
+          }
+        });
       }
     } finally {
       setLoading(false);
@@ -164,6 +193,9 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    setTimeout(() => {
+      addNotification("Bem-vindo ao Sistema Titam! O monitoramento de estoque está ativo.", "info");
+    }, 1500);
   }, []);
 
   const calculateTimeInMinutes = (start?: string, end?: string) => {
@@ -205,6 +237,24 @@ export default function App() {
         descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
       }));
   }, [entries]);
+
+  const supplierStockByDate = React.useMemo(() => {
+    const filtered = entries.filter(e => e.data_descarga === selectedDate);
+    const supplierMap: Record<string, number> = {};
+    filtered.forEach(e => {
+      supplierMap[e.fornecedor] = (supplierMap[e.fornecedor] || 0) + 1;
+    });
+    return Object.entries(supplierMap).map(([name, count]) => ({ name, count }));
+  }, [entries, selectedDate]);
+
+  const dailyStats = React.useMemo(() => {
+    const filtered = entries.filter(e => e.data_descarga === selectedDate);
+    return {
+      in_stock: filtered.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
+      exited: filtered.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length,
+      suppliers: [...new Set(filtered.map(e => e.fornecedor))].length
+    };
+  }, [entries, selectedDate]);
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -424,7 +474,50 @@ export default function App() {
               )}
             </div>
           </div>
-          {activeTab !== 'dashboard' && (
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <button 
+                onClick={triggerTestAlert}
+                className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 rounded-lg transition-colors relative"
+                title="Simular Alerta de Estoque"
+              >
+                <Bell size={20} />
+                {notifications.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                )}
+              </button>
+              
+              <AnimatePresence>
+                {notifications.length > 0 && (
+                  <div className="absolute right-0 mt-2 w-80 z-50 pointer-events-none">
+                    {notifications.map((n, i) => (
+                      <motion.div
+                        key={n.id}
+                        initial={{ opacity: 0, x: 20, y: -10 }}
+                        animate={{ opacity: 1, x: 0, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className={`mb-2 p-4 rounded-xl shadow-lg border flex items-start gap-3 pointer-events-auto ${
+                          n.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' :
+                          n.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                          'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}
+                      >
+                        {n.type === 'warning' && <AlertTriangle size={18} className="shrink-0 mt-0.5" />}
+                        <p className="text-sm font-medium">{n.message}</p>
+                        <button 
+                          onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
+                          className="ml-auto text-gray-400 hover:text-gray-600"
+                        >
+                          <X size={14} />
+                        </button>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {activeTab !== 'dashboard' && (
             <button 
               onClick={() => {
                 setFormData({});
@@ -436,6 +529,7 @@ export default function App() {
               Nova Entrada
             </button>
           )}
+          </div>
         </header>
 
         <AnimatePresence mode="wait">
@@ -447,25 +541,57 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-8"
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Date Filter */}
+              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-titam-lime/10 rounded-lg text-titam-deep">
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">Filtro por Data de Descarga</h3>
+                    <p className="text-xs text-gray-500">Selecione uma data para filtrar os dados do dia.</p>
+                  </div>
+                </div>
+                <input 
+                  type="date" 
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-gray-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard 
-                  title="Total em Estoque" 
-                  value={summary.reduce((acc, s) => acc + s.in_stock, 0)} 
-                  subtitle="Unidades ativas"
+                  title="Estoque do Dia" 
+                  value={dailyStats.in_stock} 
+                  subtitle={`Em ${selectedDate.split('-').reverse().join('/')}`}
                   icon={<Package className="text-titam-deep" />}
                 />
                 <StatCard 
-                  title="Total Saídas" 
-                  value={summary.reduce((acc, s) => acc + s.exited, 0)} 
-                  subtitle="Unidades embarcadas"
+                  title="Saídas do Dia" 
+                  value={dailyStats.exited} 
+                  subtitle={`Em ${selectedDate.split('-').reverse().join('/')}`}
                   icon={<ArrowUpRight className="text-titam-deep" />}
                 />
                 <StatCard 
-                  title="Fornecedores" 
-                  value={summary.length} 
-                  subtitle="Parceiros ativos"
+                  title="Fornecedores do Dia" 
+                  value={dailyStats.suppliers} 
+                  subtitle="Com descarga hoje"
                   icon={<Truck className="text-titam-deep" />}
                 />
+                <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-white/60 text-[10px] font-bold uppercase tracking-wider mb-1">Centro de Alertas</h3>
+                    <p className="text-white text-lg font-bold">Teste o Sistema</p>
+                  </div>
+                  <button 
+                    onClick={triggerTestAlert}
+                    className="mt-3 w-full py-1.5 bg-titam-lime text-titam-deep rounded-lg text-xs font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Bell size={14} />
+                    Disparar Alerta
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -591,6 +717,36 @@ export default function App() {
                     </table>
                   </div>
                 </div>
+              </div>
+
+              {/* Supplier Stock by Unloading Date */}
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <Truck size={18} className="text-titam-deep" />
+                    Estoque por Fornecedor por Dia (NFs Recebidas)
+                  </h3>
+                  <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                    Data: {selectedDate.split('-').reverse().join('/')}
+                  </span>
+                </div>
+                
+                {supplierStockByDate.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {supplierStockByDate.map((item, idx) => (
+                      <div key={idx} className="p-4 rounded-lg border border-gray-100 bg-gray-50/50 flex flex-col items-center justify-center text-center">
+                        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
+                        <p className="text-3xl font-black text-titam-deep">{item.count}</p>
+                        <p className="text-[10px] text-gray-400 font-medium mt-1">Notas Fiscais</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 flex flex-col items-center justify-center text-center text-gray-400">
+                    <Package size={48} className="mb-4 opacity-20" />
+                    <p className="text-sm font-medium">Nenhuma nota fiscal recebida nesta data.</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
