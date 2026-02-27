@@ -55,7 +55,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
 
   const addNotification = (message: string, type: 'info' | 'warning' | 'error' = 'info') => {
     const id = Math.random().toString(36).substring(7);
@@ -239,22 +239,70 @@ export default function App() {
   }, [entries]);
 
   const supplierStockByDate = React.useMemo(() => {
-    const filtered = entries.filter(e => e.data_descarga === selectedDate);
+    const filtered = entries.filter(e => selectedDates.includes(e.data_descarga));
     const supplierMap: Record<string, number> = {};
     filtered.forEach(e => {
       supplierMap[e.fornecedor] = (supplierMap[e.fornecedor] || 0) + 1;
     });
     return Object.entries(supplierMap).map(([name, count]) => ({ name, count }));
-  }, [entries, selectedDate]);
+  }, [entries, selectedDates]);
 
   const dailyStats = React.useMemo(() => {
-    const filtered = entries.filter(e => e.data_descarga === selectedDate);
+    const filtered = entries.filter(e => selectedDates.includes(e.data_descarga));
     return {
       in_stock: filtered.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: filtered.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length,
       suppliers: [...new Set(filtered.map(e => e.fornecedor))].length
     };
-  }, [entries, selectedDate]);
+  }, [entries, selectedDates]);
+
+  const monthlyExitTotal = React.useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    
+    return entries
+      .filter(e => {
+        if (!['Embarcado', 'Devolvido'].includes(e.status)) return false;
+        // Assuming data_descarga or some other date field is used for exit date
+        // Let's use created_at or data_faturamento_vli if available, 
+        // but for simplicity let's check data_descarga month
+        const [y, m] = e.data_descarga.split('-').map(Number);
+        return y === currentYear && m === currentMonth;
+      })
+      .reduce((acc, e) => acc + e.tonelada, 0);
+  }, [entries]);
+
+  const exitChartData = React.useMemo(() => {
+    const dailyMap: Record<string, any> = {};
+    const sortedDates = [...selectedDates].sort();
+    
+    sortedDates.forEach(date => {
+      dailyMap[date] = { date };
+    });
+
+    entries.forEach(entry => {
+      if (selectedDates.includes(entry.data_descarga) && ['Embarcado', 'Devolvido'].includes(entry.status)) {
+        const key = `${entry.descricao_produto} - ${entry.destino}`;
+        if (!dailyMap[entry.data_descarga][key]) {
+          dailyMap[entry.data_descarga][key] = 0;
+        }
+        dailyMap[entry.data_descarga][key] += entry.tonelada;
+      }
+    });
+
+    return Object.values(dailyMap);
+  }, [entries, selectedDates]);
+
+  const exitChartKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    entries.forEach(entry => {
+      if (['Embarcado', 'Devolvido'].includes(entry.status)) {
+        keys.add(`${entry.descricao_produto} - ${entry.destino}`);
+      }
+    });
+    return Array.from(keys);
+  }, [entries]);
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -542,42 +590,80 @@ export default function App() {
               className="space-y-8"
             >
               {/* Date Filter */}
-              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-titam-lime/10 rounded-lg text-titam-deep">
-                    <Calendar size={20} />
+              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-titam-lime/10 rounded-lg text-titam-deep">
+                      <Calendar size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">Filtro por Data de Descarga</h3>
+                      <p className="text-xs text-gray-500">Selecione uma ou mais datas para filtrar os dados.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-900">Filtro por Data de Descarga</h3>
-                    <p className="text-xs text-gray-500">Selecione uma data para filtrar os dados do dia.</p>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="date" 
+                      onChange={(e) => {
+                        const date = e.target.value;
+                        if (date && !selectedDates.includes(date)) {
+                          setSelectedDates(prev => [...prev, date].sort());
+                        }
+                      }}
+                      className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-gray-700"
+                    />
+                    <button 
+                      onClick={() => setSelectedDates([new Date().toISOString().split('T')[0]])}
+                      className="text-xs font-bold text-titam-deep hover:underline px-2"
+                    >
+                      Resetar
+                    </button>
                   </div>
                 </div>
-                <input 
-                  type="date" 
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-gray-700"
-                />
+                
+                <div className="flex flex-wrap gap-2">
+                  {selectedDates.map(date => (
+                    <div key={date} className="flex items-center gap-2 bg-titam-lime/20 text-titam-deep px-3 py-1 rounded-full text-xs font-bold border border-titam-lime/30">
+                      {date.split('-').reverse().join('/')}
+                      <button 
+                        onClick={() => {
+                          if (selectedDates.length > 1) {
+                            setSelectedDates(prev => prev.filter(d => d !== date));
+                          }
+                        }}
+                        className="hover:text-red-600"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 <StatCard 
-                  title="Estoque do Dia" 
+                  title="Estoque Selecionado" 
                   value={dailyStats.in_stock} 
-                  subtitle={`Em ${selectedDate.split('-').reverse().join('/')}`}
+                  subtitle="Nas datas filtradas"
                   icon={<Package className="text-titam-deep" />}
                 />
                 <StatCard 
-                  title="Saídas do Dia" 
+                  title="Saídas Selecionadas" 
                   value={dailyStats.exited} 
-                  subtitle={`Em ${selectedDate.split('-').reverse().join('/')}`}
+                  subtitle="Nas datas filtradas"
                   icon={<ArrowUpRight className="text-titam-deep" />}
                 />
                 <StatCard 
-                  title="Fornecedores do Dia" 
+                  title="Fornecedores" 
                   value={dailyStats.suppliers} 
-                  subtitle="Com descarga hoje"
+                  subtitle="Nas datas filtradas"
                   icon={<Truck className="text-titam-deep" />}
+                />
+                <StatCard 
+                  title="Total Saídas Mês" 
+                  value={monthlyExitTotal.toFixed(1)} 
+                  subtitle="Toneladas (Mês Atual)"
+                  icon={<TrendingUp className="text-emerald-600" />}
                 />
                 <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
                   <div>
@@ -595,17 +681,17 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Bar Chart: Entradas por Dia */}
+                {/* Bar Chart: Saídas por Dia */}
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                       <BarChart3 size={18} className="text-titam-deep" />
-                      Entradas por Dia (Toneladas)
+                      Saídas por Dia (Toneladas por Destino/Produto)
                     </h3>
                   </div>
                   <div className="h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartDataDaily}>
+                      <BarChart data={exitChartData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                         <XAxis 
                           dataKey="date" 
@@ -619,8 +705,15 @@ export default function App() {
                           contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                         />
                         <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-                        <Bar dataKey="Cal Dolomítico" fill="#B6D932" radius={[4, 4, 0, 0]} barSize={20} />
-                        <Bar dataKey="Cal Calcítico" fill="#1E3932" radius={[4, 4, 0, 0]} barSize={20} />
+                        {exitChartKeys.map((key, idx) => (
+                          <Bar 
+                            key={key} 
+                            dataKey={key} 
+                            stackId="a" 
+                            fill={idx % 2 === 0 ? "#B6D932" : "#1E3932"} 
+                            radius={idx === exitChartKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} 
+                          />
+                        ))}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -726,9 +819,14 @@ export default function App() {
                     <Truck size={18} className="text-titam-deep" />
                     Estoque por Fornecedor por Dia (NFs Recebidas)
                   </h3>
-                  <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                    Data: {selectedDate.split('-').reverse().join('/')}
-                  </span>
+                  <div className="flex gap-2">
+                    {selectedDates.slice(0, 3).map(d => (
+                      <span key={d} className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {d.split('-').reverse().join('/')}
+                      </span>
+                    ))}
+                    {selectedDates.length > 3 && <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">+{selectedDates.length - 3}</span>}
+                  </div>
                 </div>
                 
                 {supplierStockByDate.length > 0 ? (
