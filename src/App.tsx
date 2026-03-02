@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, 
@@ -58,6 +59,15 @@ export default function App() {
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
+  const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
+
+  useEffect(() => {
+    if (selectedEntry) {
+      setEditFormData(selectedEntry);
+    } else {
+      setEditFormData({});
+    }
+  }, [selectedEntry]);
 
   const addNotification = (message: string, type: 'info' | 'warning' | 'error' = 'info') => {
     const id = Math.random().toString(36).substring(7);
@@ -99,20 +109,62 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const json = JSON.parse(event.target?.result as string);
-        if (json.entries && Array.isArray(json.entries)) {
-          // If online, we should ideally push to server, but for now let's update local and ask for sync
-          const importedEntries = json.entries.map((ent: any) => ({ ...ent, isPending: serverStatus !== 'online' }));
+        const fileContent = event.target?.result;
+        let entriesToImport: any[] = [];
+
+        if (file.name.endsWith('.json')) {
+          const json = JSON.parse(fileContent as string);
+          if (json.entries && Array.isArray(json.entries)) {
+            entriesToImport = json.entries;
+          }
+        } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+          const workbook = XLSX.read(fileContent, { type: 'binary' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const excelData = XLSX.utils.sheet_to_json(worksheet);
+          
+          // Map Excel columns to Entry fields (basic mapping, can be refined)
+          entriesToImport = excelData.map((row: any) => ({
+            mes: row.Mês || row.mes || '',
+            chave_acesso: row['Chave de Acesso'] || row.chave_acesso || '',
+            nf_numero: row['Número NF'] || row.nf_numero || row.NF || '',
+            tonelada: Number(row.Tonelada || row.tonelada || 0),
+            valor: Number(row.Valor || row.valor || 0),
+            descricao_produto: row.Produto || row.descricao_produto || '',
+            data_nf: row['Data NF'] || row.data_nf || '',
+            data_descarga: row['Data Descarga'] || row.data_descarga || '',
+            status: row.Status || row.status || 'Estoque',
+            fornecedor: row.Fornecedor || row.fornecedor || '',
+            placa_veiculo: row.Placa || row.placa_veiculo || '',
+            container: row.Container || row.container || '',
+            destino: row.Destino || row.destino || '',
+            created_at: new Date().toISOString()
+          }));
+        }
+
+        if (entriesToImport.length > 0) {
+          const importedEntries = entriesToImport.map((ent: any) => ({ 
+            ...ent, 
+            id: ent.id || Date.now() + Math.random(),
+            isPending: serverStatus !== 'online' 
+          }));
           setEntries(importedEntries);
           localStorage.setItem('stock_entries', JSON.stringify(importedEntries));
-          addNotification(`${json.entries.length} registros importados. Sincronize para salvar no servidor.`, "info");
-          fetchData(); // Refresh summaries
+          addNotification(`${entriesToImport.length} registros importados. Sincronize para salvar no servidor.`, "info");
+          fetchData(); 
+        } else {
+          addNotification("Nenhum dado válido encontrado no arquivo.", "warning");
         }
       } catch (err) {
-        addNotification("Erro ao importar backup. Arquivo inválido.", "error");
+        addNotification("Erro ao importar arquivo. Verifique o formato.", "error");
       }
     };
-    reader.readAsText(file);
+
+    if (file.name.endsWith('.json')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsBinaryString(file);
+    }
   };
 
   const syncOfflineData = async () => {
@@ -1153,8 +1205,8 @@ export default function App() {
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                       <select 
-                        defaultValue={selectedEntry.descricao_produto}
-                        onChange={(e) => handleUpdateEntry(selectedEntry.id, { descricao_produto: e.target.value })}
+                        value={editFormData.descricao_produto || ''}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
                         className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                       >
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
@@ -1164,8 +1216,8 @@ export default function App() {
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                       <select 
-                        defaultValue={selectedEntry.destino}
-                        onChange={(e) => handleUpdateEntry(selectedEntry.id, { destino: e.target.value })}
+                        value={editFormData.destino || ''}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, destino: e.target.value }))}
                         className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                       >
                         <option value="Serra - ES">Serra - ES</option>
@@ -1174,8 +1226,8 @@ export default function App() {
                     </div>
                     <Input 
                       label="Container" 
-                      defaultValue={selectedEntry.container} 
-                      onBlur={(e) => handleUpdateEntry(selectedEntry.id, { container: e.target.value })}
+                      value={editFormData.container || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
                     />
                   </div>
                 </section>
@@ -1188,24 +1240,24 @@ export default function App() {
                       <Input 
                         label="Data Faturamento VLI" 
                         type="date" 
-                        defaultValue={selectedEntry.data_faturamento_vli} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_faturamento_vli: e.target.value })}
+                        value={editFormData.data_faturamento_vli || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
                       />
                       <Input 
                         label="CTE VLI" 
-                        defaultValue={selectedEntry.cte_vli} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { cte_vli: e.target.value })}
+                        value={editFormData.cte_vli || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_vli: e.target.value }))}
                       />
                       <Input 
                         label="Nº Vagão" 
-                        defaultValue={selectedEntry.numero_vagao} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { numero_vagao: e.target.value })}
+                        value={editFormData.numero_vagao || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
                       />
                       <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
                         <select 
-                          defaultValue={selectedEntry.status}
-                          onChange={(e) => handleUpdateEntry(selectedEntry.id, { status: e.target.value as any })}
+                          value={editFormData.status || ''}
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
                           className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
                         >
                           <option value="Estoque">Estoque</option>
@@ -1226,20 +1278,20 @@ export default function App() {
                       <Input 
                         label="Hora Chegada" 
                         type="time" 
-                        defaultValue={selectedEntry.hora_chegada} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { hora_chegada: e.target.value })}
+                        value={editFormData.hora_chegada || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
                       />
                       <Input 
                         label="Hora Entrada" 
                         type="time" 
-                        defaultValue={selectedEntry.hora_entrada} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { hora_entrada: e.target.value })}
+                        value={editFormData.hora_entrada || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
                       />
                       <Input 
                         label="Hora Saída" 
                         type="time" 
-                        defaultValue={selectedEntry.hora_saida} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { hora_saida: e.target.value })}
+                        value={editFormData.hora_saida || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
                       />
                     </div>
                   </section>
@@ -1253,41 +1305,47 @@ export default function App() {
                       <Input 
                         label="Data Emissão NF" 
                         type="date" 
-                        defaultValue={selectedEntry.data_emissao_nf} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_nf: e.target.value })}
+                        value={editFormData.data_emissao_nf || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
                       />
                       <Input 
                         label="Emissão CTE Intertex" 
                         type="date" 
-                        defaultValue={selectedEntry.data_emissao_cte} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_cte: e.target.value })}
+                        value={editFormData.data_emissao_cte || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
                       />
                       <Input 
                         label="CTE Intertex" 
-                        defaultValue={selectedEntry.cte_intertex} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { cte_intertex: e.target.value })}
+                        value={editFormData.cte_intertex || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
                       />
                       <Input 
                         label="Emissão CTE Transp." 
                         type="date" 
-                        defaultValue={selectedEntry.data_emissao_cte_transp} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { data_emissao_cte_transp: e.target.value })}
+                        value={editFormData.data_emissao_cte_transp || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
                       />
                       <Input 
                         label="CTE Transportador" 
-                        defaultValue={selectedEntry.cte_transportador} 
-                        onBlur={(e) => handleUpdateEntry(selectedEntry.id, { cte_transportador: e.target.value })}
+                        value={editFormData.cte_transportador || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
                       />
                     </div>
                   </section>
                 )}
 
-                <div className="flex justify-end pt-4">
+                <div className="flex justify-end gap-3 pt-4">
                   <button 
                     onClick={() => setSelectedEntry(null)} 
+                    className="px-6 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => handleUpdateEntry(selectedEntry.id, editFormData)} 
                     className="px-8 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md"
                   >
-                    Concluir Edição
+                    Salvar Alterações
                   </button>
                 </div>
               </div>
@@ -1387,8 +1445,8 @@ function ReportsView({
             </button>
             <label className="flex items-center gap-2 px-4 py-2 bg-titam-lime/20 text-titam-deep rounded-lg hover:bg-titam-lime/30 transition-colors text-xs font-bold cursor-pointer">
               <Upload size={14} />
-              Importar Backup
-              <input type="file" accept=".json" onChange={onImportBackup} className="hidden" />
+              Importar Backup (JSON/Excel)
+              <input type="file" accept=".json,.xlsx,.xls" onChange={onImportBackup} className="hidden" />
             </label>
           </div>
         </div>
