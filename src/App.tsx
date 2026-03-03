@@ -60,6 +60,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
+  const [lastBatchId, setLastBatchId] = useState<string | null>(localStorage.getItem('last_import_batch'));
+  const isSyncing = React.useRef(false);
+  const [isSyncingState, setIsSyncingState] = useState(false);
 
   useEffect(() => {
     if (selectedEntry) {
@@ -102,6 +105,38 @@ export default function App() {
     addNotification("Backup exportado com sucesso!", "info");
   };
 
+  const undoLastImport = async () => {
+    if (!confirm("Tem certeza que deseja excluir os registros da última importação?")) return;
+    
+    try {
+      // Try to delete by batchId if we have it
+      const url = lastBatchId 
+        ? `/api/delete-batch?batchId=${lastBatchId}` 
+        : `/api/delete-batch?minutes=15`; // Fallback to last 15 mins for immediate fix
+      
+      const res = await fetch(url, { method: 'DELETE' });
+      const data = await res.json();
+      
+      if (data.success) {
+        addNotification(`${data.changes} registros excluídos com sucesso.`, "info");
+        // Clear local storage entries that might be pending
+        const localData = localStorage.getItem('stock_entries');
+        if (localData) {
+          const entries = JSON.parse(localData);
+          const filtered = entries.filter((e: any) => e.import_batch !== lastBatchId);
+          localStorage.setItem('stock_entries', JSON.stringify(filtered));
+        }
+        setLastBatchId(null);
+        localStorage.removeItem('last_import_batch');
+        fetchData();
+      } else {
+        throw new Error(data.error || "Erro ao excluir registros");
+      }
+    } catch (err: any) {
+      addNotification(`Erro: ${err.message}`, "error");
+    }
+  };
+
   const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -125,33 +160,48 @@ export default function App() {
           
           // Map Excel columns to Entry fields (basic mapping, can be refined)
           entriesToImport = excelData.map((row: any) => ({
-            mes: row.Mês || row.mes || '',
-            chave_acesso: row['Chave de Acesso'] || row.chave_acesso || '',
-            nf_numero: row['Número NF'] || row.nf_numero || row.NF || '',
-            tonelada: Number(row.Tonelada || row.tonelada || 0),
-            valor: Number(row.Valor || row.valor || 0),
-            descricao_produto: row.Produto || row.descricao_produto || '',
-            data_nf: row['Data NF'] || row.data_nf || '',
-            data_descarga: row['Data Descarga'] || row.data_descarga || '',
-            status: row.Status || row.status || 'Estoque',
-            fornecedor: row.Fornecedor || row.fornecedor || '',
-            placa_veiculo: row.Placa || row.placa_veiculo || '',
-            container: row.Container || row.container || '',
-            destino: row.Destino || row.destino || '',
+            mes: row.Mês || row.mes || row.MES || row.Mes || '',
+            chave_acesso: row['Chave de Acesso'] || row.chave_acesso || row.CHAVE || row.Chave || '',
+            nf_numero: row['Número NF'] || row.nf_numero || row.NF || row['N.F'] || row.Nf || '',
+            tonelada: Number(row.Tonelada || row.tonelada || row.TONELADA || row.Peso || 0),
+            valor: Number(row.Valor || row.valor || row.VALOR || row.Preço || 0),
+            descricao_produto: row.Produto || row.descricao_produto || row.PRODUTO || row.Descricao || '',
+            data_nf: row['Data NF'] || row.data_nf || row['DATA NF'] || row.Data || '',
+            data_descarga: row['Data Descarga'] || row.data_descarga || row['DATA DESCARGA'] || row.Descarga || '',
+            status: row.Status || row.status || row.STATUS || 'Estoque',
+            fornecedor: row.Fornecedor || row.fornecedor || row.FORNECEDOR || '',
+            placa_veiculo: row.Placa || row.placa_veiculo || row.PLACA || '',
+            container: row.Container || row.container || row.CONTAINER || '',
+            destino: row.Destino || row.destino || row.DESTINO || '',
             created_at: new Date().toISOString()
           }));
         }
 
         if (entriesToImport.length > 0) {
+          const localData = localStorage.getItem('stock_entries');
+          const existingEntries = localData ? JSON.parse(localData) : [];
+          
+          const batchId = `batch_${Date.now()}`;
+          setLastBatchId(batchId);
+          localStorage.setItem('last_import_batch', batchId);
+
           const importedEntries = entriesToImport.map((ent: any) => ({ 
             ...ent, 
             id: ent.id || Date.now() + Math.random(),
-            isPending: serverStatus !== 'online' 
+            import_batch: batchId,
+            isPending: true // Always mark as pending so they get synced to server
           }));
-          setEntries(importedEntries);
-          localStorage.setItem('stock_entries', JSON.stringify(importedEntries));
-          addNotification(`${entriesToImport.length} registros importados. Sincronize para salvar no servidor.`, "info");
-          fetchData(); 
+          
+          const mergedEntries = [...importedEntries, ...existingEntries];
+          setEntries(mergedEntries);
+          localStorage.setItem('stock_entries', JSON.stringify(mergedEntries));
+          addNotification(`${entriesToImport.length} registros importados. Sincronizando com o servidor...`, "info");
+          
+          if (serverStatus === 'online') {
+            syncOfflineData();
+          } else {
+            fetchData(); // This will handle offline summary calculation
+          }
         } else {
           addNotification("Nenhum dado válido encontrado no arquivo.", "warning");
         }
@@ -168,43 +218,74 @@ export default function App() {
   };
 
   const syncOfflineData = async () => {
+    if (isSyncing.current) return;
+    
     const localData = localStorage.getItem('stock_entries');
     if (!localData) return;
 
-    const entries = JSON.parse(localData);
-    const pendingEntries = entries.filter((e: any) => e.isPending);
+    let currentEntries = JSON.parse(localData);
+    const pendingEntries = currentEntries.filter((e: any) => e.isPending);
 
     if (pendingEntries.length === 0) return;
 
+    isSyncing.current = true;
+    setIsSyncingState(true);
     console.log(`Sincronizando ${pendingEntries.length} registros pendentes...`);
     
-    for (const entry of pendingEntries) {
+    let syncSuccessCount = 0;
+    const updatedLocalEntries = [...currentEntries];
+
+    for (let i = 0; i < updatedLocalEntries.length; i++) {
+      const entry = updatedLocalEntries[i];
+      if (!entry.isPending) continue;
+
       try {
         const { id, isPending, ...dataToSync } = entry;
-        const res = await fetch('/api/entries', {
-          method: 'POST',
+        
+        // If ID is large, it's a temporary local ID, use POST to create
+        // If ID is small, it's an existing server ID, use PUT to update
+        const isNewEntry = id > 1000000000000;
+        
+        const res = await fetch(isNewEntry ? '/api/entries' : `/api/entries/${id}`, {
+          method: isNewEntry ? 'POST' : 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(dataToSync),
         });
 
         if (res.ok) {
-          const result = await res.json();
-          const updatedEntries = JSON.parse(localStorage.getItem('stock_entries') || '[]');
-          const finalEntries = updatedEntries.map((e: any) => 
-            e.id === id ? { ...e, id: result.id, isPending: false } : e
-          );
-          localStorage.setItem('stock_entries', JSON.stringify(finalEntries));
-          setEntries(finalEntries);
+          if (isNewEntry) {
+            const result = await res.json();
+            updatedLocalEntries[i] = { ...entry, id: result.id, isPending: false };
+          } else {
+            updatedLocalEntries[i] = { ...entry, isPending: false };
+          }
+          syncSuccessCount++;
         }
       } catch (error) {
         console.error("Erro ao sincronizar registro:", error);
+        break;
       }
     }
+
+    if (syncSuccessCount > 0) {
+      localStorage.setItem('stock_entries', JSON.stringify(updatedLocalEntries));
+      setEntries(updatedLocalEntries);
+      fetchData(); // Refresh all data from server after sync to ensure consistency
+    }
+    
+    isSyncing.current = false;
+    setIsSyncingState(false);
   };
 
   const fetchData = async () => {
     try {
-      const healthRes = await fetch(`/api/health?t=${Date.now()}`);
+      // Use a timeout for the health check to avoid long hangs
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const healthRes = await fetch(`/api/health?t=${Date.now()}`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (healthRes.ok) {
         if (serverStatus !== 'online') {
           setServerStatus('online');
@@ -233,7 +314,24 @@ export default function App() {
       const localEntries = localData ? JSON.parse(localData) : [];
       const pendingEntries = localEntries.filter((e: any) => e.isPending);
       
-      const mergedEntries = [...pendingEntries, ...entriesData];
+      // Use a Map to ensure unique entries by ID, preferring server data for non-pending
+      const entryMap = new Map();
+      
+      // Add server entries first
+      entriesData.forEach((e: any) => entryMap.set(e.id, e));
+      
+      // Add pending entries (might overwrite if ID matches, but pending should have temp IDs)
+      pendingEntries.forEach((e: any) => entryMap.set(e.id, e));
+      
+      const mergedEntries = Array.from(entryMap.values());
+      
+      // Sort by created_at or ID to maintain order
+      mergedEntries.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+
       setEntries(mergedEntries);
       setSummary(summaryData);
       setProductDestSummary(productDestData);
@@ -246,37 +344,31 @@ export default function App() {
       const localData = localStorage.getItem('stock_entries');
       if (localData) {
         const parsedData = JSON.parse(localData);
-        setEntries(parsedData);
-        
-        // Calculate summary locally
-        const suppliers = [...new Set(parsedData.map((e: any) => e.fornecedor))];
-        const localSummary = suppliers.map(s => ({
-          fornecedor: s,
-          in_stock: parsedData.filter((e: any) => e.fornecedor === s && ['Estoque', 'Rejeitado'].includes(e.status)).length,
-          exited: parsedData.filter((e: any) => e.fornecedor === s && ['Embarcado', 'Devolvido'].includes(e.status)).length
-        }));
-        setSummary(localSummary);
+        if (parsedData.length > 0) {
+          setEntries(parsedData);
+          
+          // Calculate summary locally to keep UI functional
+          const suppliers = [...new Set(parsedData.map((e: any) => e.fornecedor))];
+          const localSummary = suppliers.map(s => ({
+            fornecedor: s,
+            in_stock: parsedData.filter((e: any) => e.fornecedor === s && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+            exited: parsedData.filter((e: any) => e.fornecedor === s && ['Embarcado', 'Devolvido'].includes(e.status)).length
+          }));
+          setSummary(localSummary);
 
-        // Calculate product/dest summary locally
-        const productDests = [...new Set(parsedData.map((e: any) => `${e.descricao_produto}|${e.destino}`))];
-        const localProductDestSummary = productDests.map(pd => {
-          const [prod, dest] = (pd as string).split('|');
-          const filtered = parsedData.filter((e: any) => e.descricao_produto === prod && e.destino === dest);
-          return {
-            descricao_produto: prod,
-            destino: dest,
-            in_stock: filtered.filter((e: any) => ['Estoque', 'Rejeitado'].includes(e.status)).length,
-            exited: filtered.filter((e: any) => ['Embarcado', 'Devolvido'].includes(e.status)).length
-          };
-        });
-        setProductDestSummary(localProductDestSummary);
-
-        // Check for low stock alerts (Automatic)
-        localProductDestSummary.forEach(item => {
-          if (item.in_stock > 0 && item.in_stock < 3) {
-            addNotification(`Estoque Crítico: ${item.descricao_produto} (${item.destino}) tem apenas ${item.in_stock} unidades.`, 'warning');
-          }
-        });
+          const productDests = [...new Set(parsedData.map((e: any) => `${e.descricao_produto}|${e.destino}`))];
+          const localProductDestSummary = productDests.map(pd => {
+            const [prod, dest] = (pd as string).split('|');
+            const filtered = parsedData.filter((e: any) => e.descricao_produto === prod && e.destino === dest);
+            return {
+              descricao_produto: prod,
+              destino: dest,
+              in_stock: filtered.filter((e: any) => ['Estoque', 'Rejeitado'].includes(e.status)).length,
+              exited: filtered.filter((e: any) => ['Embarcado', 'Devolvido'].includes(e.status)).length
+            };
+          });
+          setProductDestSummary(localProductDestSummary);
+        }
       }
     } finally {
       setLoading(false);
@@ -285,9 +377,26 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    
+    // Warn user if they try to leave with pending changes
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const localData = localStorage.getItem('stock_entries');
+      if (localData) {
+        const entries = JSON.parse(localData);
+        if (entries.some((e: any) => e.isPending)) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     setTimeout(() => {
       addNotification("Bem-vindo ao Sistema Titam! O monitoramento de estoque está ativo.", "info");
     }, 1500);
+
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
   const calculateTimeInMinutes = (start?: string, end?: string) => {
@@ -367,19 +476,37 @@ export default function App() {
 
   const exitChartData = React.useMemo(() => {
     const dailyMap: Record<string, any> = {};
-    const sortedDates = [...selectedDates].sort();
+    
+    // Filter entries that belong to the selected discharge dates AND are exited
+    const exitedEntries = entries.filter(entry => 
+      selectedDates.includes(entry.data_descarga) && 
+      ['Embarcado', 'Devolvido'].includes(entry.status)
+    );
+
+    // Get all unique exit dates (or discharge dates if exit date is missing) to build the X-axis
+    const exitDates = new Set<string>();
+    exitedEntries.forEach(entry => {
+      const date = entry.data_faturamento_vli || entry.data_descarga;
+      if (date) exitDates.add(date);
+    });
+
+    // Also include selected dates to ensure the chart shows the context
+    selectedDates.forEach(date => exitDates.add(date));
+
+    const sortedDates = Array.from(exitDates).sort();
     
     sortedDates.forEach(date => {
       dailyMap[date] = { date };
     });
 
-    entries.forEach(entry => {
-      if (selectedDates.includes(entry.data_descarga) && ['Embarcado', 'Devolvido'].includes(entry.status)) {
-        const key = `${entry.descricao_produto} - ${entry.destino}`;
-        if (!dailyMap[entry.data_descarga][key]) {
-          dailyMap[entry.data_descarga][key] = 0;
+    exitedEntries.forEach(entry => {
+      const date = entry.data_faturamento_vli || entry.data_descarga;
+      const key = `${entry.descricao_produto} - ${entry.destino}`;
+      if (date && dailyMap[date]) {
+        if (!dailyMap[date][key]) {
+          dailyMap[date][key] = 0;
         }
-        dailyMap[entry.data_descarga][key] += entry.tonelada;
+        dailyMap[date][key] += entry.tonelada;
       }
     });
 
@@ -402,109 +529,52 @@ export default function App() {
     const formDataObj = new FormData(e.currentTarget);
     const data = Object.fromEntries(formDataObj.entries());
     
-    try {
-      if (serverStatus === 'online') {
-        const res = await fetch('/api/entries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (res.ok) {
-          setShowForm(false);
-          setFormData({});
-          fetchData();
-        } else {
-          throw new Error('Server error');
-        }
-      } else {
-        // Fallback to LocalStorage
-        const newId = Date.now();
-        const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
-        const newEntries = [newItem, ...entries];
-        setEntries(newEntries as Entry[]);
-        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-        setShowForm(false);
-        setFormData({});
-        alert("Aviso: Servidor offline. Registro salvo localmente e será sincronizado automaticamente quando a conexão voltar.");
-      }
-    } catch (error: any) {
-      const newId = Date.now();
-      const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
-      const newEntries = [newItem, ...entries];
-      setEntries(newEntries as Entry[]);
-      localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-      setShowForm(false);
-      setFormData({});
-      setServerStatus('offline');
-      alert("Conexão perdida. Registro salvo localmente e será sincronizado automaticamente.");
-    } finally {
-      setIsSaving(false);
-    }
+    // Optimistic Update: Save locally first
+    const newId = Date.now() + Math.random();
+    const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
+    const newEntries = [newItem, ...entries];
+    
+    setEntries(newEntries as Entry[]);
+    localStorage.setItem('stock_entries', JSON.stringify(newEntries));
+    setShowForm(false);
+    setFormData({});
+    setIsSaving(false);
+
+    // Try to sync in background
+    syncOfflineData();
   };
 
   const handleUpdateEntry = async (id: number, updates: Partial<Entry>) => {
-    try {
-      if (serverStatus === 'online') {
-        const res = await fetch(`/api/entries/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates),
-        });
-        if (res.ok) {
-          setSelectedEntry(null);
-          fetchData();
-        } else {
-          const text = await res.text();
-          console.error("Update error response:", text);
-        }
-      } else {
-        // Fallback to LocalStorage
-        const newEntries = entries.map(e => e.id === id ? { ...e, ...updates } : e);
-        setEntries(newEntries);
-        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-        setSelectedEntry(null);
-        alert("Aviso: Servidor offline. Alteração salva localmente no navegador.");
-      }
-    } catch (error) {
-      console.error("Error updating entry:", error);
-    }
+    // Optimistic Update: Save locally first
+    const updatedEntries = entries.map(e => e.id === id ? { ...e, ...updates, isPending: true } : e);
+    setEntries(updatedEntries);
+    localStorage.setItem('stock_entries', JSON.stringify(updatedEntries));
+    setSelectedEntry(null);
+
+    // Try to sync in background
+    syncOfflineData();
   };
 
   const handleDeleteEntry = async (id: number) => {
     if (!confirm("Tem certeza que deseja excluir este registro?")) return;
     
     const previousEntries = [...entries];
-    setEntries(entries.filter(e => e.id !== id));
+    const newEntries = entries.filter(e => e.id !== id);
+    setEntries(newEntries);
+    localStorage.setItem('stock_entries', JSON.stringify(newEntries));
     
     try {
       if (serverStatus === 'online') {
         const res = await fetch(`/api/entries/${id}`, {
           method: 'DELETE',
         });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.changes === 0) {
-            alert("Aviso: Nenhum registro foi encontrado no banco de dados para excluir.");
-            setEntries(previousEntries);
-          } else {
-            const newEntries = previousEntries.filter(e => e.id !== id);
-            localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-            fetchData();
-          }
-        } else {
-          setEntries(previousEntries);
-          const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
-          throw new Error(errorData.error || 'Erro ao excluir no servidor');
+        if (!res.ok) {
+          // If server delete fails, we might want to revert or just log
+          console.error("Failed to delete on server");
         }
-      } else {
-        const newEntries = entries.filter(e => e.id !== id);
-        setEntries(newEntries);
-        localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-        alert("Registro excluído localmente.");
       }
     } catch (error: any) {
-      setEntries(previousEntries);
-      alert(`Erro ao excluir: ${error.message}`);
+      console.error("Error deleting entry:", error);
     }
   };
 
@@ -590,7 +660,9 @@ export default function App() {
         <header className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-gray-900 capitalize">{activeTab}</h1>
+              <h1 className="text-2xl font-semibold text-gray-900 capitalize">
+                {activeTab === 'dashboard' ? 'Painel Informativo - Titam' : activeTab}
+              </h1>
               <p className="text-gray-500 text-sm">Gerencie seu estoque com precisão técnica.</p>
             </div>
             <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
@@ -615,6 +687,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            {isSyncingState && (
+              <div className="flex items-center gap-2 text-[10px] text-titam-deep font-bold bg-titam-lime/20 px-3 py-1 rounded-full animate-pulse">
+                <SyncIcon size={10} className="animate-spin" />
+                Sincronizando...
+              </div>
+            )}
             <button 
               onClick={() => {
                 addNotification("Iniciando sincronização manual...", "info");
@@ -1033,6 +1111,7 @@ export default function App() {
               entries={entries} 
               onExportBackup={exportBackup} 
               onImportBackup={importBackup} 
+              onUndoLastImport={undoLastImport}
             />
           )}
         </AnimatePresence>
@@ -1377,11 +1456,13 @@ const calculateTimeDiff = (start?: string, end?: string) => {
 function ReportsView({ 
   entries, 
   onExportBackup, 
-  onImportBackup 
+  onImportBackup,
+  onUndoLastImport
 }: { 
   entries: Entry[], 
   onExportBackup: () => void, 
-  onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void 
+  onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
+  onUndoLastImport: () => void
 }) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado'>('estoque');
   const [startDate, setStartDate] = useState('');
@@ -1436,6 +1517,13 @@ function ReportsView({
         <div className="md:col-span-5 flex justify-between items-center mb-2 border-b border-gray-100 pb-4">
           <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Ferramentas de Dados</h3>
           <div className="flex gap-3">
+            <button 
+              onClick={onUndoLastImport}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-bold border border-red-100"
+            >
+              <Trash2 size={14} />
+              Desfazer Última Importação
+            </button>
             <button 
               onClick={onExportBackup}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-xs font-bold"

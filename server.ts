@@ -59,6 +59,7 @@ function getDb() {
         cte_intertex TEXT,
         data_emissao_cte TEXT,
         cte_transportador TEXT,
+        import_batch TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -130,7 +131,7 @@ async function startServer() {
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
         data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
-        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
+        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador, import_batch
       } = req.body;
 
       const stmt = database.prepare(`
@@ -138,15 +139,15 @@ async function startServer() {
           mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
           data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
           data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
-          data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador, import_batch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
         mes, chave_acesso, nf_numero, tonelada, valor, descricao_produto,
         data_nf, data_descarga, status, fornecedor, placa_veiculo, container, destino,
         data_faturamento_vli, cte_vli, numero_vagao, hora_chegada, hora_entrada, hora_saida,
-        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador
+        data_emissao_nf, cte_intertex, data_emissao_cte, cte_transportador, import_batch
       );
 
       log(`Entry saved successfully, ID: ${result.lastInsertRowid}`);
@@ -188,6 +189,29 @@ async function startServer() {
       res.json({ success: true, changes: result.changes });
     } catch (error: any) {
       log(`Error in DELETE /api/entries: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/delete-batch", (req, res) => {
+    const { batchId, minutes } = req.query;
+    log(`DELETE /api/delete-batch hit: batchId=${batchId}, minutes=${minutes}`);
+    try {
+      const database = getDb();
+      let result;
+      if (batchId) {
+        result = database.prepare("DELETE FROM entries WHERE import_batch = ?").run(batchId);
+      } else if (minutes) {
+        // Delete entries created in the last X minutes
+        result = database.prepare("DELETE FROM entries WHERE created_at > datetime('now', ? || ' minutes')").run(`-${minutes}`);
+      } else {
+        // Default: delete entries from the last 5 minutes if no batchId provided
+        // This is a "safety net" for the user's current request
+        result = database.prepare("DELETE FROM entries WHERE created_at > datetime('now', '-5 minutes')").run();
+      }
+      res.json({ success: true, changes: result.changes });
+    } catch (error: any) {
+      log(`Error in DELETE /api/delete-batch: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
