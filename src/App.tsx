@@ -168,6 +168,7 @@ export default function App() {
             descricao_produto: row.Produto || row.descricao_produto || row.PRODUTO || row.Descricao || '',
             data_nf: row['Data NF'] || row.data_nf || row['DATA NF'] || row.Data || '',
             data_descarga: row['Data Descarga'] || row.data_descarga || row['DATA DESCARGA'] || row.Descarga || '',
+            data_faturamento_vli: row['Data Fat. VLI'] || row.data_faturamento_vli || row['DATA FATURAMENTO'] || '',
             status: row.Status || row.status || row.STATUS || 'Estoque',
             fornecedor: row.Fornecedor || row.fornecedor || row.FORNECEDOR || '',
             placa_veiculo: row.Placa || row.placa_veiculo || row.PLACA || '',
@@ -465,10 +466,9 @@ export default function App() {
     return entries
       .filter(e => {
         if (!['Embarcado', 'Devolvido'].includes(e.status)) return false;
-        // Assuming data_descarga or some other date field is used for exit date
-        // Let's use created_at or data_faturamento_vli if available, 
-        // but for simplicity let's check data_descarga month
-        const [y, m] = e.data_descarga.split('-').map(Number);
+        const exitDate = e.data_faturamento_vli || e.data_descarga;
+        if (!exitDate) return false;
+        const [y, m] = exitDate.split('-').map(Number);
         return y === currentYear && m === currentMonth;
       })
       .reduce((acc, e) => acc + e.tonelada, 0);
@@ -477,36 +477,43 @@ export default function App() {
   const exitChartData = React.useMemo(() => {
     const dailyMap: Record<string, any> = {};
     
-    // Filter entries that belong to the selected discharge dates AND are exited
-    const exitedEntries = entries.filter(entry => 
-      selectedDates.includes(entry.data_descarga) && 
-      ['Embarcado', 'Devolvido'].includes(entry.status)
-    );
-
-    // Get all unique exit dates (or discharge dates if exit date is missing) to build the X-axis
-    const exitDates = new Set<string>();
-    exitedEntries.forEach(entry => {
-      const date = entry.data_faturamento_vli || entry.data_descarga;
-      if (date) exitDates.add(date);
+    // Filter entries that:
+    // 1. Arrived on the selected dates AND are exited (to show later exits)
+    // 2. OR exited on the selected dates (to show exits of older stock)
+    const exitedEntries = entries.filter(entry => {
+      const isExited = ['Embarcado', 'Devolvido'].includes(entry.status);
+      if (!isExited) return false;
+      
+      const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
+      const exitedOnSelected = entry.data_faturamento_vli && selectedDates.includes(entry.data_faturamento_vli);
+      
+      return arrivedOnSelected || exitedOnSelected;
     });
 
-    // Also include selected dates to ensure the chart shows the context
-    selectedDates.forEach(date => exitDates.add(date));
+    // Get all unique dates to build the X-axis
+    // This includes:
+    // - All selected dates (context)
+    // - All actual exit dates for the filtered entries
+    const chartDates = new Set<string>(selectedDates);
+    exitedEntries.forEach(entry => {
+      const exitDate = entry.data_faturamento_vli || entry.data_descarga;
+      if (exitDate) chartDates.add(exitDate);
+    });
 
-    const sortedDates = Array.from(exitDates).sort();
+    const sortedDates = Array.from(chartDates).sort();
     
     sortedDates.forEach(date => {
       dailyMap[date] = { date };
     });
 
     exitedEntries.forEach(entry => {
-      const date = entry.data_faturamento_vli || entry.data_descarga;
+      const exitDate = entry.data_faturamento_vli || entry.data_descarga;
       const key = `${entry.descricao_produto} - ${entry.destino}`;
-      if (date && dailyMap[date]) {
-        if (!dailyMap[date][key]) {
-          dailyMap[date][key] = 0;
+      if (exitDate && dailyMap[exitDate]) {
+        if (!dailyMap[exitDate][key]) {
+          dailyMap[exitDate][key] = 0;
         }
-        dailyMap[date][key] += entry.tonelada;
+        dailyMap[exitDate][key] += entry.tonelada;
       }
     });
 
@@ -1171,7 +1178,7 @@ export default function App() {
                 </div>
                 <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
                 <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} />
-                <Input label="Container" name="container" required defaultValue={formData.container} />
+                <Input label="Container" name="container" defaultValue={formData.container} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                   <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
@@ -1280,7 +1287,7 @@ export default function App() {
                 {/* Section: Informações Gerais */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                       <select 
@@ -1307,6 +1314,24 @@ export default function App() {
                       label="Container" 
                       value={editFormData.container || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
+                    />
+                    <Input 
+                      label="Hora Chegada" 
+                      type="time" 
+                      value={editFormData.hora_chegada || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
+                    />
+                    <Input 
+                      label="Hora Entrada" 
+                      type="time" 
+                      value={editFormData.hora_entrada || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
+                    />
+                    <Input 
+                      label="Hora Saída" 
+                      type="time" 
+                      value={editFormData.hora_saida || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
                     />
                   </div>
                 </section>
@@ -1352,26 +1377,20 @@ export default function App() {
                 {/* Section: Performance */}
                 {(activeTab === 'performance' || activeTab === 'lista') && (
                   <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-amber-600 uppercase tracking-widest">Performance Logística</h3>
-                    <div className="grid grid-cols-3 gap-4">
-                      <Input 
-                        label="Hora Chegada" 
-                        type="time" 
-                        value={editFormData.hora_chegada || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
-                      />
-                      <Input 
-                        label="Hora Entrada" 
-                        type="time" 
-                        value={editFormData.hora_entrada || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
-                      />
-                      <Input 
-                        label="Hora Saída" 
-                        type="time" 
-                        value={editFormData.hora_saida || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
-                      />
+                    <h3 className="text-sm font-bold text-amber-600 uppercase tracking-widest">Performance Logística (Visualização)</h3>
+                    <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold">Chegada</span>
+                        <span className="font-mono">{editFormData.hora_chegada || '--:--'}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold">Entrada</span>
+                        <span className="font-mono">{editFormData.hora_entrada || '--:--'}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold">Saída</span>
+                        <span className="font-mono">{editFormData.hora_saida || '--:--'}</span>
+                      </div>
                     </div>
                   </section>
                 )}
