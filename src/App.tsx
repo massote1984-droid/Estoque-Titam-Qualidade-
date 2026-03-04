@@ -571,8 +571,17 @@ export default function App() {
   };
 
   const handleUpdateEntry = async (id: number, updates: Partial<Entry>) => {
+    // Ensure numeric fields are numbers if they are strings
+    const sanitizedUpdates = { ...updates };
+    if (typeof sanitizedUpdates.valor === 'string') {
+      sanitizedUpdates.valor = parseFloat((sanitizedUpdates.valor as string).replace(',', '.')) || 0;
+    }
+    if (typeof sanitizedUpdates.tonelada === 'string') {
+      sanitizedUpdates.tonelada = parseFloat((sanitizedUpdates.tonelada as string).replace(',', '.')) || 0;
+    }
+
     // Optimistic Update: Save locally first
-    const updatedEntries = entries.map(e => e.id === id ? { ...e, ...updates, isPending: true } : e);
+    const updatedEntries = entries.map(e => e.id === id ? { ...e, ...sanitizedUpdates, isPending: true } : e);
     setEntries(updatedEntries);
     localStorage.setItem('stock_entries', JSON.stringify(updatedEntries));
     setSelectedEntry(null);
@@ -1174,8 +1183,23 @@ export default function App() {
                 <Input label="Mês" name="mes" required defaultValue={formData.mes} />
                 <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
                 <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
-                <Input label="Tonelada" name="tonelada" type="text" required defaultValue={formData.tonelada} placeholder="0.00" />
-                <Input label="Valor" name="valor" type="text" maxLength={9} required defaultValue={formData.valor} placeholder="0.00" />
+                <Input 
+                  label="Tonelada" 
+                  name="tonelada" 
+                  type="text" 
+                  required 
+                  defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toFixed(2).replace('.', ',') : ''} 
+                  placeholder="0,00" 
+                />
+                <Input 
+                  label="Valor" 
+                  name="valor" 
+                  type="text" 
+                  maxLength={9} 
+                  required 
+                  defaultValue={formData.valor !== undefined ? Number(formData.valor).toFixed(2).replace('.', ',') : ''} 
+                  placeholder="0,00" 
+                />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                   <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
@@ -1333,6 +1357,18 @@ export default function App() {
                       label="Container" 
                       value={editFormData.container || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
+                    />
+                    <Input 
+                      label="Tonelada" 
+                      type="text"
+                      value={editFormData.tonelada !== undefined ? editFormData.tonelada.toString().replace('.', ',') : ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
+                    />
+                    <Input 
+                      label="Valor" 
+                      type="text"
+                      value={editFormData.valor !== undefined ? editFormData.valor.toString().replace('.', ',') : ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
                     />
                     <Input 
                       label="Hora Chegada" 
@@ -1872,6 +1908,8 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                       <div className="flex items-center gap-2">
                         {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
                          (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
+                         (col.key === 'valor' || col.key === 'tonelada') ? 
+                           (entry[col.key] !== undefined ? Number(entry[col.key]).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-') :
                          (entry[col.key] || '-')}
                         {col.key === 'nf_numero' && entry.isPending && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-bold uppercase flex items-center gap-1">
