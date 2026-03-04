@@ -545,14 +545,17 @@ export default function App() {
     const formDataObj = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formDataObj.entries());
     
-    // Parse numeric fields allowing comma and dot
-    const valorStr = (rawData.valor as string).replace(',', '.');
-    const toneladaStr = (rawData.tonelada as string).replace(',', '.');
+    // Parse numeric fields allowing comma and dot (standard Brazilian format)
+    const sanitizeNumeric = (val: any) => {
+      if (typeof val !== 'string') return val;
+      // Remove thousands separator (dot) and replace decimal separator (comma) with dot
+      return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
+    };
     
     const data = {
       ...rawData,
-      valor: parseFloat(valorStr) || 0,
-      tonelada: parseFloat(toneladaStr) || 0
+      valor: sanitizeNumeric(rawData.valor),
+      tonelada: sanitizeNumeric(rawData.tonelada)
     };
     
     // Optimistic Update: Save locally first
@@ -573,11 +576,16 @@ export default function App() {
   const handleUpdateEntry = async (id: number, updates: Partial<Entry>) => {
     // Ensure numeric fields are numbers if they are strings
     const sanitizedUpdates = { ...updates };
-    if (typeof sanitizedUpdates.valor === 'string') {
-      sanitizedUpdates.valor = parseFloat((sanitizedUpdates.valor as string).replace(',', '.')) || 0;
+    const sanitizeNumeric = (val: any) => {
+      if (typeof val !== 'string') return val;
+      return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
+    };
+
+    if (sanitizedUpdates.valor !== undefined) {
+      sanitizedUpdates.valor = sanitizeNumeric(sanitizedUpdates.valor);
     }
-    if (typeof sanitizedUpdates.tonelada === 'string') {
-      sanitizedUpdates.tonelada = parseFloat((sanitizedUpdates.tonelada as string).replace(',', '.')) || 0;
+    if (sanitizedUpdates.tonelada !== undefined) {
+      sanitizedUpdates.tonelada = sanitizeNumeric(sanitizedUpdates.tonelada);
     }
 
     // Optimistic Update: Save locally first
@@ -1188,16 +1196,16 @@ export default function App() {
                   name="tonelada" 
                   type="text" 
                   required 
-                  defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toFixed(2).replace('.', ',') : ''} 
+                  defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
                 />
                 <Input 
                   label="Valor" 
                   name="valor" 
                   type="text" 
-                  maxLength={9} 
+                  maxLength={12} 
                   required 
-                  defaultValue={formData.valor !== undefined ? Number(formData.valor).toFixed(2).replace('.', ',') : ''} 
+                  defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
                 />
                 <div className="flex flex-col gap-1">
@@ -1361,13 +1369,13 @@ export default function App() {
                     <Input 
                       label="Tonelada" 
                       type="text"
-                      value={editFormData.tonelada !== undefined ? editFormData.tonelada.toString().replace('.', ',') : ''} 
+                      value={editFormData.tonelada !== undefined ? Number(editFormData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
                     />
                     <Input 
                       label="Valor" 
                       type="text"
-                      value={editFormData.valor !== undefined ? editFormData.valor.toString().replace('.', ',') : ''} 
+                      value={editFormData.valor !== undefined ? Number(editFormData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
                     />
                     <Input 
