@@ -379,6 +379,12 @@ export default function App() {
   useEffect(() => {
     fetchData();
     
+    // Auto-update every 3 minutes
+    const intervalId = setInterval(() => {
+      console.log("Auto-atualizando dados...");
+      fetchData();
+    }, 3 * 60 * 1000);
+    
     // Warn user if they try to leave with pending changes
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const localData = localStorage.getItem('stock_entries');
@@ -397,7 +403,10 @@ export default function App() {
       addNotification("Bem-vindo ao Sistema Titam! O monitoramento de estoque está ativo.", "info");
     }, 1500);
 
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      clearInterval(intervalId);
+    };
   }, []);
 
   const calculateTimeInMinutes = (start?: string, end?: string) => {
@@ -534,7 +543,17 @@ export default function App() {
     e.preventDefault();
     setIsSaving(true);
     const formDataObj = new FormData(e.currentTarget);
-    const data = Object.fromEntries(formDataObj.entries());
+    const rawData = Object.fromEntries(formDataObj.entries());
+    
+    // Parse numeric fields allowing comma and dot
+    const valorStr = (rawData.valor as string).replace(',', '.');
+    const toneladaStr = (rawData.tonelada as string).replace(',', '.');
+    
+    const data = {
+      ...rawData,
+      valor: parseFloat(valorStr) || 0,
+      tonelada: parseFloat(toneladaStr) || 0
+    };
     
     // Optimistic Update: Save locally first
     const newId = Date.now() + Math.random();
@@ -1155,8 +1174,8 @@ export default function App() {
                 <Input label="Mês" name="mes" required defaultValue={formData.mes} />
                 <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
                 <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
-                <Input label="Tonelada" name="tonelada" type="number" step="0.01" required defaultValue={formData.tonelada} />
-                <Input label="Valor" name="valor" type="number" step="0.01" required defaultValue={formData.valor} />
+                <Input label="Tonelada" name="tonelada" type="text" required defaultValue={formData.tonelada} placeholder="0.00" />
+                <Input label="Valor" name="valor" type="text" maxLength={9} required defaultValue={formData.valor} placeholder="0.00" />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                   <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
