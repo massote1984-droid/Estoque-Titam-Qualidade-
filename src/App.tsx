@@ -47,8 +47,6 @@ type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | '
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [summary, setSummary] = useState<StockSummary[]>([]);
-  const [productDestSummary, setProductDestSummary] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
@@ -296,19 +294,15 @@ export default function App() {
         throw new Error('Server offline');
       }
 
-      const [entriesRes, summaryRes, productDestRes] = await Promise.all([
-        fetch('/api/entries'),
-        fetch('/api/stock-summary'),
-        fetch('/api/stock-by-product-destination')
+      const [entriesRes] = await Promise.all([
+        fetch('/api/entries')
       ]);
       
-      if (!entriesRes.ok || !summaryRes.ok || !productDestRes.ok) {
-        throw new Error('Failed to fetch entries or summary');
+      if (!entriesRes.ok) {
+        throw new Error('Failed to fetch entries');
       }
 
       const entriesData = await entriesRes.json();
-      const summaryData = await summaryRes.json();
-      const productDestData = await productDestRes.json();
       
       // Merge local pending entries with server data
       const localData = localStorage.getItem('stock_entries');
@@ -334,8 +328,6 @@ export default function App() {
       });
 
       setEntries(mergedEntries);
-      setSummary(summaryData);
-      setProductDestSummary(productDestData);
       
       localStorage.setItem('stock_entries', JSON.stringify(mergedEntries));
     } catch (error) {
@@ -347,28 +339,6 @@ export default function App() {
         const parsedData = JSON.parse(localData);
         if (parsedData.length > 0) {
           setEntries(parsedData);
-          
-          // Calculate summary locally to keep UI functional
-          const suppliers = [...new Set(parsedData.map((e: any) => e.fornecedor))];
-          const localSummary = suppliers.map(s => ({
-            fornecedor: s,
-            in_stock: parsedData.filter((e: any) => e.fornecedor === s && ['Estoque', 'Rejeitado'].includes(e.status)).length,
-            exited: parsedData.filter((e: any) => e.fornecedor === s && ['Embarcado', 'Devolvido'].includes(e.status)).length
-          }));
-          setSummary(localSummary);
-
-          const productDests = [...new Set(parsedData.map((e: any) => `${e.descricao_produto}|${e.destino}`))];
-          const localProductDestSummary = productDests.map(pd => {
-            const [prod, dest] = (pd as string).split('|');
-            const filtered = parsedData.filter((e: any) => e.descricao_produto === prod && e.destino === dest);
-            return {
-              descricao_produto: prod,
-              destino: dest,
-              in_stock: filtered.filter((e: any) => ['Estoque', 'Rejeitado'].includes(e.status)).length,
-              exited: filtered.filter((e: any) => ['Embarcado', 'Devolvido'].includes(e.status)).length
-            };
-          });
-          setProductDestSummary(localProductDestSummary);
         }
       }
     } finally {
@@ -447,6 +417,32 @@ export default function App() {
         total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
         descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
       }));
+  }, [entries]);
+
+  const summary = React.useMemo(() => {
+    const suppliers = [...new Set(entries.map(e => e.fornecedor))];
+    return suppliers.map(s => {
+      const supplierEntries = entries.filter(e => e.fornecedor === s);
+      return {
+        fornecedor: s,
+        in_stock: supplierEntries.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
+        exited: supplierEntries.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length
+      };
+    });
+  }, [entries]);
+
+  const productDestSummary = React.useMemo(() => {
+    const productDests = [...new Set(entries.map(e => `${e.descricao_produto}|${e.destino}`))];
+    return productDests.map(pd => {
+      const [prod, dest] = (pd as string).split('|');
+      const filtered = entries.filter(e => e.descricao_produto === prod && e.destino === dest);
+      return {
+        descricao_produto: prod,
+        destino: dest,
+        in_stock: filtered.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
+        exited: filtered.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length
+      };
+    });
   }, [entries]);
 
   const supplierStockByDate = React.useMemo(() => {
@@ -867,14 +863,14 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 <StatCard 
                   title="Estoque Selecionado" 
-                  value={dailyStats.in_stock} 
-                  subtitle="Nas datas filtradas"
+                  value={dailyStats.in_stock.toString()} 
+                  subtitle="Unidades (Datas filtradas)"
                   icon={<Package className="text-titam-deep" />}
                 />
                 <StatCard 
                   title="Saídas Selecionadas" 
-                  value={dailyStats.exited} 
-                  subtitle="Nas datas filtradas"
+                  value={dailyStats.exited.toString()} 
+                  subtitle="Unidades (Datas filtradas)"
                   icon={<ArrowUpRight className="text-titam-deep" />}
                 />
                 <StatCard 
@@ -1103,6 +1099,7 @@ export default function App() {
               title="Gestão de Saídas"
               entries={entries}
               columns={[
+                { key: 'data_embarque', label: 'Data Embarque' },
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'container', label: 'Container' },
                 { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
@@ -1141,6 +1138,7 @@ export default function App() {
                 { key: 'descricao_produto', label: 'Produto' },
                 { key: 'fornecedor', label: 'Fornecedor' },
                 { key: 'container', label: 'Container' },
+                { key: 'data_embarque', label: 'Data Embarque' },
                 { key: 'status', label: 'Status' },
                 { key: 'data_nf', label: 'Data NF' }
               ]}
@@ -1218,6 +1216,7 @@ export default function App() {
                 </div>
                 <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
+                <Input label="Data de Embarque" name="data_embarque" type="date" defaultValue={formData.data_embarque} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
                   <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
@@ -1405,6 +1404,12 @@ export default function App() {
                     <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <Input 
+                        label="Data de Embarque" 
+                        type="date" 
+                        value={editFormData.data_embarque || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_embarque: e.target.value }))}
+                      />
+                      <Input 
                         label="Data Faturamento VLI" 
                         type="date" 
                         value={editFormData.data_faturamento_vli || ''} 
@@ -1546,7 +1551,7 @@ function ReportsView({
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
   onUndoLastImport: () => void
 }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
@@ -1567,6 +1572,8 @@ function ReportsView({
       ? ['NF', 'Data Descarga', 'Fornecedor', 'Produto', 'Placa', 'Chegada', 'Entrada', 'Saída', 'Tempo Descarga', 'Tempo Total']
       : reportType === 'logistica_vli'
       ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
+      : reportType === 'saida_detalhada'
+      ? ['Data Embarque', 'Data NF', 'Data Descarga', 'NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
@@ -1574,6 +1581,7 @@ function ReportsView({
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
+      if (reportType === 'saida_detalhada') return [e.data_embarque, e.data_nf, e.data_descarga, e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
@@ -1631,6 +1639,7 @@ function ReportsView({
             <option value="faturamento">Faturamento Mensal</option>
             <option value="performance">Performance de Descarga</option>
             <option value="logistica_vli">Logística VLI</option>
+            <option value="saida_detalhada">Relatório de Saída Detalhado</option>
             <option value="faturamento_detalhado">Faturamento Detalhado</option>
           </select>
         </div>
@@ -1720,6 +1729,19 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Destino</th>
                   </>
                 )}
+                {reportType === 'saida_detalhada' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Data Embarque</th>
+                    <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    <th className="px-6 py-3 data-grid-header">Data Descarga</th>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Container</th>
+                    <th className="px-6 py-3 data-grid-header">Vagão</th>
+                    <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                  </>
+                )}
                 {reportType === 'faturamento_detalhado' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Emissão NF</th>
@@ -1774,6 +1796,19 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
+                    </>
+                  )}
+                  {reportType === 'saida_detalhada' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_embarque || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
                     </>
                   )}
                   {reportType === 'faturamento_detalhado' && (

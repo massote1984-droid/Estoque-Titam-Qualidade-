@@ -13,6 +13,7 @@ export interface Entry {
   placa_veiculo: string;
   container: string;
   destino: string;
+  data_embarque?: string;
   data_faturamento_vli?: string;
   cte_vli?: string;
   numero_vagao?: string;
