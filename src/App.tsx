@@ -122,6 +122,8 @@ export default function App() {
   const [nfeContent, setNfeContent] = useState('');
   const [formData, setFormData] = useState<Partial<Entry>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
@@ -176,6 +178,7 @@ export default function App() {
     if (!confirm("Tem certeza que deseja excluir os registros da última importação?")) return;
     
     try {
+      setIsProcessing(true);
       if (!lastBatchId) {
         addNotification("Nenhuma importação recente encontrada para desfazer.", "warning");
         return;
@@ -200,6 +203,8 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'entries', user);
       addNotification(`Erro ao desfazer importação: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -527,12 +532,15 @@ export default function App() {
     delete sanitizedUpdates.isPending;
 
     try {
+      setIsUpdating(true);
       await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
       addNotification("Registro atualizado!", "info");
       setSelectedEntry(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
       addNotification("Erro ao atualizar registro.", "error");
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -548,6 +556,42 @@ export default function App() {
       addNotification("Erro ao excluir registro.", "error");
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-titam-deep">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-titam-lime/30 border-t-titam-lime rounded-full animate-spin" />
+          <p className="text-titam-lime font-bold tracking-widest animate-pulse">CARREGANDO...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-titam-deep p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full text-center"
+        >
+          <div className="w-24 h-24 bg-titam-lime/10 rounded-full flex items-center justify-center mx-auto mb-8">
+             <Truck className="text-titam-deep w-12 h-12" />
+          </div>
+          <h1 className="text-3xl font-bold text-titam-deep mb-2">Titam Intermodais</h1>
+          <p className="text-gray-500 mb-8">Acesse o sistema para gerenciar seu estoque e logística.</p>
+          <button 
+            onClick={login}
+            className="w-full bg-titam-deep text-white py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3"
+          >
+            <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" />
+            Entrar com Google
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#F8F9FA]">
@@ -624,6 +668,25 @@ export default function App() {
             onClick={() => setActiveTab('relatorios')} 
           />
         </nav>
+
+        <div className="p-4 border-t border-white/10">
+          <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-4">
+            <div className="w-8 h-8 rounded-full bg-titam-lime flex items-center justify-center text-titam-deep font-bold text-xs">
+              {user.displayName?.charAt(0) || user.email?.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold truncate">{user.displayName || 'Usuário'}</p>
+              <p className="text-[10px] text-white/40 truncate">{user.email}</p>
+            </div>
+          </div>
+          <button 
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-4 py-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-xs font-bold"
+          >
+            <X size={14} />
+            Sair do Sistema
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -1074,6 +1137,7 @@ export default function App() {
               onExportBackup={exportBackup} 
               onImportBackup={importBackup} 
               onUndoLastImport={undoLastImport}
+              isProcessing={isProcessing}
             />
           )}
         </AnimatePresence>
@@ -1216,6 +1280,7 @@ export default function App() {
                 <button 
                   onClick={async () => {
                     try {
+                      setIsProcessing(true);
                       const res = await fetch('/api/parse-nfe', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1228,12 +1293,24 @@ export default function App() {
                       setNfeContent('');
                     } catch (err) {
                       alert("Erro ao processar NF-e. Verifique o conteúdo.");
+                    } finally {
+                      setIsProcessing(false);
                     }
                   }}
-                  className="px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 font-bold"
+                  disabled={isProcessing || !nfeContent}
+                  className={`px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 font-bold ${(isProcessing || !nfeContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Search size={18} />
-                  Processar com IA
+                  {isProcessing ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-titam-deep/30 border-t-titam-deep rounded-full animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      <Search size={18} />
+                      Processar com IA
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -1430,9 +1507,15 @@ export default function App() {
                   </button>
                   <button 
                     onClick={() => handleUpdateEntry(selectedEntry.id, editFormData)} 
-                    className="px-8 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md"
+                    disabled={isUpdating}
+                    className={`px-8 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md flex items-center gap-2 ${isUpdating ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Salvar Alterações
+                    {isUpdating ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Salvando...
+                      </>
+                    ) : 'Salvar Alterações'}
                   </button>
                 </div>
               </div>
@@ -1465,12 +1548,14 @@ function ReportsView({
   entries, 
   onExportBackup, 
   onImportBackup,
-  onUndoLastImport
+  onUndoLastImport,
+  isProcessing
 }: { 
   entries: Entry[], 
   onExportBackup: () => void, 
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
-  onUndoLastImport: () => void
+  onUndoLastImport: () => void,
+  isProcessing: boolean
 }) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada'>('estoque');
   const [startDate, setStartDate] = useState('');
@@ -1530,9 +1615,14 @@ function ReportsView({
           <div className="flex gap-3">
             <button 
               onClick={onUndoLastImport}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-bold border border-red-100"
+              disabled={isProcessing}
+              className={`flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-bold border border-red-100 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Trash2 size={14} />
+              {isProcessing ? (
+                <div className="w-3 h-3 border-2 border-red-600/30 border-t-red-600 rounded-full animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
               Desfazer Última Importação
             </button>
             <button 
