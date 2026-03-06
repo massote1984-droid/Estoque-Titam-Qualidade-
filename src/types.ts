@@ -1,5 +1,5 @@
 export interface Entry {
-  id: number;
+  id: string | number;
   mes: string;
   chave_acesso: string;
   nf_numero: string;

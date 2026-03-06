@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Entry": {
+      "title": "Entry",
+      "description": "A stock entry record",
+      "type": "object",
+      "properties": {
+        "mes": { "type": "string" },
+        "chave_acesso": { "type": "string" },
+        "nf_numero": { "type": "string" },
+        "tonelada": { "type": "number" },
+        "valor": { "type": "number" },
+        "descricao_produto": { "type": "string" },
+        "data_nf": { "type": "string" },
+        "data_descarga": { "type": "string" },
+        "status": { "type": "string" },
+        "fornecedor": { "type": "string" },
+        "placa_veiculo": { "type": "string" },
+        "container": { "type": "string" },
+        "destino": { "type": "string" },
+        "data_faturamento_vli": { "type": "string" },
+        "cte_vli": { "type": "string" },
+        "numero_vagao": { "type": "string" },
+        "hora_chegada": { "type": "string" },
+        "hora_entrada": { "type": "string" },
+        "hora_saida": { "type": "string" },
+        "data_emissao_nf": { "type": "string" },
+        "cte_intertex": { "type": "string" },
+        "data_emissao_cte": { "type": "string" },
+        "cte_transportador": { "type": "string" },
+        "import_batch": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["nf_numero", "fornecedor", "status"]
+    }
+  },
+  "firestore": {
+    "entries": {
+      "schema": "Entry",
+      "description": "Collection of stock entries"
+    }
+  }
+}

@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: entries
+    // Document ID: auto-generated
+    // Fields:
+    //   - mes: string
+    //   - chave_acesso: string
+    //   - nf_numero: string (required)
+    //   - tonelada: number
+    //   - valor: number
+    //   - descricao_produto: string
+    //   - data_nf: string
+    //   - data_descarga: string
+    //   - status: string (required)
+    //   - fornecedor: string (required)
+    //   - placa_veiculo: string
+    //   - container: string
+    //   - destino: string
+    //   - data_faturamento_vli: string
+    //   - cte_vli: string
+    //   - numero_vagao: string
+    //   - hora_chegada: string
+    //   - hora_entrada: string
+    //   - hora_saida: string
+    //   - data_emissao_nf: string
+    //   - cte_intertex: string
+    //   - data_emissao_cte: string
+    //   - cte_transportador: string
+    //   - import_batch: string
+    //   - created_at: string
+    //   - uid: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "massote1984@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEntry(data) {
+      return data.keys().hasAll(['nf_numero', 'fornecedor', 'status', 'uid']) &&
+             data.nf_numero is string &&
+             data.fornecedor is string &&
+             data.status is string &&
+             data.uid is string;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /entries/{entryId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidEntry(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidEntry(request.resource.data) && (isDocOwner() || isAdmin());
+      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+    }
+  }
+}

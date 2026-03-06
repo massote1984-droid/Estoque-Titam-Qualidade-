@@ -41,10 +41,78 @@ import {
   Cell
 } from 'recharts';
 import { Entry, StockSummary } from './types';
+import { useAuth } from './components/FirebaseProvider';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy, 
+  serverTimestamp,
+  Timestamp,
+  where,
+  getDocs
+} from 'firebase/firestore';
+import { db } from './firebase';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string;
+    email?: string | null;
+    emailVerified?: boolean;
+    isAnonymous?: boolean;
+    tenantId?: string | null;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null, user: any) => {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: user?.uid,
+      email: user?.email,
+      emailVerified: user?.emailVerified,
+      isAnonymous: user?.isAnonymous,
+      tenantId: user?.tenantId,
+      providerInfo: user?.providerData.map((provider: any) => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+};
 
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios';
 
 export default function App() {
+  const { user, loading: authLoading, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,34 +172,34 @@ export default function App() {
   };
 
   const undoLastImport = async () => {
+    if (!user) return;
     if (!confirm("Tem certeza que deseja excluir os registros da última importação?")) return;
     
     try {
-      // Try to delete by batchId if we have it
-      const url = lastBatchId 
-        ? `/api/delete-batch?batchId=${lastBatchId}` 
-        : `/api/delete-batch?minutes=15`; // Fallback to last 15 mins for immediate fix
+      if (!lastBatchId) {
+        addNotification("Nenhuma importação recente encontrada para desfazer.", "warning");
+        return;
+      }
+
+      const q = query(collection(db, 'entries'), where('import_batch', '==', lastBatchId));
+      const snapshot = await getDocs(q);
       
-      const res = await fetch(url, { method: 'DELETE' });
-      const data = await res.json();
-      
-      if (data.success) {
-        addNotification(`${data.changes} registros excluídos com sucesso.`, "info");
-        // Clear local storage entries that might be pending
-        const localData = localStorage.getItem('stock_entries');
-        if (localData) {
-          const entries = JSON.parse(localData);
-          const filtered = entries.filter((e: any) => e.import_batch !== lastBatchId);
-          localStorage.setItem('stock_entries', JSON.stringify(filtered));
-        }
+      if (snapshot.empty) {
+        addNotification("Nenhum registro encontrado para esta importação.", "info");
         setLastBatchId(null);
         localStorage.removeItem('last_import_batch');
-        fetchData();
-      } else {
-        throw new Error(data.error || "Erro ao excluir registros");
+        return;
       }
+
+      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      addNotification(`${snapshot.size} registros excluídos com sucesso.`, "info");
+      setLastBatchId(null);
+      localStorage.removeItem('last_import_batch');
     } catch (err: any) {
-      addNotification(`Erro: ${err.message}`, "error");
+      handleFirestoreError(err, OperationType.DELETE, 'entries', user);
+      addNotification(`Erro ao desfazer importação: ${err.message}`, "error");
     }
   };
 
@@ -177,29 +245,26 @@ export default function App() {
         }
 
         if (entriesToImport.length > 0) {
-          const localData = localStorage.getItem('stock_entries');
-          const existingEntries = localData ? JSON.parse(localData) : [];
-          
           const batchId = `batch_${Date.now()}`;
           setLastBatchId(batchId);
           localStorage.setItem('last_import_batch', batchId);
 
-          const importedEntries = entriesToImport.map((ent: any) => ({ 
-            ...ent, 
-            id: ent.id || Date.now() + Math.random(),
-            import_batch: batchId,
-            isPending: true // Always mark as pending so they get synced to server
-          }));
-          
-          const mergedEntries = [...importedEntries, ...existingEntries];
-          setEntries(mergedEntries);
-          localStorage.setItem('stock_entries', JSON.stringify(mergedEntries));
-          addNotification(`${entriesToImport.length} registros importados. Sincronizando com o servidor...`, "info");
-          
-          if (serverStatus === 'online') {
-            syncOfflineData();
-          } else {
-            fetchData(); // This will handle offline summary calculation
+          if (user) {
+            addNotification(`${entriesToImport.length} registros importados. Sincronizando com Firestore...`, "info");
+            Promise.all(entriesToImport.map(ent => {
+              const { id, isPending, ...data } = ent;
+              return addDoc(collection(db, 'entries'), {
+                ...data,
+                import_batch: batchId,
+                uid: user.uid,
+                created_at: serverTimestamp()
+              });
+            })).then(() => {
+              addNotification("Importação concluída com sucesso!", "info");
+            }).catch(error => {
+              handleFirestoreError(error, OperationType.CREATE, 'entries', user);
+              addNotification("Erro ao sincronizar alguns registros importados.", "error");
+            });
           }
         } else {
           addNotification("Nenhum dado válido encontrado no arquivo.", "warning");
@@ -216,166 +281,41 @@ export default function App() {
     }
   };
 
-  const syncOfflineData = async () => {
-    if (isSyncing.current) return;
-    
-    const localData = localStorage.getItem('stock_entries');
-    if (!localData) return;
-
-    let currentEntries = JSON.parse(localData);
-    const pendingEntries = currentEntries.filter((e: any) => e.isPending);
-
-    if (pendingEntries.length === 0) return;
-
-    isSyncing.current = true;
-    setIsSyncingState(true);
-    console.log(`Sincronizando ${pendingEntries.length} registros pendentes...`);
-    
-    let syncSuccessCount = 0;
-    const updatedLocalEntries = [...currentEntries];
-
-    for (let i = 0; i < updatedLocalEntries.length; i++) {
-      const entry = updatedLocalEntries[i];
-      if (!entry.isPending) continue;
-
-      try {
-        const { id, isPending, ...dataToSync } = entry;
-        
-        // If ID is large, it's a temporary local ID, use POST to create
-        // If ID is small, it's an existing server ID, use PUT to update
-        const isNewEntry = id > 1000000000000;
-        
-        const res = await fetch(isNewEntry ? '/api/entries' : `/api/entries/${id}`, {
-          method: isNewEntry ? 'POST' : 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(dataToSync),
-        });
-
-        if (res.ok) {
-          if (isNewEntry) {
-            const result = await res.json();
-            updatedLocalEntries[i] = { ...entry, id: result.id, isPending: false };
-          } else {
-            updatedLocalEntries[i] = { ...entry, isPending: false };
-          }
-          syncSuccessCount++;
-        }
-      } catch (error) {
-        console.error("Erro ao sincronizar registro:", error);
-        break;
-      }
-    }
-
-    if (syncSuccessCount > 0) {
-      localStorage.setItem('stock_entries', JSON.stringify(updatedLocalEntries));
-      setEntries(updatedLocalEntries);
-      fetchData(); // Refresh all data from server after sync to ensure consistency
-    }
-    
-    isSyncing.current = false;
-    setIsSyncingState(false);
-  };
-
-  const fetchData = async () => {
-    try {
-      // Use a timeout for the health check to avoid long hangs
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const healthRes = await fetch(`/api/health?t=${Date.now()}`, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (healthRes.ok) {
-        if (serverStatus !== 'online') {
-          setServerStatus('online');
-          syncOfflineData();
-        }
-      } else {
-        throw new Error('Server offline');
-      }
-
-      const [entriesRes] = await Promise.all([
-        fetch('/api/entries')
-      ]);
-      
-      if (!entriesRes.ok) {
-        throw new Error('Failed to fetch entries');
-      }
-
-      const entriesData = await entriesRes.json();
-      
-      // Merge local pending entries with server data
-      const localData = localStorage.getItem('stock_entries');
-      const localEntries = localData ? JSON.parse(localData) : [];
-      const pendingEntries = localEntries.filter((e: any) => e.isPending);
-      
-      // Use a Map to ensure unique entries by ID, preferring server data for non-pending
-      const entryMap = new Map();
-      
-      // Add server entries first
-      entriesData.forEach((e: any) => entryMap.set(e.id, e));
-      
-      // Add pending entries (might overwrite if ID matches, but pending should have temp IDs)
-      pendingEntries.forEach((e: any) => entryMap.set(e.id, e));
-      
-      const mergedEntries = Array.from(entryMap.values());
-      
-      // Sort by created_at or ID to maintain order
-      mergedEntries.sort((a, b) => {
-        const dateA = new Date(a.created_at || 0).getTime();
-        const dateB = new Date(b.created_at || 0).getTime();
-        return dateB - dateA;
-      });
-
-      setEntries(mergedEntries);
-      
-      localStorage.setItem('stock_entries', JSON.stringify(mergedEntries));
-    } catch (error) {
-      console.error("Error fetching data, falling back to local storage:", error);
-      setServerStatus('offline');
-      
-      const localData = localStorage.getItem('stock_entries');
-      if (localData) {
-        const parsedData = JSON.parse(localData);
-        if (parsedData.length > 0) {
-          setEntries(parsedData);
-        }
-      }
-    } finally {
+  useEffect(() => {
+    if (!user) {
       setLoading(false);
+      return;
     }
-  };
+
+    setLoading(true);
+    const q = query(collection(db, 'entries'), orderBy('created_at', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const entriesData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id,
+        // Convert Firestore Timestamp to string for compatibility with existing code
+        created_at: doc.data().created_at instanceof Timestamp ? doc.data().created_at.toDate().toISOString() : doc.data().created_at
+      })) as Entry[];
+      
+      setEntries(entriesData);
+      setLoading(false);
+      setServerStatus('online');
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'entries', user);
+      setServerStatus('offline');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
-    fetchData();
-    
-    // Auto-update every 3 minutes
-    const intervalId = setInterval(() => {
-      console.log("Auto-atualizando dados...");
-      fetchData();
-    }, 3 * 60 * 1000);
-    
-    // Warn user if they try to leave with pending changes
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const localData = localStorage.getItem('stock_entries');
-      if (localData) {
-        const entries = JSON.parse(localData);
-        if (entries.some((e: any) => e.isPending)) {
-          e.preventDefault();
-          e.returnValue = '';
-        }
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
     setTimeout(() => {
       addNotification("Bem-vindo ao Sistema Titam! O monitoramento de estoque está ativo.", "info");
     }, 1500);
 
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      clearInterval(intervalId);
     };
   }, []);
 
@@ -475,8 +415,7 @@ export default function App() {
         if (!exitDate) return false;
         const [y, m] = exitDate.split('-').map(Number);
         return y === currentYear && m === currentMonth;
-      })
-      .reduce((acc, e) => acc + e.tonelada, 0);
+      }).length;
   }, [entries]);
 
   const exitChartData = React.useMemo(() => {
@@ -518,7 +457,7 @@ export default function App() {
         if (!dailyMap[exitDate][key]) {
           dailyMap[exitDate][key] = 0;
         }
-        dailyMap[exitDate][key] += entry.tonelada;
+        dailyMap[exitDate][key] += 1;
       }
     });
 
@@ -537,40 +476,39 @@ export default function App() {
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!user) return;
     setIsSaving(true);
     const formDataObj = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formDataObj.entries());
     
-    // Parse numeric fields allowing comma and dot (standard Brazilian format)
     const sanitizeNumeric = (val: any) => {
       if (typeof val !== 'string') return val;
-      // Remove thousands separator (dot) and replace decimal separator (comma) with dot
       return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
     };
     
     const data = {
       ...rawData,
       valor: sanitizeNumeric(rawData.valor),
-      tonelada: sanitizeNumeric(rawData.tonelada)
+      tonelada: sanitizeNumeric(rawData.tonelada),
+      uid: user.uid,
+      created_at: serverTimestamp()
     };
     
-    // Optimistic Update: Save locally first
-    const newId = Date.now() + Math.random();
-    const newItem = { ...data, id: newId, created_at: new Date().toISOString(), isPending: true };
-    const newEntries = [newItem, ...entries];
-    
-    setEntries(newEntries as Entry[]);
-    localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-    setShowForm(false);
-    setFormData({});
-    setIsSaving(false);
-
-    // Try to sync in background
-    syncOfflineData();
+    try {
+      await addDoc(collection(db, 'entries'), data);
+      addNotification("Registro salvo com sucesso!", "info");
+      setShowForm(false);
+      setFormData({});
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'entries', user);
+      addNotification("Erro ao salvar registro.", "error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleUpdateEntry = async (id: number, updates: Partial<Entry>) => {
-    // Ensure numeric fields are numbers if they are strings
+  const handleUpdateEntry = async (id: string | number, updates: Partial<Entry>) => {
+    if (!user) return;
     const sanitizedUpdates = { ...updates };
     const sanitizeNumeric = (val: any) => {
       if (typeof val !== 'string') return val;
@@ -584,36 +522,30 @@ export default function App() {
       sanitizedUpdates.tonelada = sanitizeNumeric(sanitizedUpdates.tonelada);
     }
 
-    // Optimistic Update: Save locally first
-    const updatedEntries = entries.map(e => e.id === id ? { ...e, ...sanitizedUpdates, isPending: true } : e);
-    setEntries(updatedEntries);
-    localStorage.setItem('stock_entries', JSON.stringify(updatedEntries));
-    setSelectedEntry(null);
+    // Remove fields that shouldn't be updated or are incompatible
+    delete sanitizedUpdates.id;
+    delete sanitizedUpdates.isPending;
 
-    // Try to sync in background
-    syncOfflineData();
+    try {
+      await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
+      addNotification("Registro atualizado!", "info");
+      setSelectedEntry(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
+      addNotification("Erro ao atualizar registro.", "error");
+    }
   };
 
-  const handleDeleteEntry = async (id: number) => {
+  const handleDeleteEntry = async (id: string | number) => {
+    if (!user) return;
     if (!confirm("Tem certeza que deseja excluir este registro?")) return;
     
-    const previousEntries = [...entries];
-    const newEntries = entries.filter(e => e.id !== id);
-    setEntries(newEntries);
-    localStorage.setItem('stock_entries', JSON.stringify(newEntries));
-    
     try {
-      if (serverStatus === 'online') {
-        const res = await fetch(`/api/entries/${id}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) {
-          // If server delete fails, we might want to revert or just log
-          console.error("Failed to delete on server");
-        }
-      }
-    } catch (error: any) {
-      console.error("Error deleting entry:", error);
+      await deleteDoc(doc(db, 'entries', String(id)));
+      addNotification("Registro excluído!", "info");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `entries/${id}`, user);
+      addNotification("Erro ao excluir registro.", "error");
     }
   };
 
@@ -713,16 +645,6 @@ export default function App() {
                 serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
               }`} />
               {serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Modo Offline (Local)' : 'Verificando...'}
-              {serverStatus === 'offline' && (
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => fetchData()} 
-                    className="ml-2 underline hover:text-red-800 transition-colors"
-                  >
-                    Tentar Reconectar
-                  </button>
-                </div>
-              )}
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -734,11 +656,10 @@ export default function App() {
             )}
             <button 
               onClick={() => {
-                addNotification("Iniciando sincronização manual...", "info");
-                fetchData();
+                addNotification("A sincronização é automática e em tempo real.", "info");
               }}
               className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 rounded-lg transition-colors"
-              title="Sincronizar Dados"
+              title="Sincronização Automática"
             >
               <SyncIcon size={20} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -881,8 +802,8 @@ export default function App() {
                 />
                 <StatCard 
                   title="Total Saídas Mês" 
-                  value={monthlyExitTotal.toFixed(1)} 
-                  subtitle="Toneladas (Mês Atual)"
+                  value={monthlyExitTotal.toString()} 
+                  subtitle="Unidades (Mês Atual)"
                   icon={<TrendingUp className="text-emerald-600" />}
                 />
                 <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
@@ -906,7 +827,7 @@ export default function App() {
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                       <BarChart3 size={18} className="text-titam-deep" />
-                      Saídas por Dia (Toneladas por Destino/Produto)
+                      Saídas por Dia (Unidades por Destino/Produto)
                     </h3>
                   </div>
                   <div className="h-[300px]">
@@ -1573,7 +1494,7 @@ function ReportsView({
       : reportType === 'logistica_vli'
       ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
       : reportType === 'saida_detalhada'
-      ? ['Data Embarque', 'Data NF', 'Data Descarga', 'NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
+      ? ['Data Embarque', 'Data NF', 'Data Descarga', 'NF', 'Volume (Ton)', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
@@ -1581,7 +1502,7 @@ function ReportsView({
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
-      if (reportType === 'saida_detalhada') return [e.data_embarque, e.data_nf, e.data_descarga, e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
+      if (reportType === 'saida_detalhada') return [e.data_embarque, e.data_nf, e.data_descarga, e.nf_numero, e.tonelada, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
@@ -1735,6 +1656,7 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
                     <th className="px-6 py-3 data-grid-header">Data Descarga</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Volume (Ton)</th>
                     <th className="px-6 py-3 data-grid-header">Container</th>
                     <th className="px-6 py-3 data-grid-header">Vagão</th>
                     <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
@@ -1804,6 +1726,7 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
@@ -1876,7 +1799,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
   entries: Entry[], 
   columns: { key: keyof Entry, label: string }[], 
   onEdit: (e: Entry) => void,
-  onDelete: (id: number) => void
+  onDelete: (id: string | number) => void
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
