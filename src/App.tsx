@@ -602,12 +602,12 @@ export default function App() {
             {loginLoading ? (
               <>
                 <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
-                Autenticando...
+                <span>Autenticando...</span>
               </>
             ) : (
               <>
-                <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" />
-                Entrar com Google
+                <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" referrerPolicy="no-referrer" />
+                <span>Entrar com Google</span>
               </>
             )}
           </button>
@@ -695,7 +695,7 @@ export default function App() {
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-4">
             <div className="w-8 h-8 rounded-full bg-titam-lime flex items-center justify-center text-titam-deep font-bold text-xs">
-              {user.displayName?.charAt(0) || user.email?.charAt(0).toUpperCase()}
+              <span>{user.displayName?.charAt(0) || user.email?.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold truncate">{user.displayName || 'Usuário'}</p>
@@ -718,7 +718,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-gray-900 capitalize">
-                {activeTab === 'dashboard' ? 'Painel Informativo - Titam' : activeTab}
+                <span>{activeTab === 'dashboard' ? 'Painel Informativo - Titam' : activeTab}</span>
               </h1>
               <p className="text-gray-500 text-sm">Gerencie seu estoque com precisão técnica.</p>
             </div>
@@ -730,14 +730,14 @@ export default function App() {
                 serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
                 serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
               }`} />
-              {serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Modo Offline (Local)' : 'Verificando...'}
+              <span>{serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Modo Offline (Local)' : 'Verificando...'}</span>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {isSyncingState && (
               <div className="flex items-center gap-2 text-[10px] text-titam-deep font-bold bg-titam-lime/20 px-3 py-1 rounded-full animate-pulse">
                 <SyncIcon size={10} className="animate-spin" />
-                Sincronizando...
+                <span>Sincronizando...</span>
               </div>
             )}
             <button 
@@ -1985,11 +1985,13 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-4 text-sm text-gray-600">
                       <div className="flex items-center gap-2">
-                        {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
-                         (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
-                         (col.key === 'valor' || col.key === 'tonelada') ? 
-                           (entry[col.key] !== undefined ? Number(entry[col.key]).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-') :
-                         (entry[col.key] || '-')}
+                        <span>
+                          {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
+                           (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
+                           (col.key === 'valor' || col.key === 'tonelada') ? 
+                             (entry[col.key] !== undefined ? Number(entry[col.key]).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-') :
+                           (entry[col.key] || '-')}
+                        </span>
                         {col.key === 'nf_numero' && entry.isPending && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-bold uppercase flex items-center gap-1">
                             <RefreshCw size={10} className="animate-spin" />
