@@ -112,7 +112,7 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios';
 
 export default function App() {
-  const { user, loading: authLoading, login, logout } = useAuth();
+  const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -581,12 +581,30 @@ export default function App() {
           </div>
           <h1 className="text-3xl font-bold text-titam-deep mb-2">Titam Intermodais</h1>
           <p className="text-gray-500 mb-8">Acesse o sistema para gerenciar seu estoque e logística.</p>
+          
+          {authError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-left">
+              <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
+              <p className="text-sm text-red-600 font-medium leading-relaxed">{authError}</p>
+            </div>
+          )}
+
           <button 
             onClick={login}
-            className="w-full bg-titam-deep text-white py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3"
+            disabled={loginLoading}
+            className={`w-full bg-titam-deep text-white py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3 ${loginLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" />
-            Entrar com Google
+            {loginLoading ? (
+              <>
+                <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+                Autenticando...
+              </>
+            ) : (
+              <>
+                <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" />
+                Entrar com Google
+              </>
+            )}
           </button>
         </motion.div>
       </div>
