@@ -175,7 +175,6 @@ export default function App() {
 
   const undoLastImport = async () => {
     if (!user) return;
-    if (!confirm("Tem certeza que deseja excluir os registros da última importação?")) return;
     
     try {
       setIsProcessing(true);
@@ -340,96 +339,107 @@ export default function App() {
   };
 
   const chartDataDaily = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
     const dailyMap: Record<string, any> = {};
     entries.forEach(entry => {
+      if (!entry || !entry.data_nf) return;
       const date = entry.data_nf;
       if (!dailyMap[date]) {
         dailyMap[date] = { date, 'Cal Dolomítico': 0, 'Cal Calcítico': 0, total: 0 };
       }
-      if (entry.descricao_produto === 'Cal Dolomítico') dailyMap[date]['Cal Dolomítico'] += entry.tonelada;
-      if (entry.descricao_produto === 'Cal Calcítico') dailyMap[date]['Cal Calcítico'] += entry.tonelada;
-      dailyMap[date].total += entry.tonelada;
+      if (entry.descricao_produto === 'Cal Dolomítico') dailyMap[date]['Cal Dolomítico'] += (entry.tonelada || 0);
+      if (entry.descricao_produto === 'Cal Calcítico') dailyMap[date]['Cal Calcítico'] += (entry.tonelada || 0);
+      dailyMap[date].total += (entry.tonelada || 0);
     });
-    return Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+    return Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date)).slice(-7);
   }, [entries]);
 
   const performanceChartData = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
     return entries
-      .filter(e => e.hora_chegada && e.hora_saida)
+      .filter(e => e && e.hora_chegada && e.hora_saida)
       .slice(-10)
       .map(e => ({
-        nf: `NF ${e.nf_numero}`,
+        nf: `NF ${e.nf_numero || '-'}`,
         total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
         descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
       }));
   }, [entries]);
 
   const summary = React.useMemo(() => {
-    const suppliers = [...new Set(entries.map(e => e.fornecedor))];
+    if (!Array.isArray(entries)) return [];
+    const suppliers = [...new Set(entries.filter(e => e && e.fornecedor).map(e => e.fornecedor))];
     return suppliers.map(s => {
-      const supplierEntries = entries.filter(e => e.fornecedor === s);
+      const supplierEntries = entries.filter(e => e && e.fornecedor === s);
       return {
         fornecedor: s,
-        in_stock: supplierEntries.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
-        exited: supplierEntries.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length
+        in_stock: supplierEntries.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+        exited: supplierEntries.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
       };
     });
   }, [entries]);
 
   const productDestSummary = React.useMemo(() => {
-    const productDests = [...new Set(entries.map(e => `${e.descricao_produto}|${e.destino}`))];
+    if (!Array.isArray(entries)) return [];
+    const productDests = [...new Set(entries.filter(e => e && e.descricao_produto && e.destino).map(e => `${e.descricao_produto}|${e.destino}`))];
     return productDests.map(pd => {
       const [prod, dest] = (pd as string).split('|');
-      const filtered = entries.filter(e => e.descricao_produto === prod && e.destino === dest);
+      const filtered = entries.filter(e => e && e.descricao_produto === prod && e.destino === dest);
       return {
         descricao_produto: prod,
         destino: dest,
-        in_stock: filtered.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
-        exited: filtered.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length
+        in_stock: filtered.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+        exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
       };
     });
   }, [entries]);
 
   const supplierStockByDate = React.useMemo(() => {
-    const filtered = entries.filter(e => selectedDates.includes(e.data_descarga));
+    if (!Array.isArray(entries)) return [];
+    const filtered = entries.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const supplierMap: Record<string, number> = {};
     filtered.forEach(e => {
-      supplierMap[e.fornecedor] = (supplierMap[e.fornecedor] || 0) + 1;
+      if (e.fornecedor) {
+        supplierMap[e.fornecedor] = (supplierMap[e.fornecedor] || 0) + 1;
+      }
     });
     return Object.entries(supplierMap).map(([name, count]) => ({ name, count }));
   }, [entries, selectedDates]);
 
   const dailyStats = React.useMemo(() => {
-    const filtered = entries.filter(e => selectedDates.includes(e.data_descarga));
+    if (!Array.isArray(entries)) return { in_stock: 0, exited: 0, suppliers: 0 };
+    const filtered = entries.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     return {
-      in_stock: filtered.filter(e => ['Estoque', 'Rejeitado'].includes(e.status)).length,
-      exited: filtered.filter(e => ['Embarcado', 'Devolvido'].includes(e.status)).length,
-      suppliers: [...new Set(filtered.map(e => e.fornecedor))].length
+      in_stock: filtered.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+      exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length,
+      suppliers: [...new Set(filtered.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length
     };
   }, [entries, selectedDates]);
 
   const monthlyExitTotal = React.useMemo(() => {
+    if (!Array.isArray(entries)) return 0;
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
     
     return entries
       .filter(e => {
-        if (!['Embarcado', 'Devolvido'].includes(e.status)) return false;
+        if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
         const exitDate = e.data_faturamento_vli || e.data_descarga;
         if (!exitDate) return false;
-        const [y, m] = exitDate.split('-').map(Number);
+        const parts = exitDate.split('-');
+        if (parts.length < 2) return false;
+        const [y, m] = parts.map(Number);
         return y === currentYear && m === currentMonth;
       }).length;
   }, [entries]);
 
   const exitChartData = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
     const dailyMap: Record<string, any> = {};
     
-    // Filter entries that:
-    // 1. Arrived on the selected dates AND are exited (to show later exits)
-    // 2. OR exited on the selected dates (to show exits of older stock)
     const exitedEntries = entries.filter(entry => {
+      if (!entry) return false;
       const isExited = ['Embarcado', 'Devolvido'].includes(entry.status);
       if (!isExited) return false;
       
@@ -439,10 +449,6 @@ export default function App() {
       return arrivedOnSelected || exitedOnSelected;
     });
 
-    // Get all unique dates to build the X-axis
-    // This includes:
-    // - All selected dates (context)
-    // - All actual exit dates for the filtered entries
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
       const exitDate = entry.data_faturamento_vli || entry.data_descarga;
@@ -546,14 +552,13 @@ export default function App() {
 
   const handleDeleteEntry = async (id: string | number) => {
     if (!user) return;
-    if (!confirm("Tem certeza que deseja excluir este registro?")) return;
     
     try {
       await deleteDoc(doc(db, 'entries', String(id)));
-      addNotification("Registro excluído!", "info");
+      addNotification("Registro excluído com sucesso!", "info");
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `entries/${id}`, user);
-      addNotification("Erro ao excluir registro.", "error");
+      addNotification("Erro ao excluir registro. Verifique suas permissões.", "error");
     }
   };
 
