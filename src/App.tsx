@@ -525,42 +525,59 @@ export default function App() {
   const supplierStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
-    const supplierMap: Record<string, { total: number, products: Record<string, number> }> = {};
+    const supplierMap: Record<string, { total: number, tons: number, products: Record<string, { count: number, tons: number }> }> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
         if (!supplierMap[e.fornecedor]) {
-          supplierMap[e.fornecedor] = { total: 0, products: {} };
+          supplierMap[e.fornecedor] = { total: 0, tons: 0, products: {} };
         }
         supplierMap[e.fornecedor].total += 1;
+        supplierMap[e.fornecedor].tons += (e.tonelada || 0);
         const product = e.descricao_produto || 'Não especificado';
-        supplierMap[e.fornecedor].products[product] = (supplierMap[e.fornecedor].products[product] || 0) + 1;
+        if (!supplierMap[e.fornecedor].products[product]) {
+          supplierMap[e.fornecedor].products[product] = { count: 0, tons: 0 };
+        }
+        supplierMap[e.fornecedor].products[product].count += 1;
+        supplierMap[e.fornecedor].products[product].tons += (e.tonelada || 0);
       }
     });
     return Object.entries(supplierMap).map(([name, data]) => ({ 
       name, 
       count: data.total,
-      products: Object.entries(data.products).map(([pName, pCount]) => ({ name: pName, count: pCount }))
+      tons: data.tons,
+      products: Object.entries(data.products).map(([pName, pData]) => ({ name: pName, count: pData.count, tons: pData.tons }))
     }));
   }, [filteredEntriesForDashboard, selectedDates]);
 
   const productStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
-    const productMap: Record<string, number> = {};
+    const productMap: Record<string, { count: number, tons: number }> = {};
     filtered.forEach(e => {
       const product = e.descricao_produto || 'Não especificado';
-      productMap[product] = (productMap[product] || 0) + 1;
+      if (!productMap[product]) {
+        productMap[product] = { count: 0, tons: 0 };
+      }
+      productMap[product].count += 1;
+      productMap[product].tons += (e.tonelada || 0);
     });
-    return Object.entries(productMap).map(([name, count]) => ({ name, count }));
+    return Object.entries(productMap).map(([name, data]) => ({ name, count: data.count, tons: data.tons }));
   }, [filteredEntriesForDashboard, selectedDates]);
 
   const dailyStats = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { in_stock: 0, exited: 0, suppliers: 0 };
-    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    
+    const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const exits = filteredEntriesForDashboard.filter(e => {
+      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
+      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      return exitDate && selectedDates.includes(exitDate);
+    });
+    
     return {
-      in_stock: filtered.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
-      exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length,
-      suppliers: [...new Set(filtered.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length
+      in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+      exited: exits.length,
+      suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length
     };
   }, [filteredEntriesForDashboard, selectedDates]);
 
@@ -573,7 +590,7 @@ export default function App() {
     return filteredEntriesForDashboard
       .filter(e => {
         if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
-        const exitDate = e.data_faturamento_vli || e.data_descarga;
+        const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
         if (!exitDate) return false;
         const parts = exitDate.split('-');
         if (parts.length < 2) return false;
@@ -592,14 +609,15 @@ export default function App() {
       if (!isExited) return false;
       
       const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
-      const exitedOnSelected = entry.data_faturamento_vli && selectedDates.includes(entry.data_faturamento_vli);
+      const exitDate = entry.data_embarque || entry.data_faturamento_vli;
+      const exitedOnSelected = exitDate && selectedDates.includes(exitDate);
       
       return arrivedOnSelected || exitedOnSelected;
     });
 
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
-      const exitDate = entry.data_faturamento_vli || entry.data_descarga;
+      const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
       if (exitDate) chartDates.add(exitDate);
     });
 
@@ -610,13 +628,15 @@ export default function App() {
     });
 
     exitedEntries.forEach(entry => {
-      const exitDate = entry.data_faturamento_vli || entry.data_descarga;
+      const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
         if (!dailyMap[exitDate][key]) {
           dailyMap[exitDate][key] = 0;
+          dailyMap[exitDate][`${key}_tons`] = 0;
         }
         dailyMap[exitDate][key] += 1;
+        dailyMap[exitDate][`${key}_tons`] += (entry.tonelada || 0);
       }
     });
 
@@ -640,6 +660,23 @@ export default function App() {
     const formDataObj = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formDataObj.entries());
     
+    // Check for duplicate NF per supplier
+    const nf = rawData.nf_numero;
+    const fornecedor = rawData.fornecedor;
+    if (nf && fornecedor) {
+      const isDuplicate = entries.some(entry => 
+        entry.nf_numero && 
+        entry.nf_numero.toString() === nf.toString() && 
+        entry.fornecedor === fornecedor
+      );
+      
+      if (isDuplicate) {
+        addNotification(`A Nota Fiscal ${nf} já está cadastrada para o fornecedor ${fornecedor}!`, "error");
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const sanitizeNumeric = (val: any) => {
       if (typeof val !== 'string') return val;
       return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
@@ -1158,7 +1195,31 @@ export default function App() {
                         />
                         <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} />
                         <Tooltip 
-                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-xl">
+                                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">{label?.toString().split('-').reverse().join('/')}</p>
+                                  <div className="space-y-2">
+                                    {payload.map((entry: any, index: number) => {
+                                      const tons = entry.payload[`${entry.name}_tons`] || 0;
+                                      return (
+                                        <div key={index} className="flex flex-col border-l-4 pl-2" style={{ borderColor: entry.color }}>
+                                          <p className="text-xs font-bold text-gray-700">{entry.name}</p>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-sm font-black text-titam-deep">{entry.value} Un</span>
+                                            <span className="text-gray-300">|</span>
+                                            <span className="text-sm font-bold text-titam-lime">{tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
                         />
                         <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
                         {exitChartKeys.map((key, idx) => (
@@ -1326,7 +1387,13 @@ export default function App() {
                         {productStockByDate.map((p, i) => (
                           <div key={i} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-gray-100 shadow-sm">
                             <span className="text-xs font-medium text-gray-600">{p.name}:</span>
-                            <span className="text-sm font-bold text-titam-deep">{p.count}</span>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-sm font-bold text-titam-deep">{p.count}</span>
+                              <span className="text-[10px] text-gray-400 font-medium">NFs</span>
+                              <span className="text-gray-300 mx-1">|</span>
+                              <span className="text-sm font-bold text-titam-lime">{p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                              <span className="text-[10px] text-gray-400 font-medium">Ton</span>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1338,14 +1405,28 @@ export default function App() {
                         <div key={idx} className="p-4 rounded-lg border border-gray-100 bg-gray-50/50 flex flex-col">
                           <div className="text-center mb-3">
                             <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
-                            <p className="text-3xl font-black text-titam-deep">{item.count}</p>
-                            <p className="text-[10px] text-gray-400 font-medium">Total NFs</p>
+                            <div className="flex items-center justify-center gap-4">
+                              <div>
+                                <p className="text-2xl font-black text-titam-deep">{item.count}</p>
+                                <p className="text-[9px] text-gray-400 font-bold uppercase">NFs</p>
+                              </div>
+                              <div className="w-px h-8 bg-gray-200"></div>
+                              <div>
+                                <p className="text-2xl font-black text-titam-lime">{item.tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</p>
+                                <p className="text-[9px] text-gray-400 font-bold uppercase">Ton</p>
+                              </div>
+                            </div>
                           </div>
                           <div className="space-y-1.5 pt-3 border-t border-gray-200/50">
                             {item.products.map((p, pi) => (
-                              <div key={pi} className="flex justify-between items-center text-[10px]">
-                                <span className="text-gray-500 truncate mr-2" title={p.name}>{p.name}</span>
-                                <span className="font-bold text-titam-deep bg-white px-1.5 py-0.5 rounded border border-gray-100">{p.count}</span>
+                              <div key={pi} className="flex flex-col space-y-0.5">
+                                <span className="text-[10px] text-gray-500 truncate font-medium" title={p.name}>{p.name}</span>
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-gray-400">{p.count} NFs</span>
+                                  <span className="font-bold text-titam-deep bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                                    {p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton
+                                  </span>
+                                </div>
                               </div>
                             ))}
                           </div>
