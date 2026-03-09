@@ -525,13 +525,33 @@ export default function App() {
   const supplierStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
-    const supplierMap: Record<string, number> = {};
+    const supplierMap: Record<string, { total: number, products: Record<string, number> }> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
-        supplierMap[e.fornecedor] = (supplierMap[e.fornecedor] || 0) + 1;
+        if (!supplierMap[e.fornecedor]) {
+          supplierMap[e.fornecedor] = { total: 0, products: {} };
+        }
+        supplierMap[e.fornecedor].total += 1;
+        const product = e.descricao_produto || 'Não especificado';
+        supplierMap[e.fornecedor].products[product] = (supplierMap[e.fornecedor].products[product] || 0) + 1;
       }
     });
-    return Object.entries(supplierMap).map(([name, count]) => ({ name, count }));
+    return Object.entries(supplierMap).map(([name, data]) => ({ 
+      name, 
+      count: data.total,
+      products: Object.entries(data.products).map(([pName, pCount]) => ({ name: pName, count: pCount }))
+    }));
+  }, [filteredEntriesForDashboard, selectedDates]);
+
+  const productStockByDate = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const productMap: Record<string, number> = {};
+    filtered.forEach(e => {
+      const product = e.descricao_produto || 'Não especificado';
+      productMap[product] = (productMap[product] || 0) + 1;
+    });
+    return Object.entries(productMap).map(([name, count]) => ({ name, count }));
   }, [filteredEntriesForDashboard, selectedDates]);
 
   const dailyStats = React.useMemo(() => {
@@ -1298,14 +1318,40 @@ export default function App() {
                 </div>
                 
                 {supplierStockByDate.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {supplierStockByDate.map((item, idx) => (
-                      <div key={idx} className="p-4 rounded-lg border border-gray-100 bg-gray-50/50 flex flex-col items-center justify-center text-center">
-                        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
-                        <p className="text-3xl font-black text-titam-deep">{item.count}</p>
-                        <p className="text-[10px] text-gray-400 font-medium mt-1">Notas Fiscais</p>
+                  <div className="space-y-6">
+                    {/* Totals by Product Type */}
+                    <div className="bg-titam-deep/5 p-4 rounded-xl border border-titam-deep/10">
+                      <p className="text-[10px] font-bold text-titam-deep uppercase tracking-widest mb-3">Total por Tipo de Produto (Período Selecionado)</p>
+                      <div className="flex flex-wrap gap-4">
+                        {productStockByDate.map((p, i) => (
+                          <div key={i} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-gray-100 shadow-sm">
+                            <span className="text-xs font-medium text-gray-600">{p.name}:</span>
+                            <span className="text-sm font-bold text-titam-deep">{p.count}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Breakdown by Supplier and Product */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {supplierStockByDate.map((item, idx) => (
+                        <div key={idx} className="p-4 rounded-lg border border-gray-100 bg-gray-50/50 flex flex-col">
+                          <div className="text-center mb-3">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
+                            <p className="text-3xl font-black text-titam-deep">{item.count}</p>
+                            <p className="text-[10px] text-gray-400 font-medium">Total NFs</p>
+                          </div>
+                          <div className="space-y-1.5 pt-3 border-t border-gray-200/50">
+                            {item.products.map((p, pi) => (
+                              <div key={pi} className="flex justify-between items-center text-[10px]">
+                                <span className="text-gray-500 truncate mr-2" title={p.name}>{p.name}</span>
+                                <span className="font-bold text-titam-deep bg-white px-1.5 py-0.5 rounded border border-gray-100">{p.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <div className="py-12 flex flex-col items-center justify-center text-center text-gray-400">
