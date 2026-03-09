@@ -24,9 +24,13 @@ import {
   Activity,
   Bell,
   AlertTriangle,
+  AlertCircle,
   Upload,
-  RefreshCw as SyncIcon
+  RefreshCw as SyncIcon,
+  FileDown
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import * as htmlToImage from 'html-to-image';
 import { 
   BarChart, 
   Bar, 
@@ -125,12 +129,15 @@ export default function App() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
-  const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error'}[]>([]);
+  const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
   const [lastBatchId, setLastBatchId] = useState<string | null>(localStorage.getItem('last_import_batch'));
   const isSyncing = React.useRef(false);
   const [isSyncingState, setIsSyncingState] = useState(false);
+  const [supplierFilter, setSupplierFilter] = useState<string>('');
+  const [productDestSupplierFilter, setProductDestSupplierFilter] = useState<string>('');
+  const [nfSearch, setNfSearch] = useState<string>('');
 
   useEffect(() => {
     if (selectedEntry) {
@@ -140,22 +147,25 @@ export default function App() {
     }
   }, [selectedEntry]);
 
-  const addNotification = (message: string, type: 'info' | 'warning' | 'error' = 'info') => {
+  const addNotification = (message: string, type: 'info' | 'warning' | 'error' | 'critical' = 'info', persistent: boolean = false) => {
     const id = Math.random().toString(36).substring(7);
-    setNotifications(prev => [{id, message, type}, ...prev]);
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+    setNotifications(prev => [{id, message, type, persistent}, ...prev]);
+    if (!persistent && type !== 'critical') {
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+      }, 8000); // Increased time for better visibility
+    }
   };
 
   const triggerTestAlert = () => {
     const alerts = [
-      { msg: "ALERTA: Estoque de Cal Dolomítico (Serra-ES) está abaixo do limite mínimo (150t)!", type: 'warning' },
-      { msg: "NOTIFICAÇÃO: 3 novos caminhões aguardando na portaria.", type: 'info' },
-      { msg: "ERRO: Falha na sincronização com o sistema VLI. Tentando novamente...", type: 'error' }
+      { msg: "ALERTA CRÍTICO: Estoque de Cal Dolomítico (Serra-ES) está abaixo do limite mínimo (150t)!", type: 'critical' },
+      { msg: "AVISO: 3 novos caminhões aguardando na portaria.", type: 'warning' },
+      { msg: "NOTIFICAÇÃO: Sincronização concluída com sucesso.", type: 'info' },
+      { msg: "ERRO: Falha na conexão com o banco de dados central.", type: 'error' }
     ];
     const alert = alerts[Math.floor(Math.random() * alerts.length)];
-    addNotification(alert.msg, alert.type as any);
+    addNotification(alert.msg, alert.type as any, alert.type === 'critical');
   };
 
   const exportBackup = () => {
@@ -171,6 +181,80 @@ export default function App() {
     link.download = `titam_backup_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
     addNotification("Backup exportado com sucesso!", "info");
+  };
+
+  const exportDashboardPDF = async () => {
+    const dashboardElement = document.getElementById('dashboard-content');
+    if (!dashboardElement) {
+      addNotification("Dashboard não encontrado para exportação.", "error");
+      return;
+    }
+
+    addNotification("Iniciando exportação completa...", "info");
+    
+    try {
+      // Ensure we're at the top for capture
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      
+      // Wait a bit for layout to settle
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Use html-to-image
+      const imgData = await htmlToImage.toJpeg(dashboardElement, {
+        quality: 0.7, // Slightly lower quality for better multi-page handling
+        backgroundColor: '#F8F9FA',
+        pixelRatio: 1.2, // Slightly lower pixel ratio for better multi-page handling
+        style: {
+          padding: '20px',
+          height: 'auto',
+          overflow: 'visible',
+          transform: 'none',
+          animation: 'none',
+          transition: 'none'
+        }
+      });
+      
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      
+      const img = new Image();
+      img.src = imgData;
+      
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
+
+      const imgWidth = pageWidth;
+      const imgHeight = (img.height * pageWidth) / img.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      heightLeft -= pageHeight;
+
+      // Add subsequent pages if needed
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        heightLeft -= pageHeight;
+      }
+      
+      pdf.save(`titam_dashboard_${new Date().getTime()}.pdf`);
+      addNotification("PDF exportado com sucesso!", "info");
+    } catch (error: any) {
+      console.error("PDF Export Error:", error);
+      addNotification(`Erro na exportação: ${error.message || 'Falha técnica'}`, "error");
+    }
   };
 
   const undoLastImport = async () => {
@@ -338,10 +422,29 @@ export default function App() {
     }
   };
 
-  const chartDataDaily = React.useMemo(() => {
+  const filteredEntriesForDashboard = React.useMemo(() => {
     if (!Array.isArray(entries)) return [];
+    let filtered = entries;
+    
+    if (nfSearch) {
+      const search = nfSearch.toLowerCase();
+      filtered = filtered.filter(e => 
+        e && (
+          (e.nf_numero && e.nf_numero.toString().includes(search)) ||
+          (e.fornecedor && e.fornecedor.toLowerCase().includes(search)) ||
+          (e.descricao_produto && e.descricao_produto.toLowerCase().includes(search)) ||
+          (e.destino && e.destino.toLowerCase().includes(search))
+        )
+      );
+    }
+    
+    return filtered;
+  }, [entries, nfSearch]);
+
+  const chartDataDaily = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const dailyMap: Record<string, any> = {};
-    entries.forEach(entry => {
+    filteredEntriesForDashboard.forEach(entry => {
       if (!entry || !entry.data_nf) return;
       const date = entry.data_nf;
       if (!dailyMap[date]) {
@@ -352,11 +455,11 @@ export default function App() {
       dailyMap[date].total += (entry.tonelada || 0);
     });
     return Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date)).slice(-7);
-  }, [entries]);
+  }, [filteredEntriesForDashboard]);
 
   const performanceChartData = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    return entries
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    return filteredEntriesForDashboard
       .filter(e => e && e.hora_chegada && e.hora_saida)
       .slice(-10)
       .map(e => ({
@@ -364,27 +467,52 @@ export default function App() {
         total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
         descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
       }));
-  }, [entries]);
+  }, [filteredEntriesForDashboard]);
+
+  const performanceAverages = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return { avgTotal: 0, avgDescarga: 0 };
+    const validEntries = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && e.hora_saida);
+    if (validEntries.length === 0) return { avgTotal: 0, avgDescarga: 0 };
+    
+    const totalSum = validEntries.reduce((acc, e) => acc + calculateTimeInMinutes(e.hora_chegada, e.hora_saida), 0);
+    const descargaSum = validEntries.reduce((acc, e) => acc + calculateTimeInMinutes(e.hora_entrada, e.hora_saida), 0);
+    
+    return {
+      avgTotal: Math.round(totalSum / validEntries.length),
+      avgDescarga: Math.round(descargaSum / validEntries.length)
+    };
+  }, [filteredEntriesForDashboard]);
 
   const summary = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    const suppliers = [...new Set(entries.filter(e => e && e.fornecedor).map(e => e.fornecedor))];
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    let suppliers = [...new Set(filteredEntriesForDashboard.filter(e => e && e.fornecedor).map(e => e.fornecedor))];
+    
+    if (supplierFilter) {
+      suppliers = suppliers.filter(s => s.toLowerCase().includes(supplierFilter.toLowerCase()));
+    }
+
     return suppliers.map(s => {
-      const supplierEntries = entries.filter(e => e && e.fornecedor === s);
+      const supplierEntries = filteredEntriesForDashboard.filter(e => e && e.fornecedor === s);
       return {
         fornecedor: s,
         in_stock: supplierEntries.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
         exited: supplierEntries.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
       };
     });
-  }, [entries]);
+  }, [filteredEntriesForDashboard, supplierFilter]);
 
   const productDestSummary = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    const productDests = [...new Set(entries.filter(e => e && e.descricao_produto && e.destino).map(e => `${e.descricao_produto}|${e.destino}`))];
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    
+    let filteredEntries = filteredEntriesForDashboard;
+    if (productDestSupplierFilter) {
+      filteredEntries = filteredEntriesForDashboard.filter(e => e && e.fornecedor && e.fornecedor.toLowerCase().includes(productDestSupplierFilter.toLowerCase()));
+    }
+
+    const productDests = [...new Set(filteredEntries.filter(e => e && e.descricao_produto && e.destino).map(e => `${e.descricao_produto}|${e.destino}`))];
     return productDests.map(pd => {
       const [prod, dest] = (pd as string).split('|');
-      const filtered = entries.filter(e => e && e.descricao_produto === prod && e.destino === dest);
+      const filtered = filteredEntries.filter(e => e && e.descricao_produto === prod && e.destino === dest);
       return {
         descricao_produto: prod,
         destino: dest,
@@ -392,11 +520,11 @@ export default function App() {
         exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
       };
     });
-  }, [entries]);
+  }, [filteredEntriesForDashboard, productDestSupplierFilter]);
 
   const supplierStockByDate = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    const filtered = entries.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const supplierMap: Record<string, number> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
@@ -404,25 +532,25 @@ export default function App() {
       }
     });
     return Object.entries(supplierMap).map(([name, count]) => ({ name, count }));
-  }, [entries, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates]);
 
   const dailyStats = React.useMemo(() => {
-    if (!Array.isArray(entries)) return { in_stock: 0, exited: 0, suppliers: 0 };
-    const filtered = entries.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    if (!Array.isArray(filteredEntriesForDashboard)) return { in_stock: 0, exited: 0, suppliers: 0 };
+    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     return {
       in_stock: filtered.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length,
       suppliers: [...new Set(filtered.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length
     };
-  }, [entries, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates]);
 
   const monthlyExitTotal = React.useMemo(() => {
-    if (!Array.isArray(entries)) return 0;
+    if (!Array.isArray(filteredEntriesForDashboard)) return 0;
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
     
-    return entries
+    return filteredEntriesForDashboard
       .filter(e => {
         if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
         const exitDate = e.data_faturamento_vli || e.data_descarga;
@@ -432,13 +560,13 @@ export default function App() {
         const [y, m] = parts.map(Number);
         return y === currentYear && m === currentMonth;
       }).length;
-  }, [entries]);
+  }, [filteredEntriesForDashboard]);
 
   const exitChartData = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const dailyMap: Record<string, any> = {};
     
-    const exitedEntries = entries.filter(entry => {
+    const exitedEntries = filteredEntriesForDashboard.filter(entry => {
       if (!entry) return false;
       const isExited = ['Embarcado', 'Devolvido'].includes(entry.status);
       if (!isExited) return false;
@@ -473,17 +601,17 @@ export default function App() {
     });
 
     return Object.values(dailyMap);
-  }, [entries, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates]);
 
   const exitChartKeys = React.useMemo(() => {
     const keys = new Set<string>();
-    entries.forEach(entry => {
+    filteredEntriesForDashboard.forEach(entry => {
       if (['Embarcado', 'Devolvido'].includes(entry.status)) {
         keys.add(`${entry.descricao_produto} - ${entry.destino}`);
       }
     });
     return Array.from(keys);
-  }, [entries]);
+  }, [filteredEntriesForDashboard]);
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -714,6 +842,30 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-8">
+        <AnimatePresence>
+          {notifications.filter(n => n.type === 'critical').map(n => (
+            <motion.div
+              key={n.id}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="bg-red-600 text-white px-6 py-3 flex items-center justify-between shadow-lg relative z-[100]"
+            >
+              <div className="flex items-center gap-3">
+                <AlertTriangle size={20} className="animate-pulse" />
+                <span className="font-bold tracking-wide uppercase text-sm">Alerta Crítico:</span>
+                <span className="font-medium">{n.message}</span>
+              </div>
+              <button 
+                onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
+                className="hover:bg-white/20 p-1 rounded-full transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
         <header className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-4">
             <div>
@@ -763,27 +915,41 @@ export default function App() {
               </button>
               
               <AnimatePresence>
-                {notifications.length > 0 && (
-                  <div className="absolute right-0 mt-2 w-80 z-50 pointer-events-none">
-                    {notifications.map((n, i) => (
+                {notifications.filter(n => n.type !== 'critical').length > 0 && (
+                  <div className="fixed bottom-8 right-8 w-96 z-[100] flex flex-col gap-3">
+                    {notifications.filter(n => n.type !== 'critical').map((n, i) => (
                       <motion.div
                         key={n.id}
-                        initial={{ opacity: 0, x: 20, y: -10 }}
-                        animate={{ opacity: 1, x: 0, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        className={`mb-2 p-4 rounded-xl shadow-lg border flex items-start gap-3 pointer-events-auto ${
-                          n.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' :
-                          n.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                          'bg-blue-50 border-blue-200 text-blue-800'
+                        layout
+                        initial={{ opacity: 0, x: 50, scale: 0.9 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                        className={`p-5 rounded-2xl shadow-2xl border-2 flex items-start gap-4 pointer-events-auto backdrop-blur-md ${
+                          n.type === 'warning' ? 'bg-amber-50/90 border-amber-200 text-amber-900 shadow-amber-200/20' :
+                          n.type === 'error' ? 'bg-red-50/90 border-red-200 text-red-900 shadow-red-200/20' :
+                          'bg-white/90 border-gray-100 text-gray-900 shadow-gray-200/20'
                         }`}
                       >
-                        {n.type === 'warning' && <AlertTriangle size={18} className="shrink-0 mt-0.5" />}
-                        <p className="text-sm font-medium">{n.message}</p>
+                        <div className={`p-2 rounded-xl shrink-0 ${
+                          n.type === 'warning' ? 'bg-amber-100 text-amber-600' :
+                          n.type === 'error' ? 'bg-red-100 text-red-600' :
+                          'bg-titam-lime/20 text-titam-deep'
+                        }`}>
+                          {n.type === 'warning' && <AlertTriangle size={20} />}
+                          {n.type === 'error' && <AlertCircle size={20} />}
+                          {n.type === 'info' && <Bell size={20} />}
+                        </div>
+                        <div className="flex-1 pt-0.5">
+                          <h4 className="font-bold text-sm uppercase tracking-wider mb-1">
+                            {n.type === 'warning' ? 'Atenção' : n.type === 'error' ? 'Erro' : 'Notificação'}
+                          </h4>
+                          <p className="text-sm leading-relaxed opacity-90">{n.message}</p>
+                        </div>
                         <button 
                           onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
-                          className="ml-auto text-gray-400 hover:text-gray-600"
+                          className="text-gray-400 hover:text-gray-600 transition-colors"
                         >
-                          <X size={14} />
+                          <X size={18} />
                         </button>
                       </motion.div>
                     ))}
@@ -815,40 +981,74 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               className="space-y-8"
+              id="dashboard-content"
             >
-              {/* Date Filter */}
+              {/* Date & NF Filter */}
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-titam-lime/10 rounded-lg text-titam-deep">
-                      <Calendar size={20} />
+                      <Filter size={20} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-gray-900">Filtro por Data de Descarga</h3>
-                      <p className="text-xs text-gray-500">Selecione uma ou mais datas para filtrar os dados.</p>
+                      <h3 className="text-sm font-bold text-gray-900">Filtros do Dashboard</h3>
+                      <p className="text-xs text-gray-500">Filtre por data de descarga ou número da NF.</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="date" 
-                      onChange={(e) => {
-                        const date = e.target.value;
-                        if (date && !selectedDates.includes(date)) {
-                          setSelectedDates(prev => [...prev, date].sort());
-                        }
-                      }}
-                      className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-gray-700"
-                    />
-                    <button 
-                      onClick={() => setSelectedDates([new Date().toISOString().split('T')[0]])}
-                      className="text-xs font-bold text-titam-deep hover:underline px-2"
-                    >
-                      Resetar
-                    </button>
+                  
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                      <input 
+                        type="text" 
+                        placeholder="Pesquisar NF..."
+                        value={nfSearch}
+                        onChange={(e) => setNfSearch(e.target.value)}
+                        className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-titam-lime outline-none transition-all w-full sm:w-48"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="date" 
+                        onChange={(e) => {
+                          const date = e.target.value;
+                          if (date) {
+                            // If user just wants to filter by ONE day, they can click a button
+                            // But for now, we'll keep the multi-select logic and add a "Clear" option
+                            if (!selectedDates.includes(date)) {
+                              setSelectedDates(prev => [...prev, date].sort());
+                            }
+                          }
+                        }}
+                        className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-sm text-gray-700 bg-gray-50"
+                      />
+                      <div className="flex flex-col sm:flex-row gap-1">
+                        <button 
+                          onClick={() => {
+                            setSelectedDates([new Date().toISOString().split('T')[0]]);
+                            setNfSearch('');
+                          }}
+                          className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 hover:bg-titam-lime/40 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          Hoje
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setSelectedDates([]);
+                            setNfSearch('');
+                          }}
+                          className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-all"
+                        >
+                          Limpar
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-50">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider w-full mb-1">Datas Selecionadas:</span>
                   {selectedDates.map(date => (
                     <div key={date} className="flex items-center gap-2 bg-titam-lime/20 text-titam-deep px-3 py-1 rounded-full text-xs font-bold border border-titam-lime/30">
                       {date.split('-').reverse().join('/')}
@@ -892,19 +1092,28 @@ export default function App() {
                   subtitle="Unidades (Mês Atual)"
                   icon={<TrendingUp className="text-emerald-600" />}
                 />
-                <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-white/60 text-[10px] font-bold uppercase tracking-wider mb-1">Centro de Alertas</h3>
-                    <p className="text-white text-lg font-bold">Teste o Sistema</p>
+                  <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-white/60 text-[10px] font-bold uppercase tracking-wider mb-1">Relatórios e Exportação</h3>
+                      <p className="text-white text-lg font-bold">Exportar Dados</p>
+                    </div>
+                    <div className="flex flex-col gap-2 mt-3">
+                      <button 
+                        onClick={exportDashboardPDF}
+                        className="w-full py-1.5 bg-titam-lime text-titam-deep rounded-lg text-xs font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
+                      >
+                        <FileDown size={14} />
+                        Exportar PDF
+                      </button>
+                      <button 
+                        onClick={triggerTestAlert}
+                        className="w-full py-1.5 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Bell size={14} />
+                        Testar Alerta
+                      </button>
+                    </div>
                   </div>
-                  <button 
-                    onClick={triggerTestAlert}
-                    className="mt-3 w-full py-1.5 bg-titam-lime text-titam-deep rounded-lg text-xs font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Bell size={14} />
-                    Disparar Alerta
-                  </button>
-                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -953,6 +1162,18 @@ export default function App() {
                       <Activity size={18} className="text-amber-600" />
                       Performance Logística (Minutos)
                     </h3>
+                    <div className="flex gap-4 text-xs font-medium">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-titam-lime"></span>
+                        <span className="text-gray-500">Média Total:</span>
+                        <span className="text-gray-900">{performanceAverages.avgTotal} min</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-titam-deep"></span>
+                        <span className="text-gray-500">Média Descarga:</span>
+                        <span className="text-gray-900">{performanceAverages.avgDescarga} min</span>
+                      </div>
+                    </div>
                   </div>
                   <div className="h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -979,8 +1200,18 @@ export default function App() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                  <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h2 className="font-semibold text-gray-900">Estoque por Fornecedor</h2>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                      <input 
+                        type="text" 
+                        placeholder="Filtrar fornecedor..."
+                        value={supplierFilter}
+                        onChange={(e) => setSupplierFilter(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-titam-lime outline-none transition-all"
+                      />
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
@@ -1011,8 +1242,18 @@ export default function App() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                  <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h2 className="font-semibold text-gray-900">Estoque por Produto e Destino</h2>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                      <input 
+                        type="text" 
+                        placeholder="Filtrar por fornecedor..."
+                        value={productDestSupplierFilter}
+                        onChange={(e) => setProductDestSupplierFilter(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-titam-lime outline-none transition-all"
+                      />
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
