@@ -27,7 +27,8 @@ import {
   AlertCircle,
   Upload,
   RefreshCw as SyncIcon,
-  FileDown
+  FileDown,
+  Scale
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -138,6 +139,8 @@ export default function App() {
   const [supplierFilter, setSupplierFilter] = useState<string>('');
   const [productDestSupplierFilter, setProductDestSupplierFilter] = useState<string>('');
   const [nfSearch, setNfSearch] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   useEffect(() => {
     if (selectedEntry) {
@@ -577,7 +580,8 @@ export default function App() {
     return {
       in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: exits.length,
-      suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length
+      suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length,
+      exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0)
     };
   }, [filteredEntriesForDashboard, selectedDates]);
 
@@ -653,6 +657,75 @@ export default function App() {
     return Array.from(keys);
   }, [filteredEntriesForDashboard]);
 
+  const selectedPeriodExitsSummary = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    
+    const summaryMap: Record<string, { 
+      destination: string, 
+      products: Record<string, { count: number, tons: number }> 
+    }> = {};
+
+    filteredEntriesForDashboard.forEach(e => {
+      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      if (!exitDate || !selectedDates.includes(exitDate)) return;
+      
+      const dest = e.destino || 'Não especificado';
+      if (!summaryMap[dest]) {
+        summaryMap[dest] = { destination: dest, products: {} };
+      }
+      
+      const prod = e.descricao_produto || 'Não especificado';
+      if (!summaryMap[dest].products[prod]) {
+        summaryMap[dest].products[prod] = { count: 0, tons: 0 };
+      }
+      
+      summaryMap[dest].products[prod].count += 1;
+      summaryMap[dest].products[prod].tons += (e.tonelada || 0);
+    });
+
+    return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
+  }, [filteredEntriesForDashboard, selectedDates]);
+
+  const monthlyAccumulatedExits = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
+    
+    const monthlyMap: Record<string, { 
+      month: string, 
+      destinations: Record<string, { 
+        products: Record<string, { count: number, tons: number }> 
+      }> 
+    }> = {};
+
+    entries.forEach(e => {
+      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
+      if (!exitDate) return;
+      
+      const [year, month] = exitDate.split('-');
+      const monthKey = `${year}-${month}`;
+      
+      if (!monthlyMap[monthKey]) {
+        monthlyMap[monthKey] = { month: monthKey, destinations: {} };
+      }
+      
+      const dest = e.destino || 'Não especificado';
+      if (!monthlyMap[monthKey].destinations[dest]) {
+        monthlyMap[monthKey].destinations[dest] = { products: {} };
+      }
+      
+      const prod = e.descricao_produto || 'Não especificado';
+      if (!monthlyMap[monthKey].destinations[dest].products[prod]) {
+        monthlyMap[monthKey].destinations[dest].products[prod] = { count: 0, tons: 0 };
+      }
+      
+      monthlyMap[monthKey].destinations[dest].products[prod].count += 1;
+      monthlyMap[monthKey].destinations[dest].products[prod].tons += (e.tonelada || 0);
+    });
+
+    return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
+  }, [entries]);
+
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
@@ -661,13 +734,13 @@ export default function App() {
     const rawData = Object.fromEntries(formDataObj.entries());
     
     // Check for duplicate NF per supplier
-    const nf = rawData.nf_numero;
-    const fornecedor = rawData.fornecedor;
+    const nf = rawData.nf_numero?.toString().trim();
+    const fornecedor = rawData.fornecedor?.toString().trim();
     if (nf && fornecedor) {
       const isDuplicate = entries.some(entry => 
         entry.nf_numero && 
-        entry.nf_numero.toString() === nf.toString() && 
-        entry.fornecedor === fornecedor
+        entry.nf_numero.toString().trim() === nf && 
+        entry.fornecedor?.toString().trim().toLowerCase() === fornecedor.toLowerCase()
       );
       
       if (isDuplicate) {
@@ -1065,37 +1138,66 @@ export default function App() {
                       />
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="date" 
-                        onChange={(e) => {
-                          const date = e.target.value;
-                          if (date) {
-                            // If user just wants to filter by ONE day, they can click a button
-                            // But for now, we'll keep the multi-select logic and add a "Clear" option
-                            if (!selectedDates.includes(date)) {
-                              setSelectedDates(prev => [...prev, date].sort());
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Início:</span>
+                        <input 
+                          type="date" 
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="bg-transparent outline-none text-xs font-medium text-gray-700"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Fim:</span>
+                        <input 
+                          type="date" 
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="bg-transparent outline-none text-xs font-medium text-gray-700"
+                        />
+                      </div>
+                      <button 
+                        onClick={() => {
+                          if (startDate && endDate) {
+                            const start = new Date(startDate);
+                            const end = new Date(endDate);
+                            const dates = [];
+                            let current = new Date(start);
+                            while (current <= end) {
+                              dates.push(current.toISOString().split('T')[0]);
+                              current.setDate(current.getDate() + 1);
                             }
+                            setSelectedDates(dates);
+                          } else if (startDate) {
+                            setSelectedDates([startDate]);
                           }
                         }}
-                        className="border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-titam-lime outline-none font-medium text-sm text-gray-700 bg-gray-50"
-                      />
-                      <div className="flex flex-col sm:flex-row gap-1">
+                        className="bg-titam-deep text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-titam-deep/90 transition-all shadow-sm"
+                      >
+                        Aplicar Período
+                      </button>
+                      <div className="flex gap-1">
                         <button 
                           onClick={() => {
-                            setSelectedDates([new Date().toISOString().split('T')[0]]);
+                            const today = new Date().toISOString().split('T')[0];
+                            setSelectedDates([today]);
+                            setStartDate(today);
+                            setEndDate(today);
                             setNfSearch('');
                           }}
-                          className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 hover:bg-titam-lime/40 px-3 py-1.5 rounded-lg transition-all"
+                          className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 hover:bg-titam-lime/40 px-3 py-2 rounded-lg transition-all"
                         >
                           Hoje
                         </button>
                         <button 
                           onClick={() => {
                             setSelectedDates([]);
+                            setStartDate('');
+                            setEndDate('');
                             setNfSearch('');
                           }}
-                          className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-all"
+                          className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg transition-all"
                         >
                           Limpar
                         </button>
@@ -1105,8 +1207,10 @@ export default function App() {
                 </div>
                 
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-50">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider w-full mb-1">Datas Selecionadas:</span>
-                  {selectedDates.map(date => (
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider w-full mb-1">
+                    {selectedDates.length > 5 ? `Período Selecionado: ${selectedDates[0].split('-').reverse().join('/')} até ${selectedDates[selectedDates.length-1].split('-').reverse().join('/')} (${selectedDates.length} dias)` : 'Datas Selecionadas:'}
+                  </span>
+                  {selectedDates.length <= 5 && selectedDates.map(date => (
                     <div key={date} className="flex items-center gap-2 bg-titam-lime/20 text-titam-deep px-3 py-1 rounded-full text-xs font-bold border border-titam-lime/30">
                       {date.split('-').reverse().join('/')}
                       <button 
@@ -1149,28 +1253,12 @@ export default function App() {
                   subtitle="Unidades (Mês Atual)"
                   icon={<TrendingUp className="text-emerald-600" />}
                 />
-                  <div className="bg-titam-deep rounded-xl p-5 shadow-sm border border-white/10 flex flex-col justify-between">
-                    <div>
-                      <h3 className="text-white/60 text-[10px] font-bold uppercase tracking-wider mb-1">Relatórios e Exportação</h3>
-                      <p className="text-white text-lg font-bold">Exportar Dados</p>
-                    </div>
-                    <div className="flex flex-col gap-2 mt-3">
-                      <button 
-                        onClick={exportDashboardPDF}
-                        className="w-full py-1.5 bg-titam-lime text-titam-deep rounded-lg text-xs font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2"
-                      >
-                        <FileDown size={14} />
-                        Exportar PDF
-                      </button>
-                      <button 
-                        onClick={triggerTestAlert}
-                        className="w-full py-1.5 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-all flex items-center justify-center gap-2"
-                      >
-                        <Bell size={14} />
-                        Testar Alerta
-                      </button>
-                    </div>
-                  </div>
+                <StatCard 
+                  title="Toneladas Saídas" 
+                  value={dailyStats.exited_tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} 
+                  subtitle="Ton (Período Selecionado)"
+                  icon={<Scale className="text-titam-lime" />}
+                />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1440,6 +1528,115 @@ export default function App() {
                     <p className="text-sm font-medium">Nenhuma nota fiscal recebida nesta data.</p>
                   </div>
                 )}
+              </div>
+
+              {/* Summary of Exits by Destination and Product (Selected Period) */}
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <ArrowUpRight size={18} className="text-titam-deep" />
+                    Resumo de Saídas por Destino e Produto (Período Selecionado)
+                  </h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {selectedPeriodExitsSummary.length === 0 ? (
+                    <div className="col-span-full text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                      <p className="text-gray-400 text-sm">Nenhuma saída no período selecionado.</p>
+                    </div>
+                  ) : (
+                    selectedPeriodExitsSummary.map((destData) => (
+                      <div key={destData.destination} className="bg-gray-50/50 rounded-xl p-4 border border-gray-100">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-1.5 h-4 bg-titam-lime rounded-full"></div>
+                          <h4 className="text-xs font-black text-gray-700 uppercase tracking-tight">{destData.destination}</h4>
+                        </div>
+                        <div className="space-y-2">
+                          {Object.entries(destData.products).map(([prod, data]) => (
+                            <div key={prod} className="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center shadow-sm">
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
+                                <span className="text-xs font-black text-titam-deep">{data.count} Unidades</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
+                                <span className="text-xs font-black text-titam-deep">{data.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Monthly Accumulated Exits Section */}
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <Calendar size={18} className="text-titam-deep" />
+                    Acumulado de Saídas por Mês (Destino e Material)
+                  </h3>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={exportDashboardPDF}
+                      className="px-3 py-1.5 bg-titam-deep text-white rounded-lg text-[10px] font-bold hover:opacity-90 transition-all flex items-center gap-2"
+                    >
+                      <FileDown size={14} />
+                      Exportar PDF
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="space-y-8">
+                  {monthlyAccumulatedExits.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                      <p className="text-gray-400 text-sm">Nenhuma saída registrada até o momento.</p>
+                    </div>
+                  ) : (
+                    monthlyAccumulatedExits.map((monthData) => (
+                      <div key={monthData.month} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-titam-deep px-4 py-3 flex justify-between items-center">
+                          <h4 className="text-white font-bold uppercase tracking-wider text-sm">
+                            {new Date(monthData.month + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                          </h4>
+                          <div className="flex gap-4 text-white/80 text-[10px] font-bold uppercase">
+                            <span>Total Mês: {Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0)} Un</span>
+                            <span>|</span>
+                            <span>{Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.tons, 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                          </div>
+                        </div>
+                        
+                        <div className="divide-y divide-gray-100">
+                          {Object.entries(monthData.destinations).map(([dest, destData]) => (
+                            <div key={dest} className="p-4 hover:bg-gray-50 transition-colors">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-2 h-2 rounded-full bg-titam-lime"></div>
+                                <span className="text-xs font-black text-gray-700 uppercase tracking-tight">{dest}</span>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {Object.entries(destData.products).map(([prod, prodData]) => (
+                                  <div key={prod} className="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center shadow-sm">
+                                    <div className="flex flex-col">
+                                      <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
+                                      <span className="text-xs font-black text-titam-deep">{prodData.count} Unidades</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
+                                      <span className="text-xs font-black text-titam-deep">{prodData.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
