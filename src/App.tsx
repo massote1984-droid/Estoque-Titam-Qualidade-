@@ -28,7 +28,8 @@ import {
   Upload,
   RefreshCw as SyncIcon,
   FileDown,
-  Scale
+  Scale,
+  PieChart as PieChartIcon
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -43,6 +44,8 @@ import {
   LineChart, 
   Line, 
   Legend,
+  PieChart,
+  Pie,
   Cell
 } from 'recharts';
 import { Entry, StockSummary } from './types';
@@ -685,6 +688,32 @@ export default function App() {
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
+  }, [filteredEntriesForDashboard, selectedDates]);
+
+  const exitsByDestinationPieData = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    const destMap: Record<string, number> = {};
+    filteredEntriesForDashboard.forEach(e => {
+      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      if (!exitDate || !selectedDates.includes(exitDate)) return;
+      const dest = e.destino || 'Não especificado';
+      destMap[dest] = (destMap[dest] || 0) + (e.tonelada || 0);
+    });
+    return Object.entries(destMap).map(([name, value]) => ({ name, value }));
+  }, [filteredEntriesForDashboard, selectedDates]);
+
+  const exitsByProductPieData = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    const prodMap: Record<string, number> = {};
+    filteredEntriesForDashboard.forEach(e => {
+      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      if (!exitDate || !selectedDates.includes(exitDate)) return;
+      const prod = e.descricao_produto || 'Não especificado';
+      prodMap[prod] = (prodMap[prod] || 0) + (e.tonelada || 0);
+    });
+    return Object.entries(prodMap).map(([name, value]) => ({ name, value }));
   }, [filteredEntriesForDashboard, selectedDates]);
 
   const monthlyAccumulatedExits = React.useMemo(() => {
@@ -1530,6 +1559,76 @@ export default function App() {
                 )}
               </div>
 
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Pie Chart: Tons by Destination */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <PieChartIcon size={18} className="text-titam-deep" />
+                      Toneladas por Destino (Período)
+                    </h3>
+                  </div>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={exitsByDestinationPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                        >
+                          {exitsByDestinationPieData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={index % 2 === 0 ? "#B6D932" : "#1E3932"} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value: number) => [`${value.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} Ton`, 'Peso']}
+                        />
+                        <Legend verticalAlign="bottom" height={36}/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Pie Chart: Tons by Product */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <PieChartIcon size={18} className="text-titam-deep" />
+                      Toneladas por Produto (Período)
+                    </h3>
+                  </div>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={exitsByProductPieData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                        >
+                          {exitsByProductPieData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={index % 2 === 0 ? "#1E3932" : "#B6D932"} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value: number) => [`${value.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} Ton`, 'Peso']}
+                        />
+                        <Legend verticalAlign="bottom" height={36}/>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
               {/* Summary of Exits by Destination and Product (Selected Period) */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
@@ -1667,21 +1766,53 @@ export default function App() {
           )}
 
           {activeTab === 'saida' && (
-            <DataView 
-              title="Gestão de Saídas"
-              entries={entries}
-              columns={[
-                { key: 'data_embarque', label: 'Data Embarque' },
-                { key: 'nf_numero', label: 'N.F' },
-                { key: 'container', label: 'Container' },
-                { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
-                { key: 'cte_vli', label: 'CTE VLI' },
-                { key: 'numero_vagao', label: 'Nº Vagão' },
-                { key: 'status', label: 'Status' }
-              ]}
-              onEdit={setSelectedEntry}
-              onDelete={handleDeleteEntry}
-            />
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Total Saídas (Período)</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-deep">{dailyStats.exited}</span>
+                    <span className="text-xs text-gray-400 font-bold">UNIDADES</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Peso Total (Período)</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-lime">{dailyStats.exited_tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span>
+                    <span className="text-xs text-gray-400 font-bold">TONELADAS</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Média por NF</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-deep">
+                      {dailyStats.exited > 0 ? (dailyStats.exited_tons / dailyStats.exited).toLocaleString('pt-BR', { minimumFractionDigits: 1 }) : '0,0'}
+                    </span>
+                    <span className="text-xs text-gray-400 font-bold">TON/NF</span>
+                  </div>
+                </div>
+              </div>
+
+              <DataView 
+                title="Gestão de Saídas"
+                entries={entries}
+                columns={[
+                  { key: 'data_embarque', label: 'Data Embarque' },
+                  { key: 'nf_numero', label: 'N.F' },
+                  { key: 'descricao_produto', label: 'Produto' },
+                  { key: 'tonelada', label: 'Tonelada' },
+                  { key: 'container', label: 'Container' },
+                  { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
+                  { key: 'cte_vli', label: 'CTE VLI' },
+                  { key: 'numero_vagao', label: 'Nº Vagão' },
+                  { key: 'destino', label: 'Destino' },
+                  { key: 'fornecedor', label: 'Fornecedor' },
+                  { key: 'status', label: 'Status' }
+                ]}
+                onEdit={setSelectedEntry}
+                onDelete={handleDeleteEntry}
+              />
+            </div>
           )}
 
           {activeTab === 'faturamento' && (
