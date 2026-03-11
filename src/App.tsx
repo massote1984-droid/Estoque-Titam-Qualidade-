@@ -132,6 +132,8 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<string | number | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
@@ -328,7 +330,18 @@ export default function App() {
             descricao_produto: row.Produto || row.descricao_produto || row.PRODUTO || row.Descricao || '',
             data_nf: row['Data NF'] || row.data_nf || row['DATA NF'] || row.Data || '',
             data_descarga: row['Data Descarga'] || row.data_descarga || row['DATA DESCARGA'] || row.Descarga || '',
+            data_embarque: row['Data Embarque'] || row.data_embarque || row['DATA EMBARQUE'] || row.Embarque || '',
             data_faturamento_vli: row['Data Fat. VLI'] || row.data_faturamento_vli || row['DATA FATURAMENTO'] || '',
+            cte_vli: row['CTE VLI'] || row.cte_vli || '',
+            numero_vagao: row['Nº Vagão'] || row.numero_vagao || row.Vagao || '',
+            hora_chegada: row['Hora Chegada'] || row.hora_chegada || '',
+            hora_entrada: row['Hora Entrada'] || row.hora_entrada || '',
+            hora_saida: row['Hora Saída'] || row.hora_saida || '',
+            data_emissao_nf: row['Data Emissão NF'] || row.data_emissao_nf || '',
+            cte_intertex: row['CTE Intertex'] || row.cte_intertex || '',
+            data_emissao_cte: row['Data Emissão CTE'] || row.data_emissao_cte || '',
+            data_emissao_cte_transp: row['Data Emissão CTE Transp.'] || row.data_emissao_cte_transp || '',
+            cte_transportador: row['CTE Transportador'] || row.cte_transportador || '',
             status: row.Status || row.status || row.STATUS || 'Estoque',
             fornecedor: row.Fornecedor || row.fornecedor || row.FORNECEDOR || '',
             placa_veiculo: row.Placa || row.placa_veiculo || row.PLACA || '',
@@ -597,11 +610,26 @@ export default function App() {
     return filteredEntriesForDashboard
       .filter(e => {
         if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
+        
+        // Prioritize data_embarque for exits
         const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
         if (!exitDate) return false;
-        const parts = exitDate.split('-');
-        if (parts.length < 2) return false;
-        const [y, m] = parts.map(Number);
+        
+        let y, m;
+        if (exitDate.includes('-')) {
+          const parts = exitDate.split('-');
+          if (parts.length >= 2) {
+            y = Number(parts[0]);
+            m = Number(parts[1]);
+          }
+        } else if (exitDate.includes('/')) {
+          const parts = exitDate.split('/');
+          if (parts.length === 3) {
+            y = Number(parts[2]);
+            m = Number(parts[1]);
+          }
+        }
+        
         return y === currentYear && m === currentMonth;
       }).length;
   }, [filteredEntriesForDashboard]);
@@ -624,6 +652,7 @@ export default function App() {
 
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
+      // Prioritize data_embarque for exits
       const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
       if (exitDate) chartDates.add(exitDate);
     });
@@ -635,6 +664,7 @@ export default function App() {
     });
 
     exitedEntries.forEach(entry => {
+      // Prioritize data_embarque for exits
       const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
@@ -728,11 +758,26 @@ export default function App() {
 
     entries.forEach(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      
+      // Prioritize data_embarque as requested for exits
       const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
       if (!exitDate) return;
       
-      const [year, month] = exitDate.split('-');
-      const monthKey = `${year}-${month}`;
+      // Handle both YYYY-MM-DD and DD/MM/YYYY formats
+      let year, month;
+      if (exitDate.includes('-')) {
+        [year, month] = exitDate.split('-');
+      } else if (exitDate.includes('/')) {
+        const parts = exitDate.split('/');
+        if (parts.length === 3) {
+          // Assume DD/MM/YYYY
+          year = parts[2];
+          month = parts[1];
+        }
+      }
+      
+      if (!year || !month) return;
+      const monthKey = `${year}-${month.padStart(2, '0')}`;
       
       if (!monthlyMap[monthKey]) {
         monthlyMap[monthKey] = { month: monthKey, destinations: {} };
@@ -754,6 +799,28 @@ export default function App() {
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
   }, [entries]);
+
+  const getMonthName = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      let date;
+      if (dateStr.includes('-')) {
+        date = new Date(dateStr + 'T12:00:00');
+      } else if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          date = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]), 12, 0, 0);
+        }
+      }
+      
+      if (!date || isNaN(date.getTime())) return '';
+      
+      return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        .replace(/^\w/, (c) => c.toUpperCase());
+    } catch (e) {
+      return '';
+    }
+  };
 
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -837,15 +904,23 @@ export default function App() {
     }
   };
 
-  const handleDeleteEntry = async (id: string | number) => {
-    if (!user) return;
+  const handleDeleteEntry = (id: string | number) => {
+    setDeleteConfirmation(id);
+  };
+
+  const executeDelete = async () => {
+    if (!user || !deleteConfirmation) return;
     
+    setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, 'entries', String(id)));
+      await deleteDoc(doc(db, 'entries', String(deleteConfirmation)));
       addNotification("Registro excluído com sucesso!", "info");
+      setDeleteConfirmation(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `entries/${id}`, user);
+      handleFirestoreError(error, OperationType.DELETE, `entries/${deleteConfirmation}`, user);
       addNotification("Erro ao excluir registro. Verifique suas permissões.", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1861,6 +1936,62 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {deleteConfirmation && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="p-6 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
+                    <AlertTriangle size={32} />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Confirmar Exclusão</h2>
+                  <p className="text-gray-500 mb-6">
+                    Você tem certeza que deseja excluir este registro? Esta ação não pode ser desfeita.
+                    {entries.find(e => e.id === deleteConfirmation) && (
+                      <span className="block mt-2 font-semibold text-titam-deep">
+                        NF: {entries.find(e => e.id === deleteConfirmation)?.nf_numero}
+                      </span>
+                    )}
+                  </p>
+                  
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => setDeleteConfirmation(null)}
+                      disabled={isDeleting}
+                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={executeDelete}
+                      disabled={isDeleting}
+                      className={`flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-bold shadow-md flex items-center justify-center gap-2 ${isDeleting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isDeleting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Excluindo...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={18} />
+                          Excluir
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Entry Form Modal */}
         {showForm && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1890,7 +2021,15 @@ export default function App() {
                 onSubmit={handleCreateEntry} 
                 className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6"
               >
-                <Input label="Mês" name="mes" required defaultValue={formData.mes} />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                  <input 
+                    name="mes" 
+                    required 
+                    defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_embarque || new Date().toISOString().split('T')[0])} 
+                    className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-gray-50"
+                  />
+                </div>
                 <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
                 <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
                 <Input 
@@ -2055,6 +2194,14 @@ export default function App() {
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                      <input 
+                        value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_embarque)}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, mes: e.target.value }))}
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-gray-50"
+                      />
+                    </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                       <select 
@@ -2290,7 +2437,7 @@ function ReportsView({
 
   const exportToCSV = () => {
     const headers = reportType === 'estoque' 
-      ? ['Fornecedor', 'Produto', 'Tonelada', 'Status', 'Data NF']
+      ? ['Data NF', 'NF', 'Fornecedor', 'Produto', 'Tonelada', 'Status']
       : reportType === 'faturamento'
       ? ['NF', 'Valor', 'Data Emissão', 'CTE Intertex', 'CTE Transportador']
       : reportType === 'performance'
@@ -2302,7 +2449,7 @@ function ReportsView({
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
-      if (reportType === 'estoque') return [e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_nf];
+      if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
@@ -2420,11 +2567,12 @@ function ReportsView({
               <tr className="bg-gray-50 border-b border-gray-100">
                 {reportType === 'estoque' && (
                   <>
+                    <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
                     <th className="px-6 py-3 data-grid-header">Produto</th>
                     <th className="px-6 py-3 data-grid-header">Tonelada</th>
                     <th className="px-6 py-3 data-grid-header">Status</th>
-                    <th className="px-6 py-3 data-grid-header">Data NF</th>
                   </>
                 )}
                 {reportType === 'faturamento' && (
@@ -2490,11 +2638,12 @@ function ReportsView({
                 <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                   {reportType === 'estoque' && (
                     <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.status}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                     </>
                   )}
                   {reportType === 'faturamento' && (

@@ -67,6 +67,7 @@ async function startServer() {
         - Fornecedor
         - Descrição do Produto
         - Tonelada (se disponível, senão 0)
+        - Mês de referência (Ex: Janeiro de 2026, baseado na data da NF)
         
         Conteúdo: ${content}`,
         config: {
@@ -80,9 +81,10 @@ async function startServer() {
               data_nf: { type: Type.STRING },
               fornecedor: { type: Type.STRING },
               descricao_produto: { type: Type.STRING },
-              tonelada: { type: Type.NUMBER }
+              tonelada: { type: Type.NUMBER },
+              mes: { type: Type.STRING }
             },
-            required: ["chave_acesso", "nf_numero", "valor", "data_nf", "fornecedor", "descricao_produto"]
+            required: ["chave_acesso", "nf_numero", "valor", "data_nf", "fornecedor", "descricao_produto", "mes"]
           }
         }
       });
