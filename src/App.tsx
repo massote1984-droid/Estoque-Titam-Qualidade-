@@ -1773,7 +1773,10 @@ export default function App() {
                       <div key={monthData.month} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm">
                         <div className="bg-titam-deep px-4 py-3 flex justify-between items-center">
                           <h4 className="text-white font-bold uppercase tracking-wider text-sm">
-                            {new Date(monthData.month + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                            {(() => {
+                              const [y, m] = monthData.month.split('-');
+                              return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                            })()}
                           </h4>
                           <div className="flex gap-4 text-white/80 text-[10px] font-bold uppercase">
                             <span>Total Mês: {Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0)} Un</span>
