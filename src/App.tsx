@@ -114,7 +114,7 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
@@ -337,9 +337,10 @@ export default function App() {
             descricao_produto: row.Produto || row.descricao_produto || row.PRODUTO || row.Descricao || '',
             data_nf: row['Data NF'] || row.data_nf || row['DATA NF'] || row.Data || '',
             data_descarga: row['Data Descarga'] || row.data_descarga || row['DATA DESCARGA'] || row.Descarga || '',
-            data_embarque: row['Data Embarque'] || row.data_embarque || row['DATA EMBARQUE'] || row.Embarque || '',
+            data_posicionamento: row['Data Posicionamento'] || row.data_posicionamento || row['Data Embarque'] || row.data_embarque || row['DATA EMBARQUE'] || row.Embarque || '',
             data_faturamento_vli: row['Data Fat. VLI'] || row.data_faturamento_vli || row['DATA FATURAMENTO'] || '',
-            cte_vli: row['CTE VLI'] || row.cte_vli || '',
+            horario_posicionamento: row['Horário Posicionamento'] || row.horario_posicionamento || '',
+            horario_faturamento: row['Horário Faturamento'] || row.horario_faturamento || row['CTE VLI'] || row.cte_vli || '',
             numero_vagao: row['Nº Vagão'] || row.numero_vagao || row.Vagao || '',
             hora_chegada: row['Hora Chegada'] || row.hora_chegada || '',
             hora_entrada: row['Hora Entrada'] || row.hora_entrada || '',
@@ -673,15 +674,22 @@ export default function App() {
     const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const exits = filteredEntriesForDashboard.filter(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
-      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      const exitDate = e.data_posicionamento || e.data_faturamento_vli;
       return exitDate && selectedDates.includes(exitDate);
     });
+
+    const queue_external = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && !e.hora_entrada && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
+    const queue_internal = filteredEntriesForDashboard.filter(e => e && e.hora_entrada && !e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
+    const queue_exit = filteredEntriesForDashboard.filter(e => e && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
     
     return {
       in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: exits.length,
       suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length,
-      exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0)
+      exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0),
+      queue_external,
+      queue_internal,
+      queue_exit
     };
   }, [filteredEntriesForDashboard, selectedDates]);
 
@@ -695,8 +703,8 @@ export default function App() {
       .filter(e => {
         if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
         
-        // Prioritize data_embarque for exits
-        const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
+        // Prioritize data_posicionamento for exits
+        const exitDate = e.data_posicionamento || e.data_faturamento_vli || e.data_descarga;
         if (!exitDate) return false;
         
         let y, m;
@@ -728,7 +736,7 @@ export default function App() {
       if (!isExited) return false;
       
       const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
-      const exitDate = entry.data_embarque || entry.data_faturamento_vli;
+      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli;
       const exitedOnSelected = exitDate && selectedDates.includes(exitDate);
       
       return arrivedOnSelected || exitedOnSelected;
@@ -736,8 +744,8 @@ export default function App() {
 
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
-      // Prioritize data_embarque for exits
-      const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
+      // Prioritize data_posicionamento for exits
+      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli || entry.data_descarga;
       if (exitDate) chartDates.add(exitDate);
     });
 
@@ -748,8 +756,8 @@ export default function App() {
     });
 
     exitedEntries.forEach(entry => {
-      // Prioritize data_embarque for exits
-      const exitDate = entry.data_embarque || entry.data_faturamento_vli || entry.data_descarga;
+      // Prioritize data_posicionamento for exits
+      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli || entry.data_descarga;
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
         if (!dailyMap[exitDate][key]) {
@@ -784,7 +792,7 @@ export default function App() {
 
     filteredEntriesForDashboard.forEach(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
-      const exitDate = e.data_embarque || e.data_faturamento_vli;
+      const exitDate = e.data_posicionamento || e.data_faturamento_vli;
       if (!exitDate || !selectedDates.includes(exitDate)) return;
       
       const dest = e.destino || 'Não especificado';
@@ -817,8 +825,8 @@ export default function App() {
     entries.forEach(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
       
-      // Prioritize data_embarque as requested for exits
-      const exitDate = e.data_embarque || e.data_faturamento_vli || e.data_descarga;
+      // Prioritize data_posicionamento as requested for exits
+      const exitDate = e.data_posicionamento || e.data_faturamento_vli || e.data_descarga;
       if (!exitDate) return;
       
       // Handle both YYYY-MM-DD and DD/MM/YYYY formats
@@ -962,6 +970,42 @@ export default function App() {
     }
   };
 
+  const handleQuickStatusUpdate = async (id: string | number, type: 'chegada' | 'entrada' | 'saida') => {
+    if (!user) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    
+    const updates: Partial<Entry> = {};
+    if (type === 'chegada') updates.hora_chegada = timeStr;
+    if (type === 'entrada') updates.hora_entrada = timeStr;
+    if (type === 'saida') {
+      updates.hora_saida = timeStr;
+      updates.status = 'Embarcado';
+    }
+
+    try {
+      await updateDoc(doc(db, 'entries', String(id)), updates);
+      addNotification(`Horário de ${type} registrado: ${timeStr}`, "info");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
+      addNotification(`Erro ao registrar ${type}.`, "error");
+    }
+  };
+
+  const yardEntries = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
+    return entries.filter(e => {
+      const today = new Date().toISOString().split('T')[0];
+      const isToday = e.data_descarga === today || e.data_posicionamento === today;
+      const isInYard = e.hora_chegada && !e.hora_saida;
+      return isToday || isInYard;
+    }).sort((a, b) => {
+      const timeA = a.hora_chegada || '99:99';
+      const timeB = b.hora_chegada || '99:99';
+      return timeA.localeCompare(timeB);
+    });
+  }, [entries]);
+
   const handleDeleteEntry = (id: string | number) => {
     setDeleteConfirmation(id);
   };
@@ -1091,6 +1135,12 @@ export default function App() {
             label="Saída" 
             active={activeTab === 'saida'} 
             onClick={() => setActiveTab('saida')} 
+          />
+          <NavItem 
+            icon={<Activity size={18} />} 
+            label="Fluxo de Veículos" 
+            active={activeTab === 'fluxo'} 
+            onClick={() => setActiveTab('fluxo')} 
           />
           <NavItem 
             icon={<FileText size={18} />} 
@@ -1405,7 +1455,7 @@ export default function App() {
                 />
                 <StatCard 
                   title="Fornecedores" 
-                  value={dailyStats.suppliers} 
+                  value={dailyStats.suppliers.toString()} 
                   subtitle="Nas datas filtradas"
                   icon={<Truck className="text-titam-deep" />}
                 />
@@ -1421,6 +1471,48 @@ export default function App() {
                   subtitle="Ton (Período Selecionado)"
                   icon={<Scale className="text-titam-lime" />}
                 />
+              </div>
+
+              {/* Fluxo de Veículos Section */}
+              <div className="mt-8">
+                <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Activity size={16} />
+                  Fluxo de Veículos (Quantidade)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-blue-50 border border-blue-100 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">Fila Externa</p>
+                      <h4 className="text-3xl font-black text-blue-900">{dailyStats.queue_external}</h4>
+                      <p className="text-[10px] text-blue-500 mt-1 font-medium">Aguardando Entrada</p>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                      <Clock className="text-blue-600" size={24} />
+                    </div>
+                  </div>
+                  
+                  <div className="bg-amber-50 border border-amber-100 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Fila Interna</p>
+                      <h4 className="text-3xl font-black text-amber-900">{dailyStats.queue_internal}</h4>
+                      <p className="text-[10px] text-amber-500 mt-1 font-medium">Em Operação / Descarga</p>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Truck className="text-amber-600" size={24} />
+                    </div>
+                  </div>
+
+                  <div className="bg-titam-lime/10 border border-titam-lime/20 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-titam-deep uppercase tracking-wider mb-1">Saídas</p>
+                      <h4 className="text-3xl font-black text-titam-deep">{dailyStats.queue_exit}</h4>
+                      <p className="text-[10px] text-titam-deep/60 mt-1 font-medium">Operação Concluída</p>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-titam-lime/20 flex items-center justify-center">
+                      <ArrowUpRight className="text-titam-deep" size={24} />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1975,13 +2067,14 @@ export default function App() {
                 title="Gestão de Saídas"
                 entries={entries}
                 columns={[
-                  { key: 'data_embarque', label: 'Data Embarque' },
+                  { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
                   { key: 'descricao_produto', label: 'Produto' },
                   { key: 'tonelada', label: 'Tonelada' },
                   { key: 'container', label: 'Container' },
                   { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
-                  { key: 'cte_vli', label: 'CTE VLI' },
+                  { key: 'horario_posicionamento', label: 'Horário de Posicionamento' },
+                  { key: 'horario_faturamento', label: 'Horário de Faturamento' },
                   { key: 'numero_vagao', label: 'Nº Vagão' },
                   { key: 'destino', label: 'Destino' },
                   { key: 'fornecedor', label: 'Fornecedor' },
@@ -2019,7 +2112,7 @@ export default function App() {
                 { key: 'descricao_produto', label: 'Produto' },
                 { key: 'fornecedor', label: 'Fornecedor' },
                 { key: 'container', label: 'Container' },
-                { key: 'data_embarque', label: 'Data Embarque' },
+                { key: 'data_posicionamento', label: 'Data Posicionamento' },
                 { key: 'status', label: 'Status' },
                 { key: 'data_nf', label: 'Data NF' }
               ]}
@@ -2036,6 +2129,114 @@ export default function App() {
               onUndoLastImport={undoLastImport}
               isProcessing={isProcessing}
             />
+          )}
+
+          {activeTab === 'fluxo' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Fluxo de Veículos</h2>
+                  <p className="text-gray-500 text-sm">Controle operacional de entrada e saída do pátio</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Externa */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-4 bg-blue-600 text-white flex justify-between items-center">
+                    <h3 className="font-bold text-sm uppercase tracking-wider">Fila Externa</h3>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
+                      {yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).length}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
+                    {yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).length === 0 ? (
+                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhum veículo na fila externa</p>
+                    ) : (
+                      yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).map(e => (
+                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase">Chegada: {e.hora_chegada}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
+                          <button 
+                            onClick={() => handleQuickStatusUpdate(e.id, 'entrada')}
+                            className="w-full py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-700 transition-colors uppercase"
+                          >
+                            Registrar Entrada
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Interna */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-4 bg-amber-500 text-white flex justify-between items-center">
+                    <h3 className="font-bold text-sm uppercase tracking-wider">Fila Interna</h3>
+                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
+                      {yardEntries.filter(e => e.hora_entrada && !e.hora_saida).length}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
+                    {yardEntries.filter(e => e.hora_entrada && !e.hora_saida).length === 0 ? (
+                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhum veículo na fila interna</p>
+                    ) : (
+                      yardEntries.filter(e => e.hora_entrada && !e.hora_saida).map(e => (
+                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
+                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded uppercase">Entrada: {e.hora_entrada}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
+                          <button 
+                            onClick={() => handleQuickStatusUpdate(e.id, 'saida')}
+                            className="w-full py-1.5 bg-amber-500 text-white text-[10px] font-bold rounded hover:bg-amber-600 transition-colors uppercase"
+                          >
+                            Registrar Saída
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Saída */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-4 bg-titam-lime text-titam-deep flex justify-between items-center">
+                    <h3 className="font-bold text-sm uppercase tracking-wider">Saídas de Hoje</h3>
+                    <span className="bg-titam-deep/10 px-2 py-0.5 rounded text-xs font-black">
+                      {yardEntries.filter(e => e.hora_saida).length}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
+                    {yardEntries.filter(e => e.hora_saida).length === 0 ? (
+                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhuma saída registrada hoje</p>
+                    ) : (
+                      yardEntries.filter(e => e.hora_saida).map(e => (
+                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
+                            <span className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 px-1.5 py-0.5 rounded uppercase">Saída: {e.hora_saida}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
+                          <div className="flex justify-between text-[10px] font-bold">
+                            <span className="text-gray-400 uppercase">T. Total:</span>
+                            <span className="text-titam-deep">{calculateTimeDiff(e.hora_chegada, e.hora_saida)}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
 
@@ -2129,7 +2330,7 @@ export default function App() {
                   <input 
                     name="mes" 
                     required 
-                    defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_embarque || new Date().toISOString().split('T')[0])} 
+                    defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
                     className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-gray-50"
                   />
                 </div>
@@ -2162,7 +2363,7 @@ export default function App() {
                 </div>
                 <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
-                <Input label="Data de Embarque" name="data_embarque" type="date" defaultValue={formData.data_embarque} />
+                <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
                   <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white" required>
@@ -2300,7 +2501,7 @@ export default function App() {
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
                       <input 
-                        value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_embarque)}
+                        value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_posicionamento)}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, mes: e.target.value }))}
                         className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-gray-50"
                       />
@@ -2371,10 +2572,10 @@ export default function App() {
                     <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <Input 
-                        label="Data de Embarque" 
+                        label="Data de Posicionamento" 
                         type="date" 
-                        value={editFormData.data_embarque || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_embarque: e.target.value }))}
+                        value={editFormData.data_posicionamento || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
                       />
                       <Input 
                         label="Data Faturamento VLI" 
@@ -2383,9 +2584,16 @@ export default function App() {
                         onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
                       />
                       <Input 
-                        label="CTE VLI" 
-                        value={editFormData.cte_vli || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_vli: e.target.value }))}
+                        label="Horário de Posicionamento" 
+                        type="time"
+                        value={editFormData.horario_posicionamento || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
+                      />
+                      <Input 
+                        label="Horário de Faturamento" 
+                        type="time"
+                        value={editFormData.horario_faturamento || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
                       />
                       <Input 
                         label="Nº Vagão" 
@@ -2548,7 +2756,7 @@ function ReportsView({
       : reportType === 'logistica_vli'
       ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
       : reportType === 'saida_detalhada'
-      ? ['Data Embarque', 'Data NF', 'Data Descarga', 'NF', 'Volume (Ton)', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
+      ? ['Data Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Volume (Ton)', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
@@ -2556,7 +2764,7 @@ function ReportsView({
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
-      if (reportType === 'saida_detalhada') return [e.data_embarque, e.data_nf, e.data_descarga, e.nf_numero, e.tonelada, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
+      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.tonelada, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
@@ -2712,7 +2920,7 @@ function ReportsView({
                 )}
                 {reportType === 'saida_detalhada' && (
                   <>
-                    <th className="px-6 py-3 data-grid-header">Data Embarque</th>
+                    <th className="px-6 py-3 data-grid-header">Data Posicionamento</th>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
                     <th className="px-6 py-3 data-grid-header">Data Descarga</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
@@ -2783,7 +2991,7 @@ function ReportsView({
                   )}
                   {reportType === 'saida_detalhada' && (
                     <>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_embarque || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_posicionamento || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
