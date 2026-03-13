@@ -28,8 +28,7 @@ import {
   Upload,
   RefreshCw as SyncIcon,
   FileDown,
-  Scale,
-  PieChart as PieChartIcon
+  Scale
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -44,9 +43,7 @@ import {
   LineChart, 
   Line, 
   Legend,
-  PieChart,
-  Pie,
-  Cell
+  LabelList
 } from 'recharts';
 import { Entry, StockSummary } from './types';
 import { useAuth } from './components/FirebaseProvider';
@@ -136,7 +133,17 @@ export default function App() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
-  const [selectedDates, setSelectedDates] = useState<string[]>([new Date().toISOString().split('T')[0]]);
+  const [selectedDates, setSelectedDates] = useState<string[]>(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const dates = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      dates.push(`${year}-${(month + 1).toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`);
+    }
+    return dates;
+  });
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
   const [lastBatchId, setLastBatchId] = useState<string | null>(localStorage.getItem('last_import_batch'));
   const isSyncing = React.useRef(false);
@@ -460,37 +467,114 @@ export default function App() {
     return filtered;
   }, [entries, nfSearch]);
 
-  const chartDataDaily = React.useMemo(() => {
-    if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const dailyMap: Record<string, any> = {};
-    filteredEntriesForDashboard.forEach(entry => {
-      if (!entry || !entry.data_nf) return;
-      const date = entry.data_nf;
-      if (!dailyMap[date]) {
-        dailyMap[date] = { date, 'Cal Dolomítico': 0, 'Cal Calcítico': 0, total: 0 };
-      }
-      if (entry.descricao_produto === 'Cal Dolomítico') dailyMap[date]['Cal Dolomítico'] += (entry.tonelada || 0);
-      if (entry.descricao_produto === 'Cal Calcítico') dailyMap[date]['Cal Calcítico'] += (entry.tonelada || 0);
-      dailyMap[date].total += (entry.tonelada || 0);
-    });
-    return Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date)).slice(-7);
-  }, [filteredEntriesForDashboard]);
-
   const performanceChartData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    return filteredEntriesForDashboard
-      .filter(e => e && e.hora_chegada && e.hora_saida)
-      .slice(-10)
-      .map(e => ({
-        nf: `NF ${e.nf_numero || '-'}`,
-        total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
-        descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
-      }));
-  }, [filteredEntriesForDashboard]);
+    
+    const validEntries = filteredEntriesForDashboard.filter(e => 
+      e && e.hora_chegada && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)
+    );
+
+    if (selectedDates.length > 7) {
+      const dateMap: Record<string, { label: string, rawDate: string, total: number, descarga: number, count: number }> = {};
+      selectedDates.forEach(d => {
+        dateMap[d] = { 
+          label: new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+          rawDate: d,
+          total: 0, 
+          descarga: 0, 
+          count: 0 
+        };
+      });
+
+      validEntries.forEach(e => {
+        const d = e.data_descarga!;
+        dateMap[d].total += calculateTimeInMinutes(e.hora_chegada, e.hora_saida);
+        dateMap[d].descarga += calculateTimeInMinutes(e.hora_entrada, e.hora_saida);
+        dateMap[d].count += 1;
+      });
+
+      return Object.values(dateMap)
+        .filter(d => d.count > 0)
+        .map(d => ({
+          label: d.label,
+          total: Math.round(d.total / d.count),
+          descarga: Math.round(d.descarga / d.count)
+        }))
+        .sort((a: any, b: any) => a.label.localeCompare(b.label));
+    }
+
+    return validEntries.map(e => ({
+      label: `NF ${e.nf_numero || '-'}`,
+      total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
+      descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
+    }));
+  }, [filteredEntriesForDashboard, selectedDates]);
+
+  const queueVolumeData = React.useMemo(() => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    
+    if (selectedDates.length === 1) {
+      const date = selectedDates[0];
+      const hourlyData = Array.from({ length: 16 }, (_, i) => {
+        const h = i + 6;
+        return {
+          label: `${h.toString().padStart(2, '0')}:00`,
+          externa: 0,
+          interna: 0,
+          concluidos: 0
+        };
+      });
+
+      filteredEntriesForDashboard.forEach(e => {
+        if (e.data_descarga !== date) return;
+        
+        for (let i = 0; i < 16; i++) {
+          const h = i + 6;
+          const hourStart = `${h.toString().padStart(2, '0')}:00`;
+          const hourEnd = `${(h + 1).toString().padStart(2, '0')}:00`;
+          
+          if (e.hora_chegada && e.hora_chegada < hourEnd && (!e.hora_entrada || e.hora_entrada > hourStart)) {
+            hourlyData[i].externa += 1;
+          }
+          if (e.hora_entrada && e.hora_entrada < hourEnd && (!e.hora_saida || e.hora_saida > hourStart)) {
+            hourlyData[i].interna += 1;
+          }
+          if (e.hora_saida && e.hora_saida >= hourStart && e.hora_saida < hourEnd) {
+            hourlyData[i].concluidos += 1;
+          }
+        }
+      });
+      return hourlyData;
+    } else {
+      const volumeMap: Record<string, any> = {};
+      selectedDates.forEach(date => {
+        volumeMap[date] = { 
+          label: new Date(date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), 
+          rawDate: date,
+          externa: 0, 
+          interna: 0, 
+          concluidos: 0 
+        };
+      });
+
+      filteredEntriesForDashboard.forEach(e => {
+        const date = e.data_descarga;
+        if (!date || !selectedDates.includes(date)) return;
+
+        if (e.hora_chegada) volumeMap[date].externa += 1;
+        if (e.hora_entrada) volumeMap[date].interna += 1;
+        if (e.hora_saida) volumeMap[date].concluidos += 1;
+      });
+
+      return Object.values(volumeMap).sort((a: any, b: any) => a.rawDate.localeCompare(b.rawDate));
+    }
+  }, [filteredEntriesForDashboard, selectedDates]);
 
   const performanceAverages = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { avgTotal: 0, avgDescarga: 0 };
-    const validEntries = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && e.hora_saida);
+    const validEntries = filteredEntriesForDashboard.filter(e => 
+      e && e.hora_chegada && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)
+    );
     if (validEntries.length === 0) return { avgTotal: 0, avgDescarga: 0 };
     
     const totalSum = validEntries.reduce((acc, e) => acc + calculateTimeInMinutes(e.hora_chegada, e.hora_saida), 0);
@@ -500,7 +584,7 @@ export default function App() {
       avgTotal: Math.round(totalSum / validEntries.length),
       avgDescarga: Math.round(descargaSum / validEntries.length)
     };
-  }, [filteredEntriesForDashboard]);
+  }, [filteredEntriesForDashboard, selectedDates]);
 
   const summary = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -718,32 +802,6 @@ export default function App() {
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
-  }, [filteredEntriesForDashboard, selectedDates]);
-
-  const exitsByDestinationPieData = React.useMemo(() => {
-    if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const destMap: Record<string, number> = {};
-    filteredEntriesForDashboard.forEach(e => {
-      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
-      const exitDate = e.data_embarque || e.data_faturamento_vli;
-      if (!exitDate || !selectedDates.includes(exitDate)) return;
-      const dest = e.destino || 'Não especificado';
-      destMap[dest] = (destMap[dest] || 0) + (e.tonelada || 0);
-    });
-    return Object.entries(destMap).map(([name, value]) => ({ name, value }));
-  }, [filteredEntriesForDashboard, selectedDates]);
-
-  const exitsByProductPieData = React.useMemo(() => {
-    if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const prodMap: Record<string, number> = {};
-    filteredEntriesForDashboard.forEach(e => {
-      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
-      const exitDate = e.data_embarque || e.data_faturamento_vli;
-      if (!exitDate || !selectedDates.includes(exitDate)) return;
-      const prod = e.descricao_produto || 'Não especificado';
-      prodMap[prod] = (prodMap[prod] || 0) + (e.tonelada || 0);
-    });
-    return Object.entries(prodMap).map(([name, value]) => ({ name, value }));
   }, [filteredEntriesForDashboard, selectedDates]);
 
   const monthlyAccumulatedExits = React.useMemo(() => {
@@ -1374,9 +1432,9 @@ export default function App() {
                       Saídas por Dia (Unidades por Destino/Produto)
                     </h3>
                   </div>
-                  <div className="h-[300px]">
+                  <div className="h-[400px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={exitChartData}>
+                      <BarChart data={exitChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                         <XAxis 
                           dataKey="date" 
@@ -1448,12 +1506,12 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <div className="h-[300px]">
+                  <div className="h-[400px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={performanceChartData}>
+                      <LineChart data={performanceChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                         <XAxis 
-                          dataKey="nf" 
+                          dataKey="label" 
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fontSize: 10, fill: '#64748B' }}
@@ -1466,6 +1524,119 @@ export default function App() {
                         <Line type="monotone" dataKey="total" name="Tempo Total" stroke="#B6D932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                         <Line type="monotone" dataKey="descarga" name="Tempo Descarga" stroke="#1E3932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                       </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bar Chart: Queue Analysis */}
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="flex flex-col items-center text-center mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2 justify-center">
+                      <Activity size={18} className="text-blue-600" />
+                      Fluxo de Veículos (Quantidade)
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">Distribuição de carga e fluxo de saída por período</p>
+                    
+                    <div className="flex gap-6 text-[10px] font-bold uppercase tracking-widest mt-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-blue-500"></span>
+                        <span className="text-gray-500">Fila Ext.</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-amber-500"></span>
+                        <span className="text-gray-500">Fila Int.</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-titam-lime"></span>
+                        <span className="text-gray-500">Saídas</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-[400px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart 
+                        data={queueVolumeData} 
+                        margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
+                        barGap={8}
+                        barCategoryGap="20%"
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                        <XAxis 
+                          dataKey="label" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fontSize: 10, fill: '#64748B', fontWeight: 500 }}
+                          dy={10}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fontSize: 11, fill: '#94A3B8' }}
+                          dx={-10}
+                        />
+                        <Tooltip 
+                          cursor={{ fill: '#F8FAFC', radius: 4 }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
+                              return (
+                                <div className="bg-white p-4 rounded-xl shadow-xl border border-gray-100 min-w-[180px]">
+                                  <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">{label}</p>
+                                  <div className="space-y-2">
+                                    {payload.map((entry: any, index: number) => (
+                                      <div key={index} className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                                          <span className="text-xs font-medium text-gray-600">{entry.name}</span>
+                                        </div>
+                                        <span className="text-sm font-bold text-gray-900">{entry.value}</span>
+                                      </div>
+                                    ))}
+                                    <div className="pt-2 mt-2 border-t border-gray-50 flex items-center justify-between">
+                                      <span className="text-xs font-bold text-gray-900">Total Geral</span>
+                                      <span className="text-sm font-black text-blue-600">{total}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar 
+                          dataKey="externa" 
+                          name="Fila Externa" 
+                          fill="#3B82F6" 
+                          radius={[4, 4, 0, 0]}
+                          animationDuration={1500}
+                        >
+                          {queueVolumeData.length <= 16 && (
+                            <LabelList dataKey="externa" position="top" style={{ fontSize: '10px', fill: '#3B82F6', fontWeight: 'bold' }} offset={8} />
+                          )}
+                        </Bar>
+                        <Bar 
+                          dataKey="interna" 
+                          name="Fila Interna" 
+                          fill="#F59E0B" 
+                          radius={[4, 4, 0, 0]}
+                          animationDuration={1500}
+                        >
+                          {queueVolumeData.length <= 16 && (
+                            <LabelList dataKey="interna" position="top" style={{ fontSize: '10px', fill: '#F59E0B', fontWeight: 'bold' }} offset={8} />
+                          )}
+                        </Bar>
+                        <Bar 
+                          dataKey="concluidos" 
+                          name="Saídas" 
+                          fill="#B6D932" 
+                          radius={[4, 4, 0, 0]}
+                          animationDuration={1500}
+                        >
+                          {queueVolumeData.length <= 16 && (
+                            <LabelList dataKey="concluidos" position="top" style={{ fontSize: '10px', fill: '#84CC16', fontWeight: 'bold' }} offset={8} />
+                          )}
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -1634,77 +1805,6 @@ export default function App() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Pie Chart: Tons by Destination */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                      <PieChartIcon size={18} className="text-titam-deep" />
-                      Toneladas por Destino (Período)
-                    </h3>
-                  </div>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={exitsByDestinationPieData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                        >
-                          {exitsByDestinationPieData.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={index % 2 === 0 ? "#B6D932" : "#1E3932"} />
-                          ))}
-                        </Pie>
-                        <Tooltip 
-                          formatter={(value: number) => [`${value.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} Ton`, 'Peso']}
-                        />
-                        <Legend verticalAlign="bottom" height={36}/>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* Pie Chart: Tons by Product */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                      <PieChartIcon size={18} className="text-titam-deep" />
-                      Toneladas por Produto (Período)
-                    </h3>
-                  </div>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={exitsByProductPieData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                        >
-                          {exitsByProductPieData.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={index % 2 === 0 ? "#1E3932" : "#B6D932"} />
-                          ))}
-                        </Pie>
-                        <Tooltip 
-                          formatter={(value: number) => [`${value.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} Ton`, 'Peso']}
-                        />
-                        <Legend verticalAlign="bottom" height={36}/>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              {/* Summary of Exits by Destination and Product (Selected Period) */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="font-semibold text-gray-900 flex items-center gap-2">
