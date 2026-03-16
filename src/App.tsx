@@ -980,7 +980,6 @@ export default function App() {
     if (type === 'entrada') updates.hora_entrada = timeStr;
     if (type === 'saida') {
       updates.hora_saida = timeStr;
-      updates.status = 'Embarcado';
     }
 
     try {
