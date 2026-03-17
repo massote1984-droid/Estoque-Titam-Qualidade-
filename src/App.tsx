@@ -599,8 +599,11 @@ export default function App() {
       const supplierEntries = filteredEntriesForDashboard.filter(e => e && e.fornecedor === s);
       return {
         fornecedor: s,
-        in_stock: supplierEntries.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
-        exited: supplierEntries.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
+        estoque: supplierEntries.filter(e => e && e.status === 'Estoque').length,
+        rejeitado: supplierEntries.filter(e => e && e.status === 'Rejeitado').length,
+        embarcado: supplierEntries.filter(e => e && e.status === 'Embarcado').length,
+        devolvido: supplierEntries.filter(e => e && e.status === 'Devolvido').length,
+        total: supplierEntries.length
       };
     });
   }, [filteredEntriesForDashboard, supplierFilter]);
@@ -620,8 +623,11 @@ export default function App() {
       return {
         descricao_produto: prod,
         destino: dest,
-        in_stock: filtered.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
-        exited: filtered.filter(e => e && ['Embarcado', 'Devolvido'].includes(e.status)).length
+        estoque: filtered.filter(e => e && e.status === 'Estoque').length,
+        rejeitado: filtered.filter(e => e && e.status === 'Rejeitado').length,
+        embarcado: filtered.filter(e => e && e.status === 'Embarcado').length,
+        devolvido: filtered.filter(e => e && e.status === 'Devolvido').length,
+        total: filtered.length
       };
     });
   }, [filteredEntriesForDashboard, productDestSupplierFilter]);
@@ -1752,23 +1758,23 @@ export default function App() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-100">
-                          <th className="px-6 py-3 data-grid-header">Fornecedor</th>
-                          <th className="px-6 py-3 data-grid-header">Em Estoque</th>
-                          <th className="px-6 py-3 data-grid-header">Saídas</th>
-                          <th className="px-6 py-3 data-grid-header">Status</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Fornecedor</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Devolvido</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {summary.map((s, i) => (
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-gray-900">{s.fornecedor}</td>
-                            <td className="px-6 py-4 mono-value">{s.in_stock}</td>
-                            <td className="px-6 py-4 mono-value">{s.exited}</td>
-                            <td className="px-6 py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${s.in_stock > 0 ? 'bg-titam-lime/20 text-titam-deep' : 'bg-gray-100 text-gray-600'}`}>
-                                {s.in_stock > 0 ? 'Ativo' : 'Vazio'}
-                              </span>
-                            </td>
+                            <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.fornecedor}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-amber-600 font-bold">{s.devolvido}</td>
+                            <td className="px-6 py-4 mono-value text-xs font-black text-titam-deep">{s.total}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1794,19 +1800,25 @@ export default function App() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-100">
-                          <th className="px-6 py-3 data-grid-header">Produto</th>
-                          <th className="px-6 py-3 data-grid-header">Destino</th>
-                          <th className="px-6 py-3 data-grid-header">Estoque</th>
-                          <th className="px-6 py-3 data-grid-header">Saídas</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Produto</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Destino</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Devolvido</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {productDestSummary.map((s, i) => (
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-gray-900">{s.descricao_produto}</td>
-                            <td className="px-6 py-4 text-sm text-gray-600">{s.destino}</td>
-                            <td className="px-6 py-4 mono-value text-titam-deep font-bold">{s.in_stock}</td>
-                            <td className="px-6 py-4 mono-value text-gray-400">{s.exited}</td>
+                            <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.descricao_produto}</td>
+                            <td className="px-6 py-4 text-[10px] text-gray-600">{s.destino}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-amber-600 font-bold">{s.devolvido}</td>
+                            <td className="px-6 py-4 mono-value text-xs font-black text-titam-deep">{s.total}</td>
                           </tr>
                         ))}
                       </tbody>
