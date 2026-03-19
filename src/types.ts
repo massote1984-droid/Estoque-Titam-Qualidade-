@@ -26,12 +26,19 @@ export interface Entry {
   data_emissao_cte?: string;
   data_emissao_cte_transp?: string;
   cte_transportador?: string;
-  created_at: string;
+  created_at: any;
+  created_by_email?: string;
+  updated_at?: any;
+  updated_by_email?: string;
+  uid: string;
   isPending?: boolean;
 }
 
 export interface StockSummary {
   fornecedor: string;
-  in_stock: number;
-  exited: number;
+  estoque: number;
+  rejeitado: number;
+  embarcado: number;
+  devolvido: number;
+  total: number;
 }

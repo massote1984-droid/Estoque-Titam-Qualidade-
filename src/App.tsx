@@ -42,8 +42,11 @@ import {
   ResponsiveContainer, 
   LineChart, 
   Line, 
+  AreaChart,
+  Area,
   Legend,
-  LabelList
+  LabelList,
+  ReferenceLine
 } from 'recharts';
 import { Entry, StockSummary } from './types';
 import { useAuth } from './components/FirebaseProvider';
@@ -545,6 +548,16 @@ export default function App() {
           }
         }
       });
+
+      // Filter to show only hours up to now if the selected date is today
+      const now = new Date();
+      const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
+      const currentHour = now.getHours();
+
+      if (date === todayStr) {
+        return hourlyData.filter((_, i) => (i + 6) <= currentHour);
+      }
+
       return hourlyData;
     } else {
       const volumeMap: Record<string, any> = {};
@@ -928,6 +941,7 @@ export default function App() {
       valor: sanitizeNumeric(rawData.valor),
       tonelada: sanitizeNumeric(rawData.tonelada),
       uid: user.uid,
+      created_by_email: user.email || 'Usuário',
       created_at: serverTimestamp()
     };
     
@@ -963,6 +977,10 @@ export default function App() {
     delete sanitizedUpdates.id;
     delete sanitizedUpdates.isPending;
 
+    // Add tracking info
+    sanitizedUpdates.updated_at = serverTimestamp();
+    sanitizedUpdates.updated_by_email = user.email || 'Usuário';
+
     try {
       setIsUpdating(true);
       await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
@@ -981,7 +999,10 @@ export default function App() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     
-    const updates: Partial<Entry> = {};
+    const updates: Partial<Entry> = {
+      updated_at: serverTimestamp(),
+      updated_by_email: user.email || 'Usuário'
+    };
     if (type === 'chegada') updates.hora_chegada = timeStr;
     if (type === 'entrada') updates.hora_entrada = timeStr;
     if (type === 'saida') {
@@ -1213,110 +1234,67 @@ export default function App() {
           ))}
         </AnimatePresence>
 
-        <header className="flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
+        <header className="flex justify-between items-center mb-10">
+          <div className="flex items-center gap-6">
             <div>
-              <h1 className="text-2xl font-semibold text-gray-900 capitalize">
-                <span>{activeTab === 'dashboard' ? 'Painel Informativo - Titam' : activeTab}</span>
+              <h1 className="text-3xl font-light text-gray-900 tracking-tight capitalize mb-1">
+                {activeTab === 'dashboard' ? 'Painel Informativo' : activeTab}
               </h1>
-              <p className="text-gray-500 text-sm">Gerencie seu estoque com precisão técnica.</p>
-            </div>
-            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-              serverStatus === 'online' ? 'bg-emerald-50 text-emerald-600' : 
-              serverStatus === 'offline' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
-            }`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${
-                serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
-                serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
-              }`} />
-              <span>{serverStatus === 'online' ? 'Sistema Online' : serverStatus === 'offline' ? 'Modo Offline (Local)' : 'Verificando...'}</span>
+              <div className="flex items-center gap-3">
+                <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Titam Intermodais</p>
+                <div className="w-1 h-1 rounded-full bg-gray-300" />
+                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                  serverStatus === 'online' ? 'bg-emerald-50 text-emerald-600' : 
+                  serverStatus === 'offline' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
+                }`}>
+                  <div className={`w-1 h-1 rounded-full ${
+                    serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
+                    serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
+                  }`} />
+                  <span>{serverStatus === 'online' ? 'Online' : serverStatus === 'offline' ? 'Offline' : '...'}</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {isSyncingState && (
-              <div className="flex items-center gap-2 text-[10px] text-titam-deep font-bold bg-titam-lime/20 px-3 py-1 rounded-full animate-pulse">
+              <div className="flex items-center gap-2 text-[9px] text-titam-deep font-black bg-titam-lime px-3 py-1.5 rounded-full shadow-sm">
                 <SyncIcon size={10} className="animate-spin" />
-                <span>Sincronizando...</span>
+                <span className="uppercase tracking-widest">Sincronizando</span>
               </div>
             )}
-            <button 
-              onClick={() => {
-                addNotification("A sincronização é automática e em tempo real.", "info");
-              }}
-              className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 rounded-lg transition-colors"
-              title="Sincronização Automática"
-            >
-              <SyncIcon size={20} className={loading ? 'animate-spin' : ''} />
-            </button>
+            
+            <div className="flex items-center bg-white p-1 rounded-xl border border-gray-100 shadow-sm">
+              <button 
+                onClick={() => addNotification("Sincronização automática ativa.", "info")}
+                className="p-2.5 text-gray-400 hover:text-titam-deep hover:bg-gray-50 rounded-lg transition-all"
+              >
+                <SyncIcon size={18} className={loading ? 'animate-spin' : ''} />
+              </button>
 
-            <div className="relative">
               <button 
                 onClick={triggerTestAlert}
-                className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 rounded-lg transition-colors relative"
-                title="Simular Alerta de Estoque"
+                className="p-2.5 text-gray-400 hover:text-titam-deep hover:bg-gray-50 rounded-lg transition-all relative"
               >
-                <Bell size={20} />
+                <Bell size={18} />
                 {notifications.length > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                  <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full ring-2 ring-white" />
                 )}
               </button>
-              
-              <AnimatePresence>
-                {notifications.filter(n => n.type !== 'critical').length > 0 && (
-                  <div className="fixed bottom-8 right-8 w-96 z-[100] flex flex-col gap-3">
-                    {notifications.filter(n => n.type !== 'critical').map((n, i) => (
-                      <motion.div
-                        key={n.id}
-                        layout
-                        initial={{ opacity: 0, x: 50, scale: 0.9 }}
-                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: 20, scale: 0.95 }}
-                        className={`p-5 rounded-2xl shadow-2xl border-2 flex items-start gap-4 pointer-events-auto backdrop-blur-md ${
-                          n.type === 'warning' ? 'bg-amber-50/90 border-amber-200 text-amber-900 shadow-amber-200/20' :
-                          n.type === 'error' ? 'bg-red-50/90 border-red-200 text-red-900 shadow-red-200/20' :
-                          'bg-white/90 border-gray-100 text-gray-900 shadow-gray-200/20'
-                        }`}
-                      >
-                        <div className={`p-2 rounded-xl shrink-0 ${
-                          n.type === 'warning' ? 'bg-amber-100 text-amber-600' :
-                          n.type === 'error' ? 'bg-red-100 text-red-600' :
-                          'bg-titam-lime/20 text-titam-deep'
-                        }`}>
-                          {n.type === 'warning' && <AlertTriangle size={20} />}
-                          {n.type === 'error' && <AlertCircle size={20} />}
-                          {n.type === 'info' && <Bell size={20} />}
-                        </div>
-                        <div className="flex-1 pt-0.5">
-                          <h4 className="font-bold text-sm uppercase tracking-wider mb-1">
-                            {n.type === 'warning' ? 'Atenção' : n.type === 'error' ? 'Erro' : 'Notificação'}
-                          </h4>
-                          <p className="text-sm leading-relaxed opacity-90">{n.message}</p>
-                        </div>
-                        <button 
-                          onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
-                          className="text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                          <X size={18} />
-                        </button>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </AnimatePresence>
             </div>
 
             {activeTab !== 'dashboard' && (
-            <button 
-              onClick={() => {
-                setFormData({});
-                setShowForm(true);
-              }}
-              className="flex items-center gap-2 bg-titam-lime text-titam-deep px-4 py-2 rounded-lg hover:opacity-90 transition-colors shadow-sm font-bold"
-            >
-              <Plus size={18} />
-              Nova Entrada
-            </button>
-          )}
+              <button 
+                onClick={() => {
+                  setFormData({});
+                  setShowForm(true);
+                }}
+                className="flex items-center gap-2 bg-titam-deep text-white px-5 py-2.5 rounded-xl hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20 font-bold text-sm"
+              >
+                <Plus size={18} className="text-titam-lime" />
+                Novo Registro
+              </button>
+            )}
           </div>
         </header>
 
@@ -1331,104 +1309,104 @@ export default function App() {
               id="dashboard-content"
             >
               {/* Date & NF Filter */}
-              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-titam-lime/10 rounded-lg text-titam-deep">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400">
                       <Filter size={20} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-gray-900">Filtros do Dashboard</h3>
-                      <p className="text-xs text-gray-500">Filtre por data de descarga ou número da NF.</p>
+                      <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Filtros Inteligentes</h3>
+                      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Refine sua visualização de dados</p>
                     </div>
                   </div>
                   
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="relative group">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-titam-lime transition-colors" size={16} />
                       <input 
                         type="text" 
-                        placeholder="Pesquisar NF..."
+                        placeholder="PESQUISAR NF..."
                         value={nfSearch}
                         onChange={(e) => setNfSearch(e.target.value)}
-                        className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-titam-lime outline-none transition-all w-full sm:w-48"
+                        className="pl-12 pr-6 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all w-full sm:w-64"
                       />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase">Início:</span>
+                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">Período:</span>
+                      <div className="flex items-center gap-2">
                         <input 
                           type="date" 
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="bg-transparent outline-none text-xs font-medium text-gray-700"
+                          className="bg-transparent outline-none text-[10px] font-bold text-gray-700 uppercase"
                         />
-                      </div>
-                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase">Fim:</span>
+                        <span className="text-gray-300">/</span>
                         <input 
                           type="date" 
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
-                          className="bg-transparent outline-none text-xs font-medium text-gray-700"
+                          className="bg-transparent outline-none text-[10px] font-bold text-gray-700 uppercase"
                         />
                       </div>
+                    </div>
+
+                    <button 
+                      onClick={() => {
+                        if (startDate && endDate) {
+                          const start = new Date(startDate);
+                          const end = new Date(endDate);
+                          const dates = [];
+                          let current = new Date(start);
+                          while (current <= end) {
+                            dates.push(current.toISOString().split('T')[0]);
+                            current.setDate(current.getDate() + 1);
+                          }
+                          setSelectedDates(dates);
+                        } else if (startDate) {
+                          setSelectedDates([startDate]);
+                        }
+                      }}
+                      className="bg-titam-deep text-white px-6 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/10"
+                    >
+                      Aplicar
+                    </button>
+
+                    <div className="flex gap-2">
                       <button 
                         onClick={() => {
-                          if (startDate && endDate) {
-                            const start = new Date(startDate);
-                            const end = new Date(endDate);
-                            const dates = [];
-                            let current = new Date(start);
-                            while (current <= end) {
-                              dates.push(current.toISOString().split('T')[0]);
-                              current.setDate(current.getDate() + 1);
-                            }
-                            setSelectedDates(dates);
-                          } else if (startDate) {
-                            setSelectedDates([startDate]);
-                          }
+                          const today = new Date().toISOString().split('T')[0];
+                          setSelectedDates([today]);
+                          setStartDate(today);
+                          setEndDate(today);
+                          setNfSearch('');
                         }}
-                        className="bg-titam-deep text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-titam-deep/90 transition-all shadow-sm"
+                        className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 hover:bg-titam-lime/40 px-4 py-3 rounded-xl transition-all uppercase tracking-widest"
                       >
-                        Aplicar Período
+                        Hoje
                       </button>
-                      <div className="flex gap-1">
-                        <button 
-                          onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
-                            setSelectedDates([today]);
-                            setStartDate(today);
-                            setEndDate(today);
-                            setNfSearch('');
-                          }}
-                          className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 hover:bg-titam-lime/40 px-3 py-2 rounded-lg transition-all"
-                        >
-                          Hoje
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setSelectedDates([]);
-                            setStartDate('');
-                            setEndDate('');
-                            setNfSearch('');
-                          }}
-                          className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg transition-all"
-                        >
-                          Limpar
-                        </button>
-                      </div>
+                      <button 
+                        onClick={() => {
+                          setSelectedDates([]);
+                          setStartDate('');
+                          setEndDate('');
+                          setNfSearch('');
+                        }}
+                        className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 px-4 py-3 rounded-xl transition-all uppercase tracking-widest"
+                      >
+                        Limpar
+                      </button>
                     </div>
                   </div>
                 </div>
-                
-                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-50">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider w-full mb-1">
-                    {selectedDates.length > 5 ? `Período Selecionado: ${selectedDates[0].split('-').reverse().join('/')} até ${selectedDates[selectedDates.length-1].split('-').reverse().join('/')} (${selectedDates.length} dias)` : 'Datas Selecionadas:'}
+
+                <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-50">
+                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] w-full mb-2">
+                    {selectedDates.length > 5 ? `Período: ${selectedDates[0].split('-').reverse().join('/')} até ${selectedDates[selectedDates.length-1].split('-').reverse().join('/')} (${selectedDates.length} dias)` : 'Datas Selecionadas:'}
                   </span>
                   {selectedDates.length <= 5 && selectedDates.map(date => (
-                    <div key={date} className="flex items-center gap-2 bg-titam-lime/20 text-titam-deep px-3 py-1 rounded-full text-xs font-bold border border-titam-lime/30">
+                    <div key={date} className="flex items-center gap-2 bg-gray-50 text-gray-600 px-3 py-1.5 rounded-full text-[10px] font-bold border border-gray-100">
                       {date.split('-').reverse().join('/')}
                       <button 
                         onClick={() => {
@@ -1436,7 +1414,7 @@ export default function App() {
                             setSelectedDates(prev => prev.filter(d => d !== date));
                           }
                         }}
-                        className="hover:text-red-600"
+                        className="hover:text-red-600 transition-colors"
                       >
                         <X size={12} />
                       </button>
@@ -1445,7 +1423,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <StatCard 
                   title="Estoque Selecionado" 
                   value={dailyStats.in_stock.toString()} 
@@ -1464,57 +1442,45 @@ export default function App() {
                   subtitle="Nas datas filtradas"
                   icon={<Truck className="text-titam-deep" />}
                 />
-                <StatCard 
-                  title="Total Saídas Mês" 
-                  value={monthlyExitTotal.toString()} 
-                  subtitle="Unidades (Mês Atual)"
-                  icon={<TrendingUp className="text-emerald-600" />}
-                />
-                <StatCard 
-                  title="Toneladas Saídas" 
-                  value={dailyStats.exited_tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} 
-                  subtitle="Ton (Período Selecionado)"
-                  icon={<Scale className="text-titam-lime" />}
-                />
               </div>
 
               {/* Fluxo de Veículos Section */}
               <div className="mt-8">
-                <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest mb-4 flex items-center gap-2">
-                  <Activity size={16} />
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+                  <Activity size={14} className="text-titam-lime" />
                   Fluxo de Veículos (Quantidade)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-blue-50 border border-blue-100 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
                     <div>
-                      <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">Fila Externa</p>
-                      <h4 className="text-3xl font-black text-blue-900">{dailyStats.queue_external}</h4>
-                      <p className="text-[10px] text-blue-500 mt-1 font-medium">Aguardando Entrada</p>
+                      <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-2">Fila Externa</p>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_external}</h4>
+                      <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Aguardando Entrada</p>
                     </div>
-                    <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                      <Clock className="text-blue-600" size={24} />
+                    <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all">
+                      <Clock size={20} />
                     </div>
                   </div>
                   
-                  <div className="bg-amber-50 border border-amber-100 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
                     <div>
-                      <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Fila Interna</p>
-                      <h4 className="text-3xl font-black text-amber-900">{dailyStats.queue_internal}</h4>
-                      <p className="text-[10px] text-amber-500 mt-1 font-medium">Em Operação / Descarga</p>
+                      <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-2">Fila Interna</p>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_internal}</h4>
+                      <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Em Operação</p>
                     </div>
-                    <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                      <Truck className="text-amber-600" size={24} />
+                    <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-all">
+                      <Truck size={20} />
                     </div>
                   </div>
 
-                  <div className="bg-titam-lime/10 border border-titam-lime/20 p-6 rounded-xl shadow-sm flex items-center justify-between">
+                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
                     <div>
-                      <p className="text-xs font-bold text-titam-deep uppercase tracking-wider mb-1">Saídas</p>
-                      <h4 className="text-3xl font-black text-titam-deep">{dailyStats.queue_exit}</h4>
-                      <p className="text-[10px] text-titam-deep/60 mt-1 font-medium">Operação Concluída</p>
+                      <p className="text-[10px] font-bold text-titam-lime uppercase tracking-widest mb-2">Saídas</p>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_exit}</h4>
+                      <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Concluído</p>
                     </div>
-                    <div className="w-12 h-12 rounded-full bg-titam-lime/20 flex items-center justify-center">
-                      <ArrowUpRight className="text-titam-deep" size={24} />
+                    <div className="w-12 h-12 rounded-xl bg-titam-lime/10 flex items-center justify-center group-hover:bg-titam-lime group-hover:text-titam-deep transition-all">
+                      <ArrowUpRight size={20} />
                     </div>
                   </div>
                 </div>
@@ -1522,41 +1488,54 @@ export default function App() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Bar Chart: Saídas por Dia */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                      <BarChart3 size={18} className="text-titam-deep" />
-                      Saídas por Dia (Unidades por Destino/Produto)
+                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest flex items-center gap-2">
+                      <BarChart3 size={16} className="text-titam-lime" />
+                      Saídas por Dia
                     </h3>
                   </div>
-                  <div className="h-[400px]">
+                  <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={exitChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                      <BarChart data={exitChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="barGradient1" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#B6D932" stopOpacity={1}/>
+                            <stop offset="100%" stopColor="#B6D932" stopOpacity={0.7}/>
+                          </linearGradient>
+                          <linearGradient id="barGradient2" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#1E3932" stopOpacity={1}/>
+                            <stop offset="100%" stopColor="#1E3932" stopOpacity={0.7}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f1f1" />
                         <XAxis 
                           dataKey="date" 
                           axisLine={false} 
                           tickLine={false} 
-                          tick={{ fontSize: 12, fill: '#64748B' }}
-                          tickFormatter={(val) => val.split('-').slice(1).reverse().join('/')}
+                          tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
+                          tickFormatter={(val) => val.split('-').slice(2).join('/')}
                         />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} />
                         <Tooltip 
+                          cursor={{ fill: '#f8fafc' }}
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               return (
-                                <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-xl">
-                                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">{label?.toString().split('-').reverse().join('/')}</p>
-                                  <div className="space-y-2">
+                                <div className="bg-white p-4 rounded-xl shadow-2xl border border-gray-50 min-w-[200px]">
+                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">{label?.toString().split('-').reverse().join('/')}</p>
+                                  <div className="space-y-3">
                                     {payload.map((entry: any, index: number) => {
                                       const tons = entry.payload[`${entry.name}_tons`] || 0;
                                       return (
-                                        <div key={index} className="flex flex-col border-l-4 pl-2" style={{ borderColor: entry.color }}>
-                                          <p className="text-xs font-bold text-gray-700">{entry.name}</p>
+                                        <div key={index} className="flex flex-col gap-1">
                                           <div className="flex items-center gap-2">
-                                            <span className="text-sm font-black text-titam-deep">{entry.value} Un</span>
-                                            <span className="text-gray-300">|</span>
-                                            <span className="text-sm font-bold text-titam-lime">{tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                                            <p className="text-[10px] font-bold text-gray-700 uppercase tracking-tight">{entry.name}</p>
+                                          </div>
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-sm font-black text-gray-900">{entry.value} Un</span>
+                                            <span className="text-xs font-bold text-titam-lime">{tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}t</span>
                                           </div>
                                         </div>
                                       );
@@ -1568,14 +1547,20 @@ export default function App() {
                             return null;
                           }}
                         />
-                        <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                        <Legend 
+                          verticalAlign="top" 
+                          align="right" 
+                          iconType="circle" 
+                          wrapperStyle={{ paddingBottom: '20px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }} 
+                        />
                         {exitChartKeys.map((key, idx) => (
                           <Bar 
                             key={key} 
                             dataKey={key} 
                             stackId="a" 
-                            fill={idx % 2 === 0 ? "#B6D932" : "#1E3932"} 
-                            radius={idx === exitChartKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} 
+                            fill={idx % 2 === 0 ? "url(#barGradient1)" : "url(#barGradient2)"} 
+                            radius={[6, 6, 0, 0]}
+                            barSize={32}
                           />
                         ))}
                       </BarChart>
@@ -1584,43 +1569,102 @@ export default function App() {
                 </div>
 
                 {/* Line Chart: Performance */}
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                      <Activity size={18} className="text-amber-600" />
-                      Performance Logística (Minutos)
+                <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest flex items-center gap-2">
+                      <Activity size={16} className="text-amber-500" />
+                      Performance
                     </h3>
-                    <div className="flex gap-4 text-xs font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-titam-lime"></span>
-                        <span className="text-gray-500">Média Total:</span>
-                        <span className="text-gray-900">{performanceAverages.avgTotal} min</span>
+                    <div className="flex gap-6">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Média Total</span>
+                        <span className="text-sm font-black text-gray-900">{performanceAverages.avgTotal}m</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-titam-deep"></span>
-                        <span className="text-gray-500">Média Descarga:</span>
-                        <span className="text-gray-900">{performanceAverages.avgDescarga} min</span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Média Descarga</span>
+                        <span className="text-sm font-black text-gray-900">{performanceAverages.avgDescarga}m</span>
                       </div>
                     </div>
                   </div>
-                  <div className="h-[400px]">
+                  <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={performanceChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                      <AreaChart data={performanceChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#B6D932" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#B6D932" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorDescarga" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#1E3932" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#1E3932" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f1f1" />
                         <XAxis 
                           dataKey="label" 
                           axisLine={false} 
                           tickLine={false} 
-                          tick={{ fontSize: 10, fill: '#64748B' }}
+                          tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 600 }}
                         />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} />
                         <Tooltip 
-                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-white p-5 rounded-2xl shadow-2xl border border-gray-50 min-w-[220px]">
+                                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">{label}</p>
+                                  <div className="space-y-4">
+                                    {payload.map((entry: any, index: number) => (
+                                      <div key={index} className="flex flex-col gap-1">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                                          <p className="text-[11px] font-bold text-gray-700 uppercase tracking-tight">{entry.name}</p>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xl font-black text-gray-900">{entry.value} min</span>
+                                          {entry.name === 'Total' && entry.value > 60 && (
+                                            <span className="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">Acima da Meta</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
                         />
-                        <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
-                        <Line type="monotone" dataKey="total" name="Tempo Total" stroke="#B6D932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                        <Line type="monotone" dataKey="descarga" name="Tempo Descarga" stroke="#1E3932" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                      </LineChart>
+                        <ReferenceLine y={60} stroke="#E2E8F0" strokeDasharray="8 8" label={{ position: 'right', value: 'Meta: 60min', fill: '#94A3B8', fontSize: 10, fontWeight: 700 }} />
+                        <Legend 
+                          verticalAlign="top" 
+                          align="right" 
+                          iconType="circle" 
+                          wrapperStyle={{ paddingBottom: '20px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }} 
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="total" 
+                          name="Total" 
+                          stroke="#B6D932" 
+                          strokeWidth={4} 
+                          fillOpacity={1} 
+                          fill="url(#colorTotal)" 
+                          dot={false}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#B6D932' }} 
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="descarga" 
+                          name="Descarga" 
+                          stroke="#1E3932" 
+                          strokeWidth={4} 
+                          fillOpacity={1} 
+                          fill="url(#colorDescarga)" 
+                          dot={false}
+                          activeDot={{ r: 6, strokeWidth: 0, fill: '#1E3932' }} 
+                        />
+                      </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -2125,6 +2169,7 @@ export default function App() {
                 { key: 'container', label: 'Container' },
                 { key: 'data_posicionamento', label: 'Data Posicionamento' },
                 { key: 'status', label: 'Status' },
+                { key: 'created_by_email' as any, label: 'Usuário' },
                 { key: 'data_nf', label: 'Data NF' }
               ]}
               onEdit={setSelectedEntry}
@@ -3049,25 +3094,39 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
 
 function StatCard({ title, value, subtitle, icon }: { title: string, value: number | string, subtitle: string, icon: React.ReactNode }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm hover:border-titam-lime/30 transition-colors group">
-      <div className="flex justify-between items-start mb-4">
-        <div className="p-2 bg-titam-lime/10 rounded-lg group-hover:bg-titam-lime/20 transition-colors">
-          {icon}
+    <motion.div 
+      whileHover={{ y: -4, scale: 1.01 }}
+      className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 group relative overflow-hidden"
+    >
+      <div className="absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 bg-titam-lime opacity-[0.03] rounded-full transition-transform duration-500 group-hover:scale-150"></div>
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-6">
+          <div className="p-3 bg-gray-50 rounded-2xl text-gray-400 group-hover:text-titam-lime group-hover:bg-titam-lime/10 transition-all duration-300">
+            {icon}
+          </div>
+          <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] group-hover:text-titam-lime/30 transition-colors">
+            {title.split(' ')[0]}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest opacity-70">{title}</h3>
+          <div className="text-5xl font-black text-gray-900 tracking-tighter tabular-nums">{value}</div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+            <span className="w-1 h-1 rounded-full bg-titam-lime animate-pulse"></span>
+            {subtitle}
+          </p>
         </div>
       </div>
-      <h3 className="text-gray-500 text-sm font-medium mb-1">{title}</h3>
-      <div className="text-3xl font-bold text-gray-900 mb-1 mono-value">{value}</div>
-      <p className="text-xs text-gray-400">{subtitle}</p>
-    </div>
+    </motion.div>
   );
 }
 
 function Input({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</label>
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">{label}</label>
       <input 
-        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-shadow"
+        className="border border-gray-100 bg-gray-50/50 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all"
         {...props}
       />
     </div>
@@ -3093,13 +3152,13 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
 
   return (
     <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden"
     >
-      <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+      <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-white/50 backdrop-blur-sm sticky top-0 z-20">
         <div className="flex items-center gap-4 flex-1">
-          <h2 className="font-semibold text-gray-900 whitespace-nowrap">{title}</h2>
+          <h2 className="text-sm font-bold text-gray-900 uppercase tracking-widest whitespace-nowrap">{title}</h2>
           {showSearch && (
             <motion.div 
               initial={{ width: 0, opacity: 0 }}
@@ -3108,10 +3167,10 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
             >
               <input 
                 type="text"
-                placeholder="Pesquisar em todos os campos..."
+                placeholder="Pesquisar..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-titam-lime outline-none"
+                className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-titam-lime/30 outline-none"
                 autoFocus
               />
             </motion.div>
@@ -3120,39 +3179,42 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
         <div className="flex gap-2">
           <button 
             onClick={() => setShowSearch(!showSearch)}
-            className={`p-2 border rounded-lg transition-colors ${showSearch ? 'bg-titam-lime/10 text-titam-deep border-titam-lime/30' : 'text-gray-400 hover:text-gray-600 border-gray-200'}`}
+            className={`p-2.5 rounded-xl transition-all ${showSearch ? 'bg-titam-lime text-titam-deep shadow-lg shadow-titam-lime/20' : 'text-gray-400 hover:bg-gray-50 border border-gray-100'}`}
           >
-            <Search size={18} />
+            <Search size={16} />
           </button>
-          <button className="p-2 text-gray-400 hover:text-titam-deep hover:bg-titam-lime/10 border border-gray-200 rounded-lg transition-colors">
-            <Filter size={18} />
+          <button className="p-2.5 text-gray-400 hover:bg-gray-50 border border-gray-100 rounded-xl transition-all">
+            <Filter size={16} />
           </button>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
+            <tr className="bg-gray-50/50">
               {columns.map(col => (
-                <th key={col.key as string} className="px-6 py-3 data-grid-header">{col.label}</th>
+                <th key={col.key as string} className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50">{col.label}</th>
               ))}
-              <th className="px-6 py-3 data-grid-header sticky right-0 bg-gray-50 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">Ações</th>
+              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 sticky right-0 bg-gray-50/50 z-10">Ações</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-50">
             {filteredEntries.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + 1} className="px-6 py-12 text-center text-gray-400">
-                  Nenhum registro encontrado.
+                <td colSpan={columns.length + 1} className="px-6 py-16 text-center">
+                  <div className="flex flex-col items-center gap-2 opacity-20">
+                    <Package size={48} />
+                    <p className="text-xs font-bold uppercase tracking-widest">Nenhum registro</p>
+                  </div>
                 </td>
               </tr>
             ) : (
               filteredEntries.map((entry) => (
-                <tr key={entry.id} className="group hover:bg-gray-50 transition-colors">
+                <tr key={entry.id} className="group hover:bg-gray-50/80 transition-colors">
                   {columns.map(col => (
-                    <td key={col.key as string} className="px-6 py-4 text-sm text-gray-600">
+                    <td key={col.key as string} className="px-6 py-5 text-xs text-gray-600 font-medium">
                       <div className="flex items-center gap-2">
-                        <span>
+                        <span className={col.key === 'status' ? 'px-2 py-1 rounded-md bg-gray-100 text-[10px] font-bold uppercase' : ''}>
                           {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
                            (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
                            (col.key === 'valor' || col.key === 'tonelada') ? 
@@ -3160,19 +3222,16 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                            (entry[col.key] || '-')}
                         </span>
                         {col.key === 'nf_numero' && entry.isPending && (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 text-[10px] font-bold uppercase flex items-center gap-1">
-                            <RefreshCw size={10} className="animate-spin" />
-                            Pendente
-                          </span>
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Pendente" />
                         )}
                       </div>
                     </td>
                   ))}
-                  <td className="px-6 py-4 sticky right-0 bg-white group-hover:bg-gray-50 z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] transition-colors">
-                    <div className="flex items-center gap-3">
+                  <td className="px-6 py-5 sticky right-0 bg-white group-hover:bg-gray-50/80 z-10 border-l border-gray-50 transition-colors">
+                    <div className="flex items-center gap-4">
                       <button 
                         onClick={() => onEdit(entry)}
-                        className="text-titam-deep hover:opacity-70 text-sm font-medium"
+                        className="text-[10px] font-bold uppercase tracking-widest text-titam-deep hover:text-titam-lime transition-colors"
                       >
                         Editar
                       </button>
@@ -3181,10 +3240,9 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                           e.stopPropagation();
                           onDelete(entry.id);
                         }}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors group"
-                        title="Excluir Registro"
+                        className="text-gray-300 hover:text-red-500 transition-colors"
                       >
-                        <Trash2 size={18} className="group-hover:scale-110 transition-transform" />
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </td>
