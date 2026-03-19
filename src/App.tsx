@@ -175,6 +175,78 @@ export default function App() {
     }
   };
 
+  // Alertas Automáticos de Impacto (Filas Estouradas)
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || entries.length === 0) return;
+
+    const checkQueueImpacts = () => {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const currentH = now.getHours();
+      const currentM = now.getMinutes();
+      
+      const EXTERNA_LIMIT = 120; // 2 horas
+      const INTERNA_LIMIT = 60; // 1 hora
+      
+      const newAlerts: {id: string, message: string}[] = [];
+      
+      entries.forEach(entry => {
+        // Apenas para registros de hoje
+        if (entry.data_descarga === today) {
+          // Fila Externa: Chegou mas não entrou
+          if (entry.hora_chegada && !entry.hora_entrada) {
+            const [h, m] = entry.hora_chegada.split(':').map(Number);
+            const diff = (currentH * 60 + currentM) - (h * 60 + m);
+            
+            if (diff > EXTERNA_LIMIT) {
+              newAlerts.push({
+                id: `impact-ext-${entry.uid || entry.nf_numero}`,
+                message: `ALERTA: NF ${entry.nf_numero} na Fila Externa há ${Math.floor(diff/60)}h${diff%60}m. Impacto Crítico!`
+              });
+            }
+          }
+          
+          // Fila Interna: Entrou mas não saiu
+          if (entry.hora_entrada && !entry.hora_saida) {
+            const [h, m] = entry.hora_entrada.split(':').map(Number);
+            const diff = (currentH * 60 + currentM) - (h * 60 + m);
+            
+            if (diff > INTERNA_LIMIT) {
+              newAlerts.push({
+                id: `impact-int-${entry.uid || entry.nf_numero}`,
+                message: `ALERTA: NF ${entry.nf_numero} na Fila Interna há ${Math.floor(diff/60)}h${diff%60}m. Impacto Crítico!`
+              });
+            }
+          }
+        }
+      });
+      
+      // Adicionar apenas novos alertas
+      if (newAlerts.length > 0) {
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(n => n.id));
+          const filteredNew = newAlerts.filter(a => !existingIds.has(a.id));
+          
+          if (filteredNew.length === 0) return prev;
+          
+          const added = filteredNew.map(a => ({
+            id: a.id,
+            message: a.message,
+            type: 'critical' as const,
+            persistent: true
+          }));
+          
+          return [...added, ...prev];
+        });
+      }
+    };
+
+    const interval = setInterval(checkQueueImpacts, 60000); // Check every minute
+    checkQueueImpacts();
+    
+    return () => clearInterval(interval);
+  }, [entries, activeTab]);
+
   const triggerTestAlert = () => {
     const alerts = [
       { msg: "ALERTA CRÍTICO: Estoque de Cal Dolomítico (Serra-ES) está abaixo do limite mínimo (150t)!", type: 'critical' },
@@ -690,6 +762,11 @@ export default function App() {
   const dailyStats = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { in_stock: 0, exited: 0, suppliers: 0 };
     
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const currentH = now.getHours();
+    const currentM = now.getMinutes();
+    
     const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const exits = filteredEntriesForDashboard.filter(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
@@ -701,6 +778,20 @@ export default function App() {
     const queue_internal = filteredEntriesForDashboard.filter(e => e && e.hora_entrada && !e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
     const queue_exit = filteredEntriesForDashboard.filter(e => e && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
     
+    const queue_external_exceeded = filteredEntriesForDashboard.filter(e => {
+      if (!e || !e.hora_chegada || e.hora_entrada || e.data_descarga !== today) return false;
+      const [h, m] = e.hora_chegada.split(':').map(Number);
+      const diff = (currentH * 60 + currentM) - (h * 60 + m);
+      return diff > 120;
+    }).length;
+
+    const queue_internal_exceeded = filteredEntriesForDashboard.filter(e => {
+      if (!e || !e.hora_entrada || e.hora_saida || e.data_descarga !== today) return false;
+      const [h, m] = e.hora_entrada.split(':').map(Number);
+      const diff = (currentH * 60 + currentM) - (h * 60 + m);
+      return diff > 60;
+    }).length;
+
     return {
       in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: exits.length,
@@ -708,7 +799,9 @@ export default function App() {
       exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0),
       queue_external,
       queue_internal,
-      queue_exit
+      queue_exit,
+      queue_external_exceeded,
+      queue_internal_exceeded
     };
   }, [filteredEntriesForDashboard, selectedDates]);
 
@@ -1426,23 +1519,66 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <StatCard 
                   title="Estoque Selecionado" 
-                  value={dailyStats.in_stock.toString()} 
+                  value={dailyStats.in_stock} 
                   subtitle="Unidades (Datas filtradas)"
                   icon={<Package className="text-titam-deep" />}
                 />
                 <StatCard 
                   title="Saídas Selecionadas" 
-                  value={dailyStats.exited.toString()} 
+                  value={dailyStats.exited} 
                   subtitle="Unidades (Datas filtradas)"
                   icon={<ArrowUpRight className="text-titam-deep" />}
                 />
                 <StatCard 
                   title="Fornecedores" 
-                  value={dailyStats.suppliers.toString()} 
+                  value={dailyStats.suppliers} 
                   subtitle="Nas datas filtradas"
                   icon={<Truck className="text-titam-deep" />}
                 />
               </div>
+
+              {/* Impactos em Tempo Real Section */}
+              {(dailyStats.queue_external_exceeded > 0 || dailyStats.queue_internal_exceeded > 0) && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-8 p-6 bg-red-50/50 border border-red-100 rounded-2xl relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <AlertTriangle size={80} className="text-red-500" />
+                  </div>
+                  <div className="relative z-10">
+                    <h3 className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                      Impactos em Tempo Real (Hoje)
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {dailyStats.queue_external_exceeded > 0 && (
+                        <div className="bg-white p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4">
+                          <div className="p-3 bg-red-50 rounded-lg text-red-500">
+                            <Clock size={20} />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Fila Externa</p>
+                            <p className="text-lg font-black text-gray-900">{dailyStats.queue_external_exceeded} <span className="text-xs font-bold text-red-500 uppercase">Veículos Excedidos</span></p>
+                          </div>
+                        </div>
+                      )}
+                      {dailyStats.queue_internal_exceeded > 0 && (
+                        <div className="bg-white p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4">
+                          <div className="p-3 bg-red-50 rounded-lg text-red-500">
+                            <Activity size={20} />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Fila Interna</p>
+                            <p className="text-lg font-black text-gray-900">{dailyStats.queue_internal_exceeded} <span className="text-xs font-bold text-red-500 uppercase">Veículos Excedidos</span></p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Fluxo de Veículos Section */}
               <div className="mt-8">
@@ -1451,24 +1587,44 @@ export default function App() {
                   Fluxo de Veículos (Quantidade)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group relative overflow-hidden">
+                    {dailyStats.queue_external_exceeded > 0 && (
+                      <div className="absolute top-0 left-0 w-1 h-full bg-red-500 animate-pulse"></div>
+                    )}
                     <div>
-                      <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-2">Fila Externa</p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Fila Externa</p>
+                        {dailyStats.queue_external_exceeded > 0 && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-[8px] font-black uppercase animate-bounce">
+                            {dailyStats.queue_external_exceeded} Impacto
+                          </span>
+                        )}
+                      </div>
                       <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_external}</h4>
                       <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Aguardando Entrada</p>
                     </div>
-                    <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${dailyStats.queue_external_exceeded > 0 ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
                       <Clock size={20} />
                     </div>
                   </div>
                   
-                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                  <div className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-center justify-between group relative overflow-hidden">
+                    {dailyStats.queue_internal_exceeded > 0 && (
+                      <div className="absolute top-0 left-0 w-1 h-full bg-red-500 animate-pulse"></div>
+                    )}
                     <div>
-                      <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-2">Fila Interna</p>
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Fila Interna</p>
+                        {dailyStats.queue_internal_exceeded > 0 && (
+                          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-[8px] font-black uppercase animate-bounce">
+                            {dailyStats.queue_internal_exceeded} Impacto
+                          </span>
+                        )}
+                      </div>
                       <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_internal}</h4>
                       <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Em Operação</p>
                     </div>
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-all">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${dailyStats.queue_internal_exceeded > 0 ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-500 group-hover:bg-amber-500 group-hover:text-white'}`}>
                       <Truck size={20} />
                     </div>
                   </div>
@@ -1647,22 +1803,22 @@ export default function App() {
                           dataKey="total" 
                           name="Total" 
                           stroke="#B6D932" 
-                          strokeWidth={4} 
+                          strokeWidth={3} 
                           fillOpacity={1} 
                           fill="url(#colorTotal)" 
                           dot={false}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#B6D932' }} 
+                          activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#B6D932' }} 
                         />
                         <Area 
                           type="monotone" 
                           dataKey="descarga" 
                           name="Descarga" 
                           stroke="#1E3932" 
-                          strokeWidth={4} 
+                          strokeWidth={3} 
                           fillOpacity={1} 
                           fill="url(#colorDescarga)" 
                           dot={false}
-                          activeDot={{ r: 6, strokeWidth: 0, fill: '#1E3932' }} 
+                          activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#1E3932' }} 
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -3098,10 +3254,14 @@ function StatCard({ title, value, subtitle, icon }: { title: string, value: numb
       whileHover={{ y: -4, scale: 1.01 }}
       className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 group relative overflow-hidden"
     >
-      <div className="absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 bg-titam-lime opacity-[0.03] rounded-full transition-transform duration-500 group-hover:scale-150"></div>
+      {/* Subtle Grid Background */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1E3932 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+      
+      <div className="absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 bg-titam-lime opacity-[0.05] rounded-full transition-transform duration-500 group-hover:scale-150"></div>
+      
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-6">
-          <div className="p-3 bg-gray-50 rounded-2xl text-gray-400 group-hover:text-titam-lime group-hover:bg-titam-lime/10 transition-all duration-300">
+          <div className="p-3 bg-gray-50 rounded-2xl text-gray-400 group-hover:text-titam-lime group-hover:bg-titam-lime/10 transition-all duration-300 shadow-inner">
             {icon}
           </div>
           <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] group-hover:text-titam-lime/30 transition-colors">
@@ -3109,10 +3269,13 @@ function StatCard({ title, value, subtitle, icon }: { title: string, value: numb
           </div>
         </div>
         <div className="space-y-1">
-          <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest opacity-70">{title}</h3>
-          <div className="text-5xl font-black text-gray-900 tracking-tighter tabular-nums">{value}</div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-            <span className="w-1 h-1 rounded-full bg-titam-lime animate-pulse"></span>
+          <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">{title}</h3>
+          <div className="flex items-baseline gap-2">
+            <div className="text-5xl font-black text-gray-900 tracking-tighter tabular-nums drop-shadow-sm">{value}</div>
+            {typeof value === 'number' && <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">un</div>}
+          </div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5 pt-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-titam-lime animate-pulse shadow-[0_0_8px_rgba(182,217,50,0.8)]"></span>
             {subtitle}
           </p>
         </div>
@@ -3193,9 +3356,9 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
           <thead>
             <tr className="bg-gray-50/50">
               {columns.map(col => (
-                <th key={col.key as string} className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50">{col.label}</th>
+                <th key={col.key as string} className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 italic font-serif opacity-70">{col.label}</th>
               ))}
-              <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 sticky right-0 bg-gray-50/50 z-10">Ações</th>
+              <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 sticky right-0 bg-gray-50/50 z-10 italic font-serif opacity-70">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -3210,13 +3373,16 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
               </tr>
             ) : (
               filteredEntries.map((entry) => (
-                <tr key={entry.id} className="group hover:bg-gray-50/80 transition-colors">
+                <tr key={entry.id} className="group hover:bg-titam-deep hover:text-white transition-all duration-200 cursor-default">
                   {columns.map(col => (
-                    <td key={col.key as string} className="px-6 py-5 text-xs text-gray-600 font-medium">
+                    <td key={col.key as string} className="px-6 py-5 text-[11px] font-medium transition-colors">
                       <div className="flex items-center gap-2">
-                        <span className={col.key === 'status' ? 'px-2 py-1 rounded-md bg-gray-100 text-[10px] font-bold uppercase' : ''}>
-                          {(col.key as any) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
-                           (col.key as any) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
+                        <span className={`
+                          ${col.key === 'status' ? 'px-2 py-1 rounded-md bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white text-[9px] font-black uppercase tracking-wider' : ''}
+                          ${(col.key === 'valor' || col.key === 'tonelada' || col.key === 'nf_numero' || (col.key as unknown as string) === 'total_time' || (col.key as unknown as string) === 'descarga_time') ? 'font-mono tracking-tighter' : ''}
+                        `}>
+                          {(col.key as unknown as string) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
+                           (col.key as unknown as string) === 'descarga_time' ? calculateTimeDiff(entry.hora_entrada, entry.hora_saida) :
                            (col.key === 'valor' || col.key === 'tonelada') ? 
                              (entry[col.key] !== undefined ? Number(entry[col.key]).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-') :
                            (entry[col.key] || '-')}
@@ -3227,11 +3393,11 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                       </div>
                     </td>
                   ))}
-                  <td className="px-6 py-5 sticky right-0 bg-white group-hover:bg-gray-50/80 z-10 border-l border-gray-50 transition-colors">
+                  <td className="px-6 py-5 sticky right-0 bg-white group-hover:bg-titam-deep z-10 border-l border-gray-50 group-hover:border-white/10 transition-all duration-200">
                     <div className="flex items-center gap-4">
                       <button 
                         onClick={() => onEdit(entry)}
-                        className="text-[10px] font-bold uppercase tracking-widest text-titam-deep hover:text-titam-lime transition-colors"
+                        className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep group-hover:text-titam-lime transition-colors"
                       >
                         Editar
                       </button>
@@ -3240,7 +3406,7 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                           e.stopPropagation();
                           onDelete(entry.id);
                         }}
-                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        className="text-gray-300 group-hover:text-red-400 transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>
