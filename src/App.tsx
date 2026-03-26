@@ -135,6 +135,7 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showEditConfirm, setShowEditConfirm] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
@@ -1096,9 +1097,11 @@ export default function App() {
       await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
       addNotification("Registro atualizado!", "info");
       setSelectedEntry(null);
+      return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
       addNotification("Erro ao atualizar registro.", "error");
+      return false;
     } finally {
       setIsUpdating(false);
     }
@@ -2680,6 +2683,60 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Edit Confirmation Modal */}
+        <AnimatePresence>
+          {showEditConfirm && selectedEntry && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              >
+                <div className="p-6 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4">
+                    <AlertTriangle size={32} />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Confirmar Edição</h2>
+                  <p className="text-gray-500 mb-6">
+                    Você tem certeza que deseja salvar as alterações feitas neste registro?
+                    <span className="block mt-2 font-semibold text-titam-deep">
+                      NF: {selectedEntry.nf_numero}
+                    </span>
+                  </p>
+                  
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => setShowEditConfirm(false)}
+                      disabled={isUpdating}
+                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const success = await handleUpdateEntry(selectedEntry.id, editFormData);
+                        if (success) {
+                          setShowEditConfirm(false);
+                        }
+                      }}
+                      disabled={isUpdating}
+                      className={`flex-1 px-4 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md flex items-center justify-center gap-2 ${isUpdating ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isUpdating ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-titam-deep/30 border-t-titam-deep rounded-full animate-spin" />
+                          Salvando...
+                        </>
+                      ) : 'Confirmar'}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
         {/* Delete Confirmation Modal */}
         <AnimatePresence>
           {deleteConfirmation && (
@@ -2929,11 +2986,54 @@ export default function App() {
             >
               <div className="p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
                 <h2 className="text-xl font-semibold">Atualizar Registro: NF {selectedEntry.nf_numero}</h2>
-                <button onClick={() => setSelectedEntry(null)} className="text-gray-400 hover:text-gray-600">
+                <button onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} className="text-gray-400 hover:text-gray-600">
                   <X size={24} />
                 </button>
               </div>
               <div className="p-8 space-y-8">
+                {/* Section: Entrada */}
+                {(activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
+                  <section className="space-y-4">
+                    <h3 className="text-sm font-bold text-titam-lime uppercase tracking-widest">Informações de Entrada</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <Input 
+                        label="Número NF" 
+                        value={editFormData.nf_numero || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
+                      />
+                      <Input 
+                        label="Fornecedor" 
+                        value={editFormData.fornecedor || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
+                      />
+                      <Input 
+                        label="Placa Veículo" 
+                        value={editFormData.placa_veiculo || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
+                      />
+                      <Input 
+                        label="Data NF" 
+                        type="date"
+                        value={editFormData.data_nf || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
+                      />
+                      <Input 
+                        label="Data Descarga" 
+                        type="date"
+                        value={editFormData.data_descarga || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
+                      />
+                      <div className="col-span-2 md:col-span-3">
+                        <Input 
+                          label="Chave de Acesso" 
+                          value={editFormData.chave_acesso || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, chave_acesso: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </section>
+                )}
+
                 {/* Section: Informações Gerais */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
@@ -3007,7 +3107,7 @@ export default function App() {
                 </section>
 
                 {/* Section: Saída */}
-                {(activeTab === 'saida' || activeTab === 'lista') && (
+                {(activeTab === 'saida' || activeTab === 'entrada' || activeTab === 'lista') && (
                   <section className="space-y-4">
                     <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                     <div className="grid grid-cols-2 gap-4">
@@ -3058,7 +3158,7 @@ export default function App() {
                 )}
 
                 {/* Section: Performance */}
-                {(activeTab === 'performance' || activeTab === 'lista') && (
+                {(activeTab === 'performance' || activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
                   <section className="space-y-4">
                     <h3 className="text-sm font-bold text-amber-600 uppercase tracking-widest">Performance Logística (Visualização)</h3>
                     <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
@@ -3079,7 +3179,7 @@ export default function App() {
                 )}
 
                 {/* Section: Faturamento */}
-                {(activeTab === 'faturamento' || activeTab === 'lista') && (
+                {(activeTab === 'faturamento' || activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
                   <section className="space-y-4">
                     <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
                     <div className="grid grid-cols-2 gap-4">
@@ -3117,22 +3217,17 @@ export default function App() {
 
                 <div className="flex justify-end gap-3 pt-4">
                   <button 
-                    onClick={() => setSelectedEntry(null)} 
+                    onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} 
                     className="px-6 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button 
-                    onClick={() => handleUpdateEntry(selectedEntry.id, editFormData)} 
+                    onClick={() => setShowEditConfirm(true)} 
                     disabled={isUpdating}
                     className={`px-8 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md flex items-center gap-2 ${isUpdating ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    {isUpdating ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Salvando...
-                      </>
-                    ) : 'Salvar Alterações'}
+                    Salvar Alterações
                   </button>
                 </div>
               </div>
