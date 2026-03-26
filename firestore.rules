@@ -37,6 +37,16 @@ service cloud.firestore {
     //   - created_at: string
     //   - uid: string (required)
     //
+    // Collection: containers
+    // Document ID: auto-generated
+    // Fields:
+    //   - numero: string (required)
+    //   - status: string (required) - ["Disponível", "Em Manutenção", "Em Uso"]
+    //   - observacao: string
+    //   - updated_at: timestamp
+    //   - updated_by_email: string
+    //   - uid: string (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -68,6 +78,13 @@ service cloud.firestore {
              data.uid is string;
     }
 
+    function isValidContainer(data) {
+      return data.keys().hasAll(['numero', 'status', 'uid']) &&
+             data.numero is string && data.numero.size() > 0 &&
+             data.status in ["Disponível", "Em Manutenção", "Em Uso"] &&
+             data.uid is string;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow write: if isAdmin();
@@ -77,6 +94,13 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidEntry(request.resource.data) && request.resource.data.uid == request.auth.uid;
       allow update: if isAuthenticated() && isValidEntry(request.resource.data) && (isDocOwner() || isAdmin());
+      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+    }
+
+    match /containers/{containerId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidContainer(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidContainer(request.resource.data) && (isDocOwner() || isAdmin());
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
     }
   }

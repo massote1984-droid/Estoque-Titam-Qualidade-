@@ -42,3 +42,13 @@ export interface StockSummary {
   devolvido: number;
   total: number;
 }
+
+export interface Container {
+  id: string;
+  numero: string;
+  status: 'Disponível' | 'Em Manutenção' | 'Em Uso';
+  observacao?: string;
+  updated_at: any;
+  updated_by_email?: string;
+  uid: string;
+}

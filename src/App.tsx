@@ -48,7 +48,7 @@ import {
   LabelList,
   ReferenceLine
 } from 'recharts';
-import { Entry, StockSummary } from './types';
+import { Entry, StockSummary, Container } from './types';
 import { useAuth } from './components/FirebaseProvider';
 import { 
   collection, 
@@ -117,12 +117,13 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [containers, setContainers] = useState<Container[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
@@ -479,8 +480,9 @@ export default function App() {
 
     setLoading(true);
     const q = query(collection(db, 'entries'), orderBy('created_at', 'desc'));
+    const qContainers = query(collection(db, 'containers'), orderBy('numero', 'asc'));
     
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeEntries = onSnapshot(q, (snapshot) => {
       const entriesData = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id,
@@ -497,7 +499,22 @@ export default function App() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubscribeContainers = onSnapshot(qContainers, (snapshot) => {
+      const containersData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id,
+        updated_at: doc.data().updated_at instanceof Timestamp ? doc.data().updated_at.toDate().toISOString() : doc.data().updated_at
+      })) as Container[];
+      
+      setContainers(containersData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'containers', user);
+    });
+
+    return () => {
+      unsubscribeEntries();
+      unsubscribeContainers();
+    };
   }, [user]);
 
   useEffect(() => {
@@ -1111,6 +1128,50 @@ export default function App() {
     }
   };
 
+  const handleCreateContainer = async (numero: string, status: Container['status'], observacao?: string) => {
+    if (!user || !numero) return;
+    try {
+      await addDoc(collection(db, 'containers'), {
+        numero,
+        status,
+        observacao: observacao || '',
+        uid: user.uid,
+        updated_at: serverTimestamp(),
+        updated_by_email: user.email
+      });
+      addNotification(`Container ${numero} adicionado!`, "info");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'containers', user);
+      addNotification("Erro ao adicionar container.", "error");
+    }
+  };
+
+  const handleUpdateContainer = async (id: string, updates: Partial<Container>) => {
+    if (!user) return;
+    try {
+      await updateDoc(doc(db, 'containers', id), {
+        ...updates,
+        updated_at: serverTimestamp(),
+        updated_by_email: user.email
+      });
+      addNotification("Container atualizado!", "info");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `containers/${id}`, user);
+      addNotification("Erro ao atualizar container.", "error");
+    }
+  };
+
+  const handleDeleteContainer = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'containers', id));
+      addNotification("Container removido!", "warning");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `containers/${id}`, user);
+      addNotification("Erro ao remover container.", "error");
+    }
+  };
+
   const yardEntries = React.useMemo(() => {
     if (!Array.isArray(entries)) return [];
     return entries.filter(e => {
@@ -1278,6 +1339,12 @@ export default function App() {
             label="Relatórios" 
             active={activeTab === 'relatorios'} 
             onClick={() => setActiveTab('relatorios')} 
+          />
+          <NavItem 
+            icon={<Package size={18} />} 
+            label="Containers" 
+            active={activeTab === 'containers'} 
+            onClick={() => setActiveTab('containers')} 
           />
         </nav>
 
@@ -2450,6 +2517,167 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {activeTab === 'containers' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Gestão de Containers</h2>
+                  <p className="text-gray-500 text-sm">Controle de disponibilidade e manutenção de frota</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Disponíveis para Carga</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-emerald-600">
+                      {containers.filter(c => c.status === 'Disponível').length}
+                    </span>
+                    <span className="text-xs text-gray-400 font-bold uppercase">Unidades</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Em Manutenção</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-amber-500">
+                      {containers.filter(c => c.status === 'Em Manutenção').length}
+                    </span>
+                    <span className="text-xs text-gray-400 font-bold uppercase">Unidades</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Em Uso / Operação</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-blue-600">
+                      {containers.filter(c => c.status === 'Em Uso').length}
+                    </span>
+                    <span className="text-xs text-gray-400 font-bold uppercase">Unidades</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                    <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Lista de Containers</h3>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Total: {containers.length}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                          <th className="px-6 py-4">Número</th>
+                          <th className="px-6 py-4">Status</th>
+                          <th className="px-6 py-4">Observação</th>
+                          <th className="px-6 py-4 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {containers.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-6 py-12 text-center text-gray-400 text-xs italic">
+                              Nenhum container cadastrado
+                            </td>
+                          </tr>
+                        ) : (
+                          containers.map(container => (
+                            <tr key={container.id} className="hover:bg-gray-50/50 transition-colors group">
+                              <td className="px-6 py-4">
+                                <span className="text-xs font-black text-titam-deep uppercase tracking-wider">{container.numero}</span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <select 
+                                  value={container.status}
+                                  onChange={(e) => handleUpdateContainer(container.id, { status: e.target.value as any })}
+                                  className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest outline-none border-none cursor-pointer ${
+                                    container.status === 'Disponível' ? 'bg-emerald-50 text-emerald-600' :
+                                    container.status === 'Em Manutenção' ? 'bg-amber-50 text-amber-600' :
+                                    'bg-blue-50 text-blue-600'
+                                  }`}
+                                >
+                                  <option value="Disponível">Disponível</option>
+                                  <option value="Em Manutenção">Em Manutenção</option>
+                                  <option value="Em Uso">Em Uso</option>
+                                </select>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className="text-[10px] text-gray-500 font-medium">{container.observacao || '-'}</span>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <button 
+                                  onClick={() => handleDeleteContainer(container.id)}
+                                  className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6">
+                  <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Novo Container</h3>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.target as HTMLFormElement;
+                    const numero = (form.elements.namedItem('numero') as HTMLInputElement).value;
+                    const status = (form.elements.namedItem('status') as HTMLSelectElement).value as any;
+                    const obs = (form.elements.namedItem('observacao') as HTMLTextAreaElement).value;
+                    handleCreateContainer(numero, status, obs);
+                    form.reset();
+                  }} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Número do Container</label>
+                      <input 
+                        name="numero"
+                        required
+                        placeholder="EX: TITU1234567"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status Inicial</label>
+                      <select 
+                        name="status"
+                        required
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                      >
+                        <option value="Disponível">Disponível</option>
+                        <option value="Em Manutenção">Em Manutenção</option>
+                        <option value="Em Uso">Em Uso</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observação</label>
+                      <textarea 
+                        name="observacao"
+                        rows={3}
+                        placeholder="DETALHES DA MANUTENÇÃO OU USO..."
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all resize-none"
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20"
+                    >
+                      Cadastrar Container
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Delete Confirmation Modal */}
@@ -2748,13 +2976,13 @@ export default function App() {
                     <Input 
                       label="Tonelada" 
                       type="text"
-                      value={editFormData.tonelada !== undefined ? Number(editFormData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      value={editFormData.tonelada !== undefined ? (typeof editFormData.tonelada === 'number' ? editFormData.tonelada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.tonelada) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
                     />
                     <Input 
                       label="Valor" 
                       type="text"
-                      value={editFormData.valor !== undefined ? Number(editFormData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      value={editFormData.valor !== undefined ? (typeof editFormData.valor === 'number' ? editFormData.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.valor) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
                     />
                     <Input 
@@ -2952,7 +3180,7 @@ function ReportsView({
   const [filterFornecedor, setFilterFornecedor] = useState('');
 
   const filteredEntries = entries.filter(entry => {
-    const date = entry.data_nf;
+    const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
     const matchesFornecedor = !filterFornecedor || entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase());
     return matchesDate && matchesFornecedor;
@@ -2966,17 +3194,17 @@ function ReportsView({
       : reportType === 'performance'
       ? ['NF', 'Data Descarga', 'Fornecedor', 'Produto', 'Placa', 'Chegada', 'Entrada', 'Saída', 'Tempo Descarga', 'Tempo Total']
       : reportType === 'logistica_vli'
-      ? ['NF', 'Container', 'Vagão', 'Fat. VLI', 'Destino']
+      ? ['NF', 'Produto', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
       : reportType === 'saida_detalhada'
-      ? ['Data Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Volume (Ton)', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
+      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Produto', 'Volume (Ton)', 'Placa', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
 
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
-      if (reportType === 'logistica_vli') return [e.nf_numero, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino];
-      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.tonelada, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
+      if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
+      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.descricao_produto, e.tonelada, e.placa_veiculo, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
     });
 
@@ -3054,7 +3282,9 @@ function ReportsView({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Início</label>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {reportType === 'saida_detalhada' ? 'Início Fat. VLI' : 'Data Início'}
+          </label>
           <input 
             type="date" 
             value={startDate}
@@ -3063,7 +3293,9 @@ function ReportsView({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Fim</label>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {reportType === 'saida_detalhada' ? 'Fim Fat. VLI' : 'Data Fim'}
+          </label>
           <input 
             type="date" 
             value={endDate}
@@ -3124,24 +3356,31 @@ function ReportsView({
                 {reportType === 'logistica_vli' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">NF</th>
-                    <th className="px-6 py-3 data-grid-header">Container</th>
-                    <th className="px-6 py-3 data-grid-header">Vagão</th>
-                    <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
-                    <th className="px-6 py-3 data-grid-header">Destino</th>
-                  </>
-                )}
-                {reportType === 'saida_detalhada' && (
-                  <>
-                    <th className="px-6 py-3 data-grid-header">Data Posicionamento</th>
-                    <th className="px-6 py-3 data-grid-header">Data NF</th>
-                    <th className="px-6 py-3 data-grid-header">Data Descarga</th>
-                    <th className="px-6 py-3 data-grid-header">NF</th>
-                    <th className="px-6 py-3 data-grid-header">Volume (Ton)</th>
+                    <th className="px-6 py-3 data-grid-header">Produto</th>
                     <th className="px-6 py-3 data-grid-header">Container</th>
                     <th className="px-6 py-3 data-grid-header">Vagão</th>
                     <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
                     <th className="px-6 py-3 data-grid-header">Destino</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                  </>
+                )}
+                {reportType === 'saida_detalhada' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Data Posicionamento</th>
+                    <th className="px-6 py-3 data-grid-header">Horário Posicionamento</th>
+                    <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    <th className="px-6 py-3 data-grid-header">Data Descarga</th>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Produto</th>
+                    <th className="px-6 py-3 data-grid-header">Volume (Ton)</th>
+                    <th className="px-6 py-3 data-grid-header">Placa</th>
+                    <th className="px-6 py-3 data-grid-header">Container</th>
+                    <th className="px-6 py-3 data-grid-header">Vagão</th>
+                    <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
+                    <th className="px-6 py-3 data-grid-header">Horário Faturamento</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                    <th className="px-6 py-3 data-grid-header">Status</th>
                   </>
                 )}
                 {reportType === 'faturamento_detalhado' && (
@@ -3195,24 +3434,31 @@ function ReportsView({
                   {reportType === 'logistica_vli' && (
                     <>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
-                    </>
-                  )}
-                  {reportType === 'saida_detalhada' && (
-                    <>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_posicionamento || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
-                      <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                    </>
+                  )}
+                  {reportType === 'saida_detalhada' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_posicionamento || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.horario_posicionamento || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.placa_veiculo}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.horario_faturamento || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.status}</td>
                     </>
                   )}
                   {reportType === 'faturamento_detalhado' && (
@@ -3308,8 +3554,21 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
 
   const filteredEntries = entries.filter(entry => {
     const searchStr = searchTerm.toLowerCase();
-    return Object.values(entry).some(val => 
+    // Explicitly search in key fields to ensure container and others are always included
+    const searchableFields = [
+      entry.nf_numero,
+      entry.container,
+      entry.fornecedor,
+      entry.descricao_produto,
+      entry.placa_veiculo,
+      entry.numero_vagao,
+      entry.destino
+    ];
+
+    return searchableFields.some(val => 
       val && val.toString().toLowerCase().includes(searchStr)
+    ) || Object.values(entry).some(val => 
+      val && typeof val !== 'object' && val.toString().toLowerCase().includes(searchStr)
     );
   });
 
