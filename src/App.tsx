@@ -1070,7 +1070,7 @@ export default function App() {
   };
 
   const handleUpdateEntry = async (id: string | number, updates: Partial<Entry>) => {
-    if (!user) return;
+    if (!user || !id) return false;
     const sanitizedUpdates = { ...updates };
     const sanitizeNumeric = (val: any) => {
       if (typeof val !== 'string') return val;
@@ -1087,6 +1087,8 @@ export default function App() {
     // Remove fields that shouldn't be updated or are incompatible
     delete sanitizedUpdates.id;
     delete sanitizedUpdates.isPending;
+    delete sanitizedUpdates.created_at;
+    delete sanitizedUpdates.uid;
 
     // Add tracking info
     sanitizedUpdates.updated_at = serverTimestamp();
@@ -1096,7 +1098,6 @@ export default function App() {
       setIsUpdating(true);
       await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
       addNotification("Registro atualizado!", "info");
-      setSelectedEntry(null);
       return true;
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
@@ -2718,6 +2719,7 @@ export default function App() {
                         const success = await handleUpdateEntry(selectedEntry.id, editFormData);
                         if (success) {
                           setShowEditConfirm(false);
+                          setSelectedEntry(null);
                         }
                       }}
                       disabled={isUpdating}
@@ -2992,47 +2994,45 @@ export default function App() {
               </div>
               <div className="p-8 space-y-8">
                 {/* Section: Entrada */}
-                {(activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
-                  <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-titam-lime uppercase tracking-widest">Informações de Entrada</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <section className="space-y-4">
+                  <h3 className="text-sm font-bold text-titam-lime uppercase tracking-widest">Informações de Entrada</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Input 
+                      label="Número NF" 
+                      value={editFormData.nf_numero || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
+                    />
+                    <Input 
+                      label="Fornecedor" 
+                      value={editFormData.fornecedor || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
+                    />
+                    <Input 
+                      label="Placa Veículo" 
+                      value={editFormData.placa_veiculo || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
+                    />
+                    <Input 
+                      label="Data NF" 
+                      type="date"
+                      value={editFormData.data_nf || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
+                    />
+                    <Input 
+                      label="Data Descarga" 
+                      type="date"
+                      value={editFormData.data_descarga || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
+                    />
+                    <div className="col-span-2 md:col-span-3">
                       <Input 
-                        label="Número NF" 
-                        value={editFormData.nf_numero || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
+                        label="Chave de Acesso" 
+                        value={editFormData.chave_acesso || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, chave_acesso: e.target.value }))}
                       />
-                      <Input 
-                        label="Fornecedor" 
-                        value={editFormData.fornecedor || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
-                      />
-                      <Input 
-                        label="Placa Veículo" 
-                        value={editFormData.placa_veiculo || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
-                      />
-                      <Input 
-                        label="Data NF" 
-                        type="date"
-                        value={editFormData.data_nf || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
-                      />
-                      <Input 
-                        label="Data Descarga" 
-                        type="date"
-                        value={editFormData.data_descarga || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
-                      />
-                      <div className="col-span-2 md:col-span-3">
-                        <Input 
-                          label="Chave de Acesso" 
-                          value={editFormData.chave_acesso || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, chave_acesso: e.target.value }))}
-                        />
-                      </div>
                     </div>
-                  </section>
-                )}
+                  </div>
+                </section>
 
                 {/* Section: Informações Gerais */}
                 <section className="space-y-4">
@@ -3107,113 +3107,88 @@ export default function App() {
                 </section>
 
                 {/* Section: Saída */}
-                {(activeTab === 'saida' || activeTab === 'entrada' || activeTab === 'lista') && (
-                  <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Input 
-                        label="Data de Posicionamento" 
-                        type="date" 
-                        value={editFormData.data_posicionamento || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
-                      />
-                      <Input 
-                        label="Data Faturamento VLI" 
-                        type="date" 
-                        value={editFormData.data_faturamento_vli || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
-                      />
-                      <Input 
-                        label="Horário de Posicionamento" 
-                        type="time"
-                        value={editFormData.horario_posicionamento || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
-                      />
-                      <Input 
-                        label="Horário de Faturamento" 
-                        type="time"
-                        value={editFormData.horario_faturamento || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
-                      />
-                      <Input 
-                        label="Nº Vagão" 
-                        value={editFormData.numero_vagao || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
-                      />
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
-                        <select 
-                          value={editFormData.status || ''}
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                          className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
-                        >
-                          <option value="Estoque">Estoque</option>
-                          <option value="Rejeitado">Rejeitado</option>
-                          <option value="Embarcado">Embarcado</option>
-                          <option value="Devolvido">Devolvido</option>
-                        </select>
-                      </div>
+                <section className="space-y-4">
+                  <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input 
+                      label="Data de Posicionamento" 
+                      type="date" 
+                      value={editFormData.data_posicionamento || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
+                    />
+                    <Input 
+                      label="Data Faturamento VLI" 
+                      type="date" 
+                      value={editFormData.data_faturamento_vli || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
+                    />
+                    <Input 
+                      label="Horário de Posicionamento" 
+                      type="time"
+                      value={editFormData.horario_posicionamento || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
+                    />
+                    <Input 
+                      label="Horário de Faturamento" 
+                      type="time"
+                      value={editFormData.horario_faturamento || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
+                    />
+                    <Input 
+                      label="Nº Vagão" 
+                      value={editFormData.numero_vagao || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
+                      <select 
+                        value={editFormData.status || ''}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                        className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white"
+                      >
+                        <option value="Estoque">Estoque</option>
+                        <option value="Rejeitado">Rejeitado</option>
+                        <option value="Embarcado">Embarcado</option>
+                        <option value="Devolvido">Devolvido</option>
+                      </select>
                     </div>
-                  </section>
-                )}
-
-                {/* Section: Performance */}
-                {(activeTab === 'performance' || activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
-                  <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-amber-600 uppercase tracking-widest">Performance Logística (Visualização)</h3>
-                    <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold">Chegada</span>
-                        <span className="font-mono">{editFormData.hora_chegada || '--:--'}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold">Entrada</span>
-                        <span className="font-mono">{editFormData.hora_entrada || '--:--'}</span>
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold">Saída</span>
-                        <span className="font-mono">{editFormData.hora_saida || '--:--'}</span>
-                      </div>
-                    </div>
-                  </section>
-                )}
+                  </div>
+                </section>
 
                 {/* Section: Faturamento */}
-                {(activeTab === 'faturamento' || activeTab === 'entrada' || activeTab === 'saida' || activeTab === 'lista') && (
-                  <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Input 
-                        label="Data Emissão NF" 
-                        type="date" 
-                        value={editFormData.data_emissao_nf || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
-                      />
-                      <Input 
-                        label="Emissão CTE Intertex" 
-                        type="date" 
-                        value={editFormData.data_emissao_cte || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
-                      />
-                      <Input 
-                        label="CTE Intertex" 
-                        value={editFormData.cte_intertex || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
-                      />
-                      <Input 
-                        label="Emissão CTE Transp." 
-                        type="date" 
-                        value={editFormData.data_emissao_cte_transp || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
-                      />
-                      <Input 
-                        label="CTE Transportador" 
-                        value={editFormData.cte_transportador || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
-                      />
-                    </div>
-                  </section>
-                )}
+                <section className="space-y-4">
+                  <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input 
+                      label="Data Emissão NF" 
+                      type="date" 
+                      value={editFormData.data_emissao_nf || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
+                    />
+                    <Input 
+                      label="Emissão CTE Intertex" 
+                      type="date" 
+                      value={editFormData.data_emissao_cte || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
+                    />
+                    <Input 
+                      label="CTE Intertex" 
+                      value={editFormData.cte_intertex || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
+                    />
+                    <Input 
+                      label="Emissão CTE Transp." 
+                      type="date" 
+                      value={editFormData.data_emissao_cte_transp || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
+                    />
+                    <Input 
+                      label="CTE Transportador" 
+                      value={editFormData.cte_transportador || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
+                    />
+                  </div>
+                </section>
 
                 <div className="flex justify-end gap-3 pt-4">
                   <button 
