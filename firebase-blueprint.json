@@ -31,10 +31,11 @@
         "data_emissao_cte": { "type": "string" },
         "cte_transportador": { "type": "string" },
         "import_batch": { "type": "string" },
+        "branchId": { "type": "string" },
         "created_at": { "type": "string", "format": "date-time" },
         "uid": { "type": "string" }
       },
-      "required": ["nf_numero", "fornecedor", "status"]
+      "required": ["nf_numero", "fornecedor", "status", "branchId"]
     },
     "Container": {
       "title": "Container",
@@ -44,11 +45,25 @@
         "numero": { "type": "string" },
         "status": { "type": "string", "enum": ["Disponível", "Em Manutenção", "Em Uso"] },
         "observacao": { "type": "string" },
+        "branchId": { "type": "string" },
         "updated_at": { "type": "string", "format": "date-time" },
         "updated_by_email": { "type": "string" },
         "uid": { "type": "string" }
       },
-      "required": ["numero", "status"]
+      "required": ["numero", "status", "branchId"]
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "A company branch or location",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "code": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "code"]
     }
   },
   "firestore": {
@@ -59,6 +74,10 @@
     "containers": {
       "schema": "Container",
       "description": "Collection of physical containers"
+    },
+    "branches": {
+      "schema": "Branch",
+      "description": "Collection of company branches"
     }
   }
 }

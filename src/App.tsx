@@ -28,7 +28,8 @@ import {
   Upload,
   RefreshCw as SyncIcon,
   FileDown,
-  Scale
+  Scale,
+  Building2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -48,7 +49,7 @@ import {
   LabelList,
   ReferenceLine
 } from 'recharts';
-import { Entry, StockSummary, Container } from './types';
+import { Entry, StockSummary, Container, Branch } from './types';
 import { useAuth } from './components/FirebaseProvider';
 import { 
   collection, 
@@ -62,7 +63,8 @@ import {
   serverTimestamp,
   Timestamp,
   where,
-  getDocs
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -117,13 +119,15 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [containers, setContainers] = useState<Container[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(localStorage.getItem('selected_branch_id') || '');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
@@ -480,14 +484,35 @@ export default function App() {
     }
 
     setLoading(true);
-    const q = query(collection(db, 'entries'), orderBy('created_at', 'desc'));
-    const qContainers = query(collection(db, 'containers'), orderBy('numero', 'asc'));
     
-    const unsubscribeEntries = onSnapshot(q, (snapshot) => {
+    // Fetch Branches
+    const qBranches = query(collection(db, 'branches'), orderBy('name', 'asc'));
+    const unsubscribeBranches = onSnapshot(qBranches, (snapshot) => {
+      const branchesData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as Branch[];
+      setBranches(branchesData);
+      
+      // Auto-select first branch if none selected
+      if (branchesData.length > 0 && !selectedBranchId) {
+        setSelectedBranchId(branchesData[0].id);
+        localStorage.setItem('selected_branch_id', branchesData[0].id);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'branches', user);
+    });
+
+    // Fetch Entries (filtered by branch if selected)
+    let qEntries = query(collection(db, 'entries'), orderBy('created_at', 'desc'));
+    if (selectedBranchId && selectedBranchId !== 'all') {
+      qEntries = query(collection(db, 'entries'), where('branchId', '==', selectedBranchId), orderBy('created_at', 'desc'));
+    }
+    
+    const unsubscribeEntries = onSnapshot(qEntries, (snapshot) => {
       const entriesData = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id,
-        // Convert Firestore Timestamp to string for compatibility with existing code
         created_at: doc.data().created_at instanceof Timestamp ? doc.data().created_at.toDate().toISOString() : doc.data().created_at
       })) as Entry[];
       
@@ -499,6 +524,12 @@ export default function App() {
       setServerStatus('offline');
       setLoading(false);
     });
+
+    // Fetch Containers (filtered by branch if selected)
+    let qContainers = query(collection(db, 'containers'), orderBy('numero', 'asc'));
+    if (selectedBranchId && selectedBranchId !== 'all') {
+      qContainers = query(collection(db, 'containers'), where('branchId', '==', selectedBranchId), orderBy('numero', 'asc'));
+    }
 
     const unsubscribeContainers = onSnapshot(qContainers, (snapshot) => {
       const containersData = snapshot.docs.map(doc => ({
@@ -513,10 +544,11 @@ export default function App() {
     });
 
     return () => {
+      unsubscribeBranches();
       unsubscribeEntries();
       unsubscribeContainers();
     };
-  }, [user]);
+  }, [user, selectedBranchId]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -1021,6 +1053,12 @@ export default function App() {
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
+    
+    if (!selectedBranchId || selectedBranchId === 'all') {
+      addNotification("Selecione uma filial ativa antes de cadastrar registros.", "warning");
+      return;
+    }
+
     setIsSaving(true);
     const formDataObj = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formDataObj.entries());
@@ -1051,6 +1089,7 @@ export default function App() {
       ...rawData,
       valor: sanitizeNumeric(rawData.valor),
       tonelada: sanitizeNumeric(rawData.tonelada),
+      branchId: selectedBranchId,
       uid: user.uid,
       created_by_email: user.email || 'Usuário',
       created_at: serverTimestamp()
@@ -1134,11 +1173,16 @@ export default function App() {
 
   const handleCreateContainer = async (numero: string, status: Container['status'], observacao?: string) => {
     if (!user || !numero) return;
+    if (!selectedBranchId || selectedBranchId === 'all') {
+      addNotification("Selecione uma filial ativa antes de cadastrar containers.", "warning");
+      return;
+    }
     try {
       await addDoc(collection(db, 'containers'), {
         numero,
         status,
         observacao: observacao || '',
+        branchId: selectedBranchId,
         uid: user.uid,
         updated_at: serverTimestamp(),
         updated_by_email: user.email
@@ -1147,6 +1191,83 @@ export default function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'containers', user);
       addNotification("Erro ao adicionar container.", "error");
+    }
+  };
+
+  const handleCreateBranch = async (name: string, code: string, location: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await addDoc(collection(db, 'branches'), {
+        name,
+        code,
+        location,
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Filial ${name} cadastrada com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'branches', user);
+      addNotification(`Erro ao cadastrar filial: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteBranch = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'branches', id));
+      addNotification("Filial excluída com sucesso!", "info");
+      if (selectedBranchId === id) {
+        setSelectedBranchId('all');
+        localStorage.removeItem('selected_branch_id');
+      }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'branches', user);
+      addNotification(`Erro ao excluir filial: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleMigrateOrphanData = async (targetBranchId: string) => {
+    if (!targetBranchId || targetBranchId === 'all' || !user) return;
+    setIsProcessing(true);
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+
+      // Filtrar entradas sem branchId
+      entries.forEach(entry => {
+        if (!entry.branchId) {
+          const docRef = doc(db, 'entries', String(entry.id));
+          batch.update(docRef, { branchId: targetBranchId });
+          count++;
+        }
+      });
+
+      // Filtrar containers sem branchId
+      containers.forEach(container => {
+        if (!container.branchId) {
+          const docRef = doc(db, 'containers', String(container.id));
+          batch.update(docRef, { branchId: targetBranchId });
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        addNotification(`${count} registros foram vinculados com sucesso à filial selecionada.`, "info");
+      } else {
+        addNotification('Não foram encontrados registros sem filial para migrar.', "info");
+      }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'migration', user);
+      addNotification(`Erro na migração: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -1301,6 +1422,27 @@ export default function App() {
           </div>
         </div>
         
+        <div className="px-4 py-2 border-b border-white/10">
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider ml-2">Filial Ativa</label>
+            <select 
+              value={selectedBranchId}
+              onChange={(e) => {
+                setSelectedBranchId(e.target.value);
+                localStorage.setItem('selected_branch_id', e.target.value);
+              }}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-titam-lime transition-all"
+            >
+              <option value="all" className="bg-titam-deep">Todas as Filiais</option>
+              {branches.map(branch => (
+                <option key={branch.id} value={branch.id} className="bg-titam-deep">
+                  {branch.name} ({branch.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <nav className="flex-1 p-4 space-y-2 mt-4">
           <NavItem 
             icon={<LayoutDashboard size={18} />} 
@@ -1349,6 +1491,12 @@ export default function App() {
             label="Containers" 
             active={activeTab === 'containers'} 
             onClick={() => setActiveTab('containers')} 
+          />
+          <NavItem 
+            icon={<Building2 size={18} />} 
+            label="Gestão de Filiais" 
+            active={activeTab === 'filiais'} 
+            onClick={() => setActiveTab('filiais')} 
           />
         </nav>
 
@@ -2678,6 +2826,158 @@ export default function App() {
                       Cadastrar Container
                     </button>
                   </form>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'filiais' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Gestão de Filiais</h2>
+                  <p className="text-gray-500 text-sm">Cadastre e gerencie as unidades da empresa</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                    <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Lista de Filiais</h3>
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Total: {branches.length}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                          <th className="px-6 py-4">Nome</th>
+                          <th className="px-6 py-4">Código</th>
+                          <th className="px-6 py-4">Localização</th>
+                          <th className="px-6 py-4 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {branches.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-6 py-12 text-center text-gray-400 text-xs italic">
+                              Nenhuma filial cadastrada
+                            </td>
+                          </tr>
+                        ) : (
+                          branches.map(branch => (
+                            <tr key={branch.id} className="hover:bg-gray-50/50 transition-colors group">
+                              <td className="px-6 py-4">
+                                <span className="text-xs font-black text-titam-deep uppercase tracking-wider">{branch.name}</span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className="text-[10px] font-black bg-gray-100 px-2 py-1 rounded uppercase tracking-widest">{branch.code}</span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className="text-[10px] text-gray-500 font-medium">{branch.location || '-'}</span>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <button 
+                                  onClick={() => handleDeleteBranch(branch.id)}
+                                  className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6">
+                  <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Nova Filial</h3>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.target as HTMLFormElement;
+                    const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                    const code = (form.elements.namedItem('code') as HTMLInputElement).value;
+                    const location = (form.elements.namedItem('location') as HTMLInputElement).value;
+                    handleCreateBranch(name, code, location);
+                    form.reset();
+                  }} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome da Filial</label>
+                      <input 
+                        name="name"
+                        required
+                        placeholder="EX: UNIDADE VITÓRIA"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código / Sigla</label>
+                      <input 
+                        name="code"
+                        required
+                        placeholder="EX: VIX-01"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Localização</label>
+                      <input 
+                        name="location"
+                        placeholder="EX: SERRA, ES"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      disabled={isProcessing}
+                      className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
+                      Cadastrar Filial
+                    </button>
+                  </form>
+
+                  {/* Migration Tool */}
+                  {(entries.some(e => !e.branchId) || containers.some(c => !c.branchId)) && (
+                    <div className="mt-8 pt-8 border-t border-dashed border-gray-200">
+                      <div className="flex items-center gap-2 mb-4">
+                        <AlertTriangle size={16} className="text-amber-500" />
+                        <h4 className="font-bold text-[10px] uppercase tracking-widest text-titam-deep">Manutenção de Dados</h4>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mb-4 leading-relaxed">
+                        Foram encontrados registros sem filial vinculada. Deseja mover todos para uma filial específica?
+                      </p>
+                      <div className="space-y-3">
+                        <select 
+                          id="migration-target"
+                          className="w-full px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-amber-200 outline-none transition-all"
+                        >
+                          <option value="">Selecionar Destino...</option>
+                          {branches.map(b => (
+                            <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                          ))}
+                        </select>
+                        <button 
+                          onClick={() => {
+                            const select = document.getElementById('migration-target') as HTMLSelectElement;
+                            handleMigrateOrphanData(select.value);
+                          }}
+                          disabled={isProcessing}
+                          className="w-full py-3 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <SyncIcon size={14} />}
+                          Vincular Registros
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>

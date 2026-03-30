@@ -34,6 +34,7 @@ service cloud.firestore {
     //   - data_emissao_cte: string
     //   - cte_transportador: string
     //   - import_batch: string
+    //   - branchId: string (required)
     //   - created_at: string
     //   - uid: string (required)
     //
@@ -43,8 +44,18 @@ service cloud.firestore {
     //   - numero: string (required)
     //   - status: string (required) - ["Disponível", "Em Manutenção", "Em Uso"]
     //   - observacao: string
+    //   - branchId: string (required)
     //   - updated_at: timestamp
     //   - updated_by_email: string
+    //   - uid: string (required)
+    //
+    // Collection: branches
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - location: string
+    //   - code: string (required)
+    //   - created_at: timestamp
     //   - uid: string (required)
     //
     // ===============================================================
@@ -71,23 +82,39 @@ service cloud.firestore {
     }
 
     function isValidEntry(data) {
-      return data.keys().hasAll(['nf_numero', 'fornecedor', 'status', 'uid']) &&
+      return data.keys().hasAll(['nf_numero', 'fornecedor', 'status', 'uid', 'branchId']) &&
              data.nf_numero is string &&
              data.fornecedor is string &&
              data.status is string &&
-             data.uid is string;
+             data.uid is string &&
+             data.branchId is string;
     }
 
     function isValidContainer(data) {
-      return data.keys().hasAll(['numero', 'status', 'uid']) &&
+      return data.keys().hasAll(['numero', 'status', 'uid', 'branchId']) &&
              data.numero is string && data.numero.size() > 0 &&
              data.status in ["Disponível", "Em Manutenção", "Em Uso"] &&
+             data.uid is string &&
+             data.branchId is string;
+    }
+
+    function isValidBranch(data) {
+      return data.keys().hasAll(['name', 'code', 'uid']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.code is string && data.code.size() > 0 &&
              data.uid is string;
     }
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow write: if isAdmin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidBranch(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidBranch(request.resource.data) && (isDocOwner() || isAdmin());
+      allow delete: if isAdmin();
     }
 
     match /entries/{entryId} {

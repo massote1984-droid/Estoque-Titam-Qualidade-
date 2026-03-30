@@ -26,6 +26,7 @@ export interface Entry {
   data_emissao_cte?: string;
   data_emissao_cte_transp?: string;
   cte_transportador?: string;
+  branchId: string;
   created_at: any;
   created_by_email?: string;
   updated_at?: any;
@@ -48,7 +49,17 @@ export interface Container {
   numero: string;
   status: 'Disponível' | 'Em Manutenção' | 'Em Uso';
   observacao?: string;
+  branchId: string;
   updated_at: any;
   updated_by_email?: string;
+  uid: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  location: string;
+  code: string;
+  created_at: any;
   uid: string;
 }
