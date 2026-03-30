@@ -1598,12 +1598,20 @@ export default function App() {
             {activeTab !== 'dashboard' && (
               <button 
                 onClick={() => {
+                  if (selectedBranchId === 'all') {
+                    addNotification("Selecione uma filial específica para cadastrar novos registros.", "warning");
+                    return;
+                  }
                   setFormData({});
                   setShowForm(true);
                 }}
-                className="flex items-center gap-2 bg-titam-deep text-white px-5 py-2.5 rounded-xl hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20 font-bold text-sm"
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-bold text-sm ${
+                  selectedBranchId === 'all' 
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                    : 'bg-titam-deep text-white hover:bg-titam-deep/90 shadow-lg shadow-titam-deep/20'
+                }`}
               >
-                <Plus size={18} className="text-titam-lime" />
+                <Plus size={18} className={selectedBranchId === 'all' ? 'text-gray-400' : 'text-titam-lime'} />
                 Novo Registro
               </button>
             )}
@@ -2444,6 +2452,7 @@ export default function App() {
             <DataView 
               title="Gestão de Entradas"
               entries={entries}
+              readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'mes', label: 'Mês' },
                 { key: 'data_nf', label: 'Data NF' },
@@ -2496,6 +2505,7 @@ export default function App() {
               <DataView 
                 title="Gestão de Saídas"
                 entries={entries}
+                readOnly={selectedBranchId === 'all'}
                 columns={[
                   { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
@@ -2520,6 +2530,7 @@ export default function App() {
             <DataView 
               title="Faturamento e CTEs"
               entries={entries}
+              readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'data_emissao_nf', label: 'Emissão NF' },
                 { key: 'nf_numero', label: 'N.F' },
@@ -2537,6 +2548,7 @@ export default function App() {
             <DataView 
               title="Todos os Registros"
               entries={entries}
+              readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'descricao_produto', label: 'Produto' },
@@ -2728,7 +2740,9 @@ export default function App() {
                           <th className="px-6 py-4">Número</th>
                           <th className="px-6 py-4">Status</th>
                           <th className="px-6 py-4">Observação</th>
-                          <th className="px-6 py-4 text-right">Ações</th>
+                          {selectedBranchId !== 'all' && (
+                            <th className="px-6 py-4 text-right">Ações</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -2747,8 +2761,11 @@ export default function App() {
                               <td className="px-6 py-4">
                                 <select 
                                   value={container.status}
+                                  disabled={selectedBranchId === 'all'}
                                   onChange={(e) => handleUpdateContainer(container.id, { status: e.target.value as any })}
-                                  className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest outline-none border-none cursor-pointer ${
+                                  className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest outline-none border-none ${
+                                    selectedBranchId === 'all' ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                                  } ${
                                     container.status === 'Disponível' ? 'bg-emerald-50 text-emerald-600' :
                                     container.status === 'Em Manutenção' ? 'bg-amber-50 text-amber-600' :
                                     'bg-blue-50 text-blue-600'
@@ -2762,14 +2779,16 @@ export default function App() {
                               <td className="px-6 py-4">
                                 <span className="text-[10px] text-gray-500 font-medium">{container.observacao || '-'}</span>
                               </td>
-                              <td className="px-6 py-4 text-right">
-                                <button 
-                                  onClick={() => handleDeleteContainer(container.id)}
-                                  className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </td>
+                              {selectedBranchId !== 'all' && (
+                                <td className="px-6 py-4 text-right">
+                                  <button 
+                                    onClick={() => handleDeleteContainer(container.id)}
+                                    className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           ))
                         )}
@@ -2780,52 +2799,61 @@ export default function App() {
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6">
                   <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Novo Container</h3>
-                  <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const form = e.target as HTMLFormElement;
-                    const numero = (form.elements.namedItem('numero') as HTMLInputElement).value;
-                    const status = (form.elements.namedItem('status') as HTMLSelectElement).value as any;
-                    const obs = (form.elements.namedItem('observacao') as HTMLTextAreaElement).value;
-                    handleCreateContainer(numero, status, obs);
-                    form.reset();
-                  }} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Número do Container</label>
-                      <input 
-                        name="numero"
-                        required
-                        placeholder="EX: TITU1234567"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
-                      />
+                  {selectedBranchId === 'all' ? (
+                    <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex flex-col items-center text-center gap-3">
+                      <AlertCircle size={24} className="text-amber-500" />
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">
+                        Selecione uma filial específica no menu lateral para cadastrar novos containers.
+                      </p>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status Inicial</label>
-                      <select 
-                        name="status"
-                        required
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                  ) : (
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.target as HTMLFormElement;
+                      const numero = (form.elements.namedItem('numero') as HTMLInputElement).value;
+                      const status = (form.elements.namedItem('status') as HTMLSelectElement).value as any;
+                      const obs = (form.elements.namedItem('observacao') as HTMLTextAreaElement).value;
+                      handleCreateContainer(numero, status, obs);
+                      form.reset();
+                    }} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Número do Container</label>
+                        <input 
+                          name="numero"
+                          required
+                          placeholder="EX: TITU1234567"
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status Inicial</label>
+                        <select 
+                          name="status"
+                          required
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                        >
+                          <option value="Disponível">Disponível</option>
+                          <option value="Em Manutenção">Em Manutenção</option>
+                          <option value="Em Uso">Em Uso</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observação</label>
+                        <textarea 
+                          name="observacao"
+                          rows={3}
+                          placeholder="DETALHES DA MANUTENÇÃO OU USO..."
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all resize-none"
+                        />
+                      </div>
+                      <button 
+                        type="submit"
+                        className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20"
                       >
-                        <option value="Disponível">Disponível</option>
-                        <option value="Em Manutenção">Em Manutenção</option>
-                        <option value="Em Uso">Em Uso</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Observação</label>
-                      <textarea 
-                        name="observacao"
-                        rows={3}
-                        placeholder="DETALHES DA MANUTENÇÃO OU USO..."
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all resize-none"
-                      />
-                    </div>
-                    <button 
-                      type="submit"
-                      className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20"
-                    >
-                      Cadastrar Container
-                    </button>
-                  </form>
+                        Cadastrar Container
+                      </button>
+                    </form>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -2859,7 +2887,9 @@ export default function App() {
                           <th className="px-6 py-4">Nome</th>
                           <th className="px-6 py-4">Código</th>
                           <th className="px-6 py-4">Localização</th>
-                          <th className="px-6 py-4 text-right">Ações</th>
+                          {selectedBranchId === 'all' && (
+                            <th className="px-6 py-4 text-right">Ações</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -2881,14 +2911,16 @@ export default function App() {
                               <td className="px-6 py-4">
                                 <span className="text-[10px] text-gray-500 font-medium">{branch.location || '-'}</span>
                               </td>
-                              <td className="px-6 py-4 text-right">
-                                <button 
-                                  onClick={() => handleDeleteBranch(branch.id)}
-                                  className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </td>
+                              {selectedBranchId === 'all' && (
+                                <td className="px-6 py-4 text-right">
+                                  <button 
+                                    onClick={() => handleDeleteBranch(branch.id)}
+                                    className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           ))
                         )}
@@ -2899,50 +2931,59 @@ export default function App() {
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6">
                   <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Nova Filial</h3>
-                  <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const form = e.target as HTMLFormElement;
-                    const name = (form.elements.namedItem('name') as HTMLInputElement).value;
-                    const code = (form.elements.namedItem('code') as HTMLInputElement).value;
-                    const location = (form.elements.namedItem('location') as HTMLInputElement).value;
-                    handleCreateBranch(name, code, location);
-                    form.reset();
-                  }} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome da Filial</label>
-                      <input 
-                        name="name"
-                        required
-                        placeholder="EX: UNIDADE VITÓRIA"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
-                      />
+                  {selectedBranchId !== 'all' ? (
+                    <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex flex-col items-center text-center gap-3">
+                      <AlertCircle size={24} className="text-amber-500" />
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">
+                        Selecione "Todas as Filiais" no menu lateral para gerenciar e cadastrar novas unidades.
+                      </p>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código / Sigla</label>
-                      <input 
-                        name="code"
-                        required
-                        placeholder="EX: VIX-01"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Localização</label>
-                      <input 
-                        name="location"
-                        placeholder="EX: SERRA, ES"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
-                      />
-                    </div>
-                    <button 
-                      type="submit"
-                      disabled={isProcessing}
-                      className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
-                      Cadastrar Filial
-                    </button>
-                  </form>
+                  ) : (
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const form = e.target as HTMLFormElement;
+                      const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                      const code = (form.elements.namedItem('code') as HTMLInputElement).value;
+                      const location = (form.elements.namedItem('location') as HTMLInputElement).value;
+                      handleCreateBranch(name, code, location);
+                      form.reset();
+                    }} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome da Filial</label>
+                        <input 
+                          name="name"
+                          required
+                          placeholder="EX: UNIDADE VITÓRIA"
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código / Sigla</label>
+                        <input 
+                          name="code"
+                          required
+                          placeholder="EX: VIX-01"
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Localização</label>
+                        <input 
+                          name="location"
+                          placeholder="EX: SERRA, ES"
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all"
+                        />
+                      </div>
+                      <button 
+                        type="submit"
+                        disabled={isProcessing}
+                        className="w-full py-4 bg-titam-deep text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-titam-deep/90 transition-all shadow-lg shadow-titam-deep/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />}
+                        Cadastrar Filial
+                      </button>
+                    </form>
+                  )}
 
                   {/* Migration Tool */}
                   {(entries.some(e => !e.branchId) || containers.some(c => !c.branchId)) && (
@@ -3912,12 +3953,13 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
   );
 }
 
-function DataView({ title, entries, columns, onEdit, onDelete }: { 
+function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false }: { 
   title: string, 
   entries: Entry[], 
   columns: { key: keyof Entry, label: string }[], 
   onEdit: (e: Entry) => void,
-  onDelete: (id: string | number) => void
+  onDelete: (id: string | number) => void,
+  readOnly?: boolean
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -3987,7 +4029,9 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
               {columns.map(col => (
                 <th key={col.key as string} className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 italic font-serif opacity-70">{col.label}</th>
               ))}
-              <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 sticky right-0 bg-gray-50/50 z-10 italic font-serif opacity-70">Ações</th>
+              {!readOnly && (
+                <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 sticky right-0 bg-gray-50/50 z-10 italic font-serif opacity-70">Ações</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -4022,25 +4066,27 @@ function DataView({ title, entries, columns, onEdit, onDelete }: {
                       </div>
                     </td>
                   ))}
-                  <td className="px-6 py-5 sticky right-0 bg-white group-hover:bg-titam-deep z-10 border-l border-gray-50 group-hover:border-white/10 transition-all duration-200">
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={() => onEdit(entry)}
-                        className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep group-hover:text-titam-lime transition-colors"
-                      >
-                        Editar
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(entry.id);
-                        }}
-                        className="text-gray-300 group-hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+                  {!readOnly && (
+                    <td className="px-6 py-5 sticky right-0 bg-white group-hover:bg-titam-deep z-10 border-l border-gray-50 group-hover:border-white/10 transition-all duration-200">
+                      <div className="flex items-center gap-4">
+                        <button 
+                          onClick={() => onEdit(entry)}
+                          className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep group-hover:text-titam-lime transition-colors"
+                        >
+                          Editar
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(entry.id);
+                          }}
+                          className="text-gray-300 group-hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
