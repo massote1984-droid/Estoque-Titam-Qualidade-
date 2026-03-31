@@ -6,14 +6,26 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-serif: "Cormorant Garamond", serif;
 
-  --color-titam-lime: #B6D932;
-  --color-titam-deep: #1E3932;
+  --color-titam-lime: var(--brand-primary, #B6D932);
+  --color-titam-deep: var(--brand-deep, #1E3932);
 }
 
 :root {
+  --brand-primary: #B6D932;
+  --brand-primary-rgb: 182, 217, 50;
+  --brand-deep: #1E3932;
   --bg: #F8F9FA;
   --ink: #1A1A1A;
   --line: #E5E7EB;
+}
+
+.volta-redonda-theme {
+  --brand-primary: #FFB800;
+  --brand-primary-rgb: 255, 184, 0;
+  --brand-deep: #000000;
+  --bg: #050505;
+  --ink: #F5F5F5;
+  --line: #1F1F1F;
 }
 
 body {

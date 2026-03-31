@@ -120,14 +120,14 @@ service cloud.firestore {
     match /entries/{entryId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidEntry(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidEntry(request.resource.data) && (isDocOwner() || isAdmin());
+      allow update: if isAuthenticated() && isValidEntry(request.resource.data);
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
     }
 
     match /containers/{containerId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidContainer(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidContainer(request.resource.data) && (isDocOwner() || isAdmin());
+      allow update: if isAuthenticated() && isValidContainer(request.resource.data);
       allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
     }
   }
