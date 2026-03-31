@@ -113,7 +113,7 @@ service cloud.firestore {
     match /branches/{branchId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidBranch(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidBranch(request.resource.data) && (isDocOwner() || isAdmin());
+      allow update: if isAuthenticated() && isValidBranch(request.resource.data);
       allow delete: if isAdmin();
     }
 
