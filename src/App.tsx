@@ -145,6 +145,7 @@ export default function App() {
   
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
   const isVoltaRedonda = selectedBranch?.name.toLowerCase().includes('volta redonda');
+  const isTitam = selectedBranch?.name.toLowerCase().includes('titam');
   const brandPrimaryColor = isVoltaRedonda ? '#FFB800' : '#B6D932';
   const brandDeepColor = isVoltaRedonda ? '#000000' : '#1E3932';
 
@@ -189,7 +190,7 @@ export default function App() {
 
   // Alertas Automáticos de Impacto (Filas Estouradas)
   useEffect(() => {
-    if (activeTab !== 'dashboard' || entries.length === 0) return;
+    if (activeTab !== 'dashboard' || entries.length === 0 || !isTitam) return;
 
     const checkQueueImpacts = () => {
       const now = new Date();
@@ -1114,6 +1115,58 @@ export default function App() {
     }
   };
 
+  const triggerIntegration = async (id: string | number, updates: Partial<Entry>) => {
+    if (updates.status !== 'Embarcado') return;
+
+    const currentEntry = entries.find(e => String(e.id) === String(id));
+    if (!currentEntry) return;
+
+    const entryBranch = branches.find(b => b.id === currentEntry.branchId);
+    const isFromTitam = entryBranch?.name.toLowerCase().includes('titam');
+
+    if (!isFromTitam) return;
+
+    const finalDestino = (updates.destino || currentEntry.destino || "").toString().trim();
+    
+    // Log para depuração
+    console.log(`[Integração] Verificando NF: ${currentEntry.nf_numero}, Destino: ${finalDestino}`);
+
+    if ((currentEntry.status === 'Estoque' || !currentEntry.status) && 
+        finalDestino.toLowerCase().includes('resende')) {
+      
+      const voltaRedondaBranch = branches.find(b => 
+        b.name.toLowerCase().includes('volta redonda') || 
+        b.name.toLowerCase().includes('v. redonda')
+      );
+
+      if (voltaRedondaBranch) {
+        const { id: _, ...entryData } = currentEntry;
+        const newEntry = {
+          ...entryData,
+          ...updates,
+          status: 'Trânsito',
+          branchId: voltaRedondaBranch.id,
+          created_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+          uid: user?.uid || currentEntry.uid,
+          created_by_email: user?.email || currentEntry.created_by_email
+        };
+        // Limpeza de campos
+        delete (newEntry as any).id;
+        delete (newEntry as any).isPending;
+
+        try {
+          await addDoc(collection(db, 'entries'), newEntry);
+          addNotification("Integração: Registro enviado para Volta Redonda (Trânsito)", "info");
+        } catch (error) {
+          console.error("[Integração] Erro ao criar registro em Volta Redonda:", error);
+        }
+      } else {
+        console.warn("[Integração] Filial Volta Redonda não encontrada.");
+      }
+    }
+  };
+
   const handleUpdateEntry = async (id: string | number, updates: Partial<Entry>) => {
     if (!user || !id) return false;
     const sanitizedUpdates = { ...updates };
@@ -1141,7 +1194,12 @@ export default function App() {
 
     try {
       setIsUpdating(true);
-      await updateDoc(doc(db, 'entries', String(id)), sanitizedUpdates);
+      const entryRef = doc(db, 'entries', String(id));
+      await updateDoc(entryRef, sanitizedUpdates);
+
+      // Tentar disparar integração
+      await triggerIntegration(id, sanitizedUpdates);
+
       addNotification("Registro atualizado!", "info");
       return true;
     } catch (error) {
@@ -1166,10 +1224,15 @@ export default function App() {
     if (type === 'entrada') updates.hora_entrada = timeStr;
     if (type === 'saida') {
       updates.hora_saida = timeStr;
+      updates.status = 'Embarcado';
     }
 
     try {
       await updateDoc(doc(db, 'entries', String(id)), updates);
+      
+      // Tentar disparar integração
+      await triggerIntegration(id, updates);
+
       addNotification(`Horário de ${type} registrado: ${timeStr}`, "info");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
@@ -2587,7 +2650,9 @@ export default function App() {
                 { key: 'data_emissao_cte', label: 'Emissão CTE Intertex' },
                 { key: 'cte_intertex', label: 'CTE Intertex' },
                 { key: 'data_emissao_cte_transp', label: 'Emissão CTE Transp.' },
-                { key: 'cte_transportador', label: 'CTE Transp.' }
+                { key: 'cte_transportador', label: 'CTE Transp.' },
+                { key: 'data_titam', label: 'Data TITAM' },
+                { key: 'faturamento_titam', label: 'Faturamento Titam' }
               ]}
               onEdit={setSelectedEntry}
               onDelete={handleDeleteEntry}
@@ -3262,6 +3327,7 @@ export default function App() {
                   <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Status</label>
                   <select name="status" defaultValue={formData.status || "Estoque"} className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`} required>
                     <option value="Estoque">Estoque</option>
+                    <option value="Trânsito">Trânsito</option>
                     <option value="Rejeitado">Rejeitado</option>
                     <option value="Embarcado">Embarcado</option>
                     <option value="Devolvido">Devolvido</option>
@@ -3283,6 +3349,16 @@ export default function App() {
                   <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} isVoltaRedonda={isVoltaRedonda} />
                   <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} isVoltaRedonda={isVoltaRedonda} />
                   <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} isVoltaRedonda={isVoltaRedonda} />
+                </div>
+
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
+                  <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} isVoltaRedonda={isVoltaRedonda} />
                 </div>
                 
                 <div className="md:col-span-3 flex justify-end gap-3 mt-4">
@@ -3559,6 +3635,7 @@ export default function App() {
                         className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
                       >
                         <option value="Estoque">Estoque</option>
+                        <option value="Trânsito">Trânsito</option>
                         <option value="Rejeitado">Rejeitado</option>
                         <option value="Embarcado">Embarcado</option>
                         <option value="Devolvido">Devolvido</option>
@@ -3602,6 +3679,19 @@ export default function App() {
                       label="CTE Transportador" 
                       value={editFormData.cte_transportador || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
+                      isVoltaRedonda={isVoltaRedonda}
+                    />
+                    <Input 
+                      label="Data TITAM" 
+                      type="date"
+                      value={editFormData.data_titam || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
+                      isVoltaRedonda={isVoltaRedonda}
+                    />
+                    <Input 
+                      label="Faturamento Titam" 
+                      value={editFormData.faturamento_titam || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
                       isVoltaRedonda={isVoltaRedonda}
                     />
                   </div>
@@ -3686,7 +3776,7 @@ function ReportsView({
       ? ['NF', 'Produto', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
       : reportType === 'saida_detalhada'
       ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Produto', 'Volume (Ton)', 'Placa', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
-      : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador'];
+      : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status];
@@ -3694,7 +3784,7 @@ function ReportsView({
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.descricao_produto, e.tonelada, e.placa_veiculo, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
-      return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador];
+      return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
 
     const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
@@ -3880,6 +3970,8 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">CTE Intertex</th>
                     <th className="px-6 py-3 data-grid-header">Emissão CTE Transp.</th>
                     <th className="px-6 py-3 data-grid-header">CTE Transp.</th>
+                    <th className="px-6 py-3 data-grid-header">Data TITAM</th>
+                    <th className="px-6 py-3 data-grid-header">Faturamento Titam</th>
                   </>
                 )}
               </tr>
@@ -3958,6 +4050,8 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.cte_intertex || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte_transp || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.cte_transportador || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_titam || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.faturamento_titam || '-'}</td>
                     </>
                   )}
                 </tr>

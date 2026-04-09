@@ -8,7 +8,7 @@ export interface Entry {
   descricao_produto: string;
   data_nf: string;
   data_descarga: string;
-  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido';
+  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito';
   fornecedor: string;
   placa_veiculo: string;
   container: string;
@@ -26,6 +26,8 @@ export interface Entry {
   data_emissao_cte?: string;
   data_emissao_cte_transp?: string;
   cte_transportador?: string;
+  data_titam?: string;
+  faturamento_titam?: string;
   branchId: string;
   created_at: any;
   created_by_email?: string;
