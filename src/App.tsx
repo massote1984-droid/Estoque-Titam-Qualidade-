@@ -827,7 +827,7 @@ export default function App() {
     const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const exits = filteredEntriesForDashboard.filter(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
-      const exitDate = e.data_posicionamento || e.data_faturamento_vli;
+      const exitDate = e.data_faturamento_vli || e.data_posicionamento;
       return exitDate && selectedDates.includes(exitDate);
     });
 
@@ -905,7 +905,7 @@ export default function App() {
       if (!isExited) return false;
       
       const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
-      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli;
+      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento;
       const exitedOnSelected = exitDate && selectedDates.includes(exitDate);
       
       return arrivedOnSelected || exitedOnSelected;
@@ -913,8 +913,8 @@ export default function App() {
 
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
-      // Prioritize data_posicionamento for exits
-      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli || entry.data_descarga;
+      // Prioritize data_faturamento_vli for exits
+      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento || entry.data_descarga;
       if (exitDate) chartDates.add(exitDate);
     });
 
@@ -925,8 +925,8 @@ export default function App() {
     });
 
     exitedEntries.forEach(entry => {
-      // Prioritize data_posicionamento for exits
-      const exitDate = entry.data_posicionamento || entry.data_faturamento_vli || entry.data_descarga;
+      // Prioritize data_faturamento_vli for exits
+      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento || entry.data_descarga;
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
         if (!dailyMap[exitDate][key]) {
@@ -961,7 +961,7 @@ export default function App() {
 
     filteredEntriesForDashboard.forEach(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
-      const exitDate = e.data_posicionamento || e.data_faturamento_vli;
+      const exitDate = e.data_faturamento_vli || e.data_posicionamento;
       if (!exitDate || !selectedDates.includes(exitDate)) return;
       
       const dest = e.destino || 'Não especificado';
@@ -994,8 +994,8 @@ export default function App() {
     entries.forEach(e => {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
       
-      // Prioritize data_posicionamento as requested for exits
-      const exitDate = e.data_posicionamento || e.data_faturamento_vli || e.data_descarga;
+      // Prioritize data_faturamento_vli for exits
+      const exitDate = e.data_faturamento_vli || e.data_posicionamento || e.data_descarga;
       if (!exitDate) return;
       
       // Handle both YYYY-MM-DD and DD/MM/YYYY formats
