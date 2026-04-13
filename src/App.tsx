@@ -3761,12 +3761,13 @@ function ReportsView({
     const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
     const matchesFornecedor = !filterFornecedor || entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase());
-    return matchesDate && matchesFornecedor;
+    const matchesStatus = reportType === 'estoque' ? entry.status === 'Estoque' : true;
+    return matchesDate && matchesFornecedor && matchesStatus;
   });
 
   const exportToCSV = () => {
     const headers = reportType === 'estoque' 
-      ? ['Data NF', 'NF', 'Fornecedor', 'Produto', 'Tonelada', 'Status']
+      ? ['Data NF', 'NF', 'Container', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Número do Vagão']
       : reportType === 'faturamento'
       ? ['NF', 'Valor', 'Data Emissão', 'CTE Intertex', 'CTE Transportador']
       : reportType === 'performance'
@@ -3778,7 +3779,7 @@ function ReportsView({
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
-      if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status];
+      if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.container, e.fornecedor, e.descricao_produto, e.tonelada, e.status, ''];
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
@@ -3902,10 +3903,12 @@ function ReportsView({
                   <>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Container</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
                     <th className="px-6 py-3 data-grid-header">Produto</th>
                     <th className="px-6 py-3 data-grid-header">Tonelada</th>
                     <th className="px-6 py-3 data-grid-header">Status</th>
+                    <th className="px-6 py-3 data-grid-header">Número do Vagão</th>
                   </>
                 )}
                 {reportType === 'faturamento' && (
@@ -3982,10 +3985,12 @@ function ReportsView({
                     <>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.status}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600"></td>
                     </>
                   )}
                   {reportType === 'faturamento' && (
