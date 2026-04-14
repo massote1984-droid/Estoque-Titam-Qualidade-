@@ -1092,7 +1092,7 @@ export default function App() {
       return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
     };
     
-    const data = {
+    const data: any = {
       ...rawData,
       valor: sanitizeNumeric(rawData.valor),
       tonelada: sanitizeNumeric(rawData.tonelada),
@@ -1103,7 +1103,13 @@ export default function App() {
     };
     
     try {
-      await addDoc(collection(db, 'entries'), data);
+      const docRef = await addDoc(collection(db, 'entries'), data);
+      
+      // Tentar disparar integração se já for criado como Embarcado
+      if (data.status === 'Embarcado') {
+        await triggerIntegration(docRef.id, data);
+      }
+
       addNotification("Registro salvo com sucesso!", "info");
       setShowForm(false);
       setFormData({});
@@ -1119,41 +1125,57 @@ export default function App() {
     if (updates.status !== 'Embarcado') return;
 
     const currentEntry = entries.find(e => String(e.id) === String(id));
-    if (!currentEntry) return;
+    // Se for um novo registro (handleCreateEntry), currentEntry não existirá no estado ainda
+    // mas os dados estão em 'updates'
+    
+    const branchId = updates.branchId || currentEntry?.branchId;
+    if (!branchId) return;
 
-    const entryBranch = branches.find(b => b.id === currentEntry.branchId);
+    const entryBranch = branches.find(b => b.id === branchId);
     const isFromTitam = entryBranch?.name.toLowerCase().includes('titam');
 
     if (!isFromTitam) return;
 
-    const finalDestino = (updates.destino || currentEntry.destino || "").toString().trim();
+    const finalDestino = (updates.destino || currentEntry?.destino || "").toString().trim();
+    const nf = updates.nf_numero || currentEntry?.nf_numero;
     
     // Log para depuração
-    console.log(`[Integração] Verificando NF: ${currentEntry.nf_numero}, Destino: ${finalDestino}`);
+    console.log(`[Integração] Verificando NF: ${nf}, Destino: ${finalDestino}`);
 
-    if ((currentEntry.status === 'Estoque' || !currentEntry.status) && 
-        finalDestino.toLowerCase().includes('resende')) {
-      
+    if (finalDestino.toLowerCase().includes('resende')) {
       const voltaRedondaBranch = branches.find(b => 
         b.name.toLowerCase().includes('volta redonda') || 
         b.name.toLowerCase().includes('v. redonda')
       );
 
       if (voltaRedondaBranch) {
-        const { id: _, ...entryData } = currentEntry;
+        // Verificar duplicidade
+        const alreadyIntegrated = entries.some(e => 
+          e.nf_numero === nf && 
+          e.branchId === voltaRedondaBranch.id
+        );
+
+        if (alreadyIntegrated) {
+          console.log(`[Integração] NF ${nf} já existe em Volta Redonda.`);
+          return;
+        }
+
+        const baseData = currentEntry ? { ...currentEntry } : { ...updates };
+        delete (baseData as any).id;
+        delete (baseData as any).isPending;
+
         const newEntry = {
-          ...entryData,
+          ...baseData,
           ...updates,
           status: 'Trânsito',
           branchId: voltaRedondaBranch.id,
           created_at: serverTimestamp(),
           updated_at: serverTimestamp(),
-          uid: user?.uid || currentEntry.uid,
-          created_by_email: user?.email || currentEntry.created_by_email
+          uid: user?.uid || (baseData as any).uid,
+          created_by_email: user?.email || (baseData as any).created_by_email
         };
-        // Limpeza de campos
+        
         delete (newEntry as any).id;
-        delete (newEntry as any).isPending;
 
         try {
           await addDoc(collection(db, 'entries'), newEntry);
