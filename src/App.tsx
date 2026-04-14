@@ -3752,7 +3752,7 @@ function ReportsView({
   isProcessing: boolean,
   isVoltaRedonda?: boolean
 }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
@@ -3774,6 +3774,8 @@ function ReportsView({
       ? ['NF', 'Data Descarga', 'Fornecedor', 'Produto', 'Placa', 'Chegada', 'Entrada', 'Saída', 'Tempo Descarga', 'Tempo Total']
       : reportType === 'logistica_vli'
       ? ['NF', 'Produto', 'Container', 'Vagão', 'Fat. VLI', 'Destino', 'Fornecedor']
+      : reportType === 'transporte_municipal'
+      ? ['Mês', 'Data NF', 'NF', 'Fornecedor', 'Tonelada', 'Produto', 'Destino']
       : reportType === 'saida_detalhada'
       ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Produto', 'Volume (Ton)', 'Placa', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
@@ -3783,6 +3785,7 @@ function ReportsView({
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
+      if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino];
       if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.descricao_produto, e.tonelada, e.placa_veiculo, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
@@ -3846,6 +3849,7 @@ function ReportsView({
             <option value="faturamento">Faturamento Mensal</option>
             <option value="performance">Performance de Descarga</option>
             <option value="logistica_vli">Logística VLI</option>
+            <option value="transporte_municipal">Transporte Municipal</option>
             <option value="saida_detalhada">Relatório de Saída Detalhado</option>
             <option value="faturamento_detalhado">Faturamento Detalhado</option>
           </select>
@@ -3945,6 +3949,17 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
                   </>
                 )}
+                {reportType === 'transporte_municipal' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Mês</th>
+                    <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                    <th className="px-6 py-3 data-grid-header">Tonelada</th>
+                    <th className="px-6 py-3 data-grid-header">Produto</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
+                  </>
+                )}
                 {reportType === 'saida_detalhada' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Data Posicionamento</th>
@@ -4025,6 +4040,17 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                    </>
+                  )}
+                  {reportType === 'transporte_municipal' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.mes}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino}</td>
                     </>
                   )}
                   {reportType === 'saida_detalhada' && (
