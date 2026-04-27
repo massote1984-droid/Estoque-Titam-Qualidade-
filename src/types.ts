@@ -8,7 +8,7 @@ export interface Entry {
   descricao_produto: string;
   data_nf: string;
   data_descarga: string;
-  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito';
+  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito Cheio';
   fornecedor: string;
   placa_veiculo: string;
   container: string;

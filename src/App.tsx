@@ -144,10 +144,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
-  const isVoltaRedonda = selectedBranch?.name.toLowerCase().includes('volta redonda');
-  const isTitam = selectedBranch?.name.toLowerCase().includes('titam');
-  const brandPrimaryColor = isVoltaRedonda ? '#FFB800' : '#B6D932';
-  const brandDeepColor = isVoltaRedonda ? '#000000' : '#1E3932';
+  const isTitam = selectedBranch?.name?.toLowerCase().includes('titam') || false;
+  const brandPrimaryColor = '#B6D932';
+  const brandDeepColor = '#1E3932';
 
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const now = new Date();
@@ -190,7 +189,7 @@ export default function App() {
 
   // Alertas Automáticos de Impacto (Filas Estouradas)
   useEffect(() => {
-    if (activeTab !== 'dashboard' || entries.length === 0 || !isTitam) return;
+    if (activeTab !== 'dashboard' || entries.length === 0) return;
 
     const checkQueueImpacts = () => {
       const now = new Date();
@@ -1132,7 +1131,7 @@ export default function App() {
     if (!branchId) return;
 
     const entryBranch = branches.find(b => b.id === branchId);
-    const isFromTitam = entryBranch?.name.toLowerCase().includes('titam');
+    const isFromTitam = entryBranch?.name?.toLowerCase().includes('titam');
 
     if (!isFromTitam) return;
 
@@ -1144,8 +1143,8 @@ export default function App() {
 
     if (finalDestino.toLowerCase().includes('resende')) {
       const voltaRedondaBranch = branches.find(b => 
-        b.name.toLowerCase().includes('volta redonda') || 
-        b.name.toLowerCase().includes('v. redonda')
+        b.name?.toLowerCase().includes('volta redonda') || 
+        b.name?.toLowerCase().includes('v. redonda')
       );
 
       if (voltaRedondaBranch) {
@@ -1161,13 +1160,23 @@ export default function App() {
         }
 
         const baseData = currentEntry ? { ...currentEntry } : { ...updates };
-        delete (baseData as any).id;
-        delete (baseData as any).isPending;
-
+        
+        // Mapear apenas os campos solicitados (dados da foto)
         const newEntry = {
-          ...baseData,
-          ...updates,
-          status: 'Trânsito',
+          mes: baseData.mes || updates.mes || "",
+          chave_acesso: baseData.chave_acesso || updates.chave_acesso || "",
+          nf_numero: baseData.nf_numero || updates.nf_numero || "",
+          tonelada: baseData.tonelada || updates.tonelada || 0,
+          valor: baseData.valor || updates.valor || 0,
+          descricao_produto: baseData.descricao_produto || updates.descricao_produto || "",
+          data_nf: baseData.data_nf || updates.data_nf || "",
+          data_descarga: baseData.data_descarga || updates.data_descarga || "",
+          data_posicionamento: baseData.data_posicionamento || updates.data_posicionamento || "",
+          fornecedor: baseData.fornecedor || updates.fornecedor || "",
+          placa_veiculo: baseData.placa_veiculo || updates.placa_veiculo || "",
+          container: baseData.container || updates.container || "",
+          destino: baseData.destino || updates.destino || "",
+          status: 'Trânsito Cheio' as const,
           branchId: voltaRedondaBranch.id,
           created_at: serverTimestamp(),
           updated_at: serverTimestamp(),
@@ -1179,7 +1188,7 @@ export default function App() {
 
         try {
           await addDoc(collection(db, 'entries'), newEntry);
-          addNotification("Integração: Registro enviado para Volta Redonda (Trânsito)", "info");
+          addNotification("Integração: Registro enviado para Volta Redonda (Trânsito Cheio)", "info");
         } catch (error) {
           console.error("[Integração] Erro ao criar registro em Volta Redonda:", error);
         }
@@ -1477,32 +1486,29 @@ export default function App() {
 
   return (
     <div 
-      className={`flex h-screen transition-all duration-700 ${isVoltaRedonda ? 'volta-redonda-theme' : ''}`}
-      style={isVoltaRedonda ? {
-        backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)), url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=2070&auto=format&fit=crop")',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundAttachment: 'fixed',
-        backgroundColor: 'var(--bg)'
-      } : {
+      className="flex h-screen transition-all duration-700"
+      style={{
         backgroundColor: 'var(--bg)'
       }}
     >
       {/* Sidebar */}
-      <aside className="w-64 bg-titam-deep flex flex-col text-white shadow-xl">
-        <div className="p-8 border-b border-white/10">
-          {isVoltaRedonda ? (
-            <div className="w-full px-2 flex flex-col items-center">
-              <div className="bg-black border-2 border-[#FFB800] rounded-lg p-3 w-full flex flex-col items-center shadow-lg transform -skew-x-6">
-                <h1 className="text-[#FFB800] font-black italic text-3xl tracking-tighter leading-none">MULTITEX</h1>
-                <p className="text-white text-[10px] font-bold uppercase tracking-[0.3em] mt-1">LOGÍSTICA Ltda.</p>
-              </div>
-              <div className="mt-4 flex items-center gap-2">
-                <div className="relative flex items-center">
-                  <span className="text-[#FFB800] font-black text-4xl leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">35</span>
-                  <div className="flex flex-col ml-1">
-                    <span className="text-[#FFB800] text-[8px] font-black leading-none">★</span>
-                    <span className="text-white/60 text-[8px] font-bold uppercase tracking-widest leading-none mt-0.5">ANOS</span>
+      <aside className="w-64 bg-titam-deep text-white flex flex-col shadow-xl transition-all duration-700">
+        <div className="p-8 border-b border-white/5">
+          {!isTitam ? (
+            <div className="w-full px-2">
+              {/* Multitex Logo - Original appearance restored */}
+              <div className="w-full flex flex-col items-center">
+                <div className="bg-black border-2 border-[#FFB800] rounded-lg p-3 w-full flex flex-col items-center shadow-lg transform -skew-x-3 transition-all duration-700">
+                  <h1 className="text-[#FFB800] font-black italic text-3xl tracking-tighter leading-none glow-text">MULTITEX</h1>
+                  <p className="text-white text-[10px] font-bold uppercase tracking-[0.3em] mt-1">LOGÍSTICA Ltda.</p>
+                </div>
+                <div className="mt-4 flex items-center gap-2">
+                  <div className="relative flex items-center">
+                    <span className="text-[#FFB800] font-black text-4xl leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">35</span>
+                    <div className="flex flex-col ml-1">
+                      <span className="text-[#FFB800] text-[8px] font-black leading-none">★</span>
+                      <span className="text-white/60 text-[8px] font-bold uppercase tracking-widest leading-none mt-1">ANOS</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1532,7 +1538,7 @@ export default function App() {
 
                 {/* Slogan */}
                 <g transform="translate(150, 175)" textAnchor="middle">
-                  <text style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '11px', letterSpacing: '0.28em' }} opacity="0.85">
+                  <text style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '11px', letterSpacing: '0.28em' }}>
                     INTERMODAIS INTELIGENTES
                   </text>
                 </g>
@@ -1550,7 +1556,7 @@ export default function App() {
                 setSelectedBranchId(e.target.value);
                 localStorage.setItem('selected_branch_id', e.target.value);
               }}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-titam-lime transition-all"
+              className="w-full bg-white/5 text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
             >
               <option value="all" className="bg-titam-deep">Todas as Filiais</option>
               {branches.map(branch => (
@@ -1568,69 +1574,60 @@ export default function App() {
             label="Dashboard" 
             active={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<ArrowDownLeft size={18} />} 
             label="Entrada" 
             active={activeTab === 'entrada'} 
             onClick={() => setActiveTab('entrada')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<ArrowUpRight size={18} />} 
             label="Saída" 
             active={activeTab === 'saida'} 
             onClick={() => setActiveTab('saida')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<Activity size={18} />} 
             label="Fluxo de Veículos" 
             active={activeTab === 'fluxo'} 
             onClick={() => setActiveTab('fluxo')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<FileText size={18} />} 
             label="Faturamento" 
             active={activeTab === 'faturamento'} 
             onClick={() => setActiveTab('faturamento')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<Truck size={18} />} 
             label="Todos os Registros" 
             active={activeTab === 'lista'} 
             onClick={() => setActiveTab('lista')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<FileJson size={18} />} 
             label="Relatórios" 
             active={activeTab === 'relatorios'} 
             onClick={() => setActiveTab('relatorios')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<Package size={18} />} 
             label="Containers" 
             active={activeTab === 'containers'} 
             onClick={() => setActiveTab('containers')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
           <NavItem 
             icon={<Building2 size={18} />} 
             label="Gestão de Filiais" 
             active={activeTab === 'filiais'} 
             onClick={() => setActiveTab('filiais')} 
-            isVoltaRedonda={isVoltaRedonda}
           />
         </nav>
 
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-4">
-            <div className="w-8 h-8 rounded-full bg-titam-lime flex items-center justify-center text-titam-deep font-bold text-xs">
+            <div className="w-8 h-8 rounded-full bg-titam-lime text-titam-deep flex items-center justify-center font-bold text-xs">
               <span>{user.displayName?.charAt(0) || user.email?.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
@@ -1649,7 +1646,7 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 overflow-auto p-8 transition-all duration-700 ${isVoltaRedonda ? 'bg-white/30 backdrop-blur-md' : ''}`}>
+      <main className="flex-1 overflow-auto p-8 transition-all duration-700">
         <AnimatePresence>
           {notifications.filter(n => n.type === 'critical').map(n => (
             <motion.div
@@ -1698,13 +1695,13 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             {isSyncingState && (
-              <div className="flex items-center gap-2 text-[9px] text-titam-deep font-black bg-titam-lime px-3 py-1.5 rounded-full shadow-sm">
+              <div className="flex items-center gap-2 text-[9px] text-titam-deep bg-titam-lime font-black px-3 py-1.5 rounded-full shadow-sm">
                 <SyncIcon size={10} className="animate-spin" />
                 <span className="uppercase tracking-widest">Sincronizando</span>
               </div>
             )}
             
-            <div className={`flex items-center ${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} p-1 rounded-xl border border-gray-100 shadow-sm transition-all duration-700`}>
+            <div className="flex items-center bg-white p-1 rounded-xl border border-gray-100 shadow-sm transition-all duration-700">
               <button 
                 onClick={() => addNotification("Sincronização automática ativa.", "info")}
                 className="p-2.5 text-gray-400 hover:text-titam-deep hover:bg-gray-50 rounded-lg transition-all"
@@ -1757,14 +1754,14 @@ export default function App() {
               id="dashboard-content"
             >
               {/* Date & NF Filter */}
-              <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6 transition-all duration-700`}>
+                <div className="bg-white border-gray-100 shadow-sm p-6 rounded-2xl border space-y-6 transition-all duration-700">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400">
+                    <div className="w-12 h-12 bg-gray-50 text-gray-400 rounded-xl flex items-center justify-center">
                       <Filter size={20} />
                     </div>
                     <div>
-                      <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Filtros Inteligentes</h3>
+                      <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em]">Filtros Inteligentes</h3>
                       <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Refine sua visualização de dados</p>
                     </div>
                   </div>
@@ -1777,11 +1774,11 @@ export default function App() {
                         placeholder="PESQUISAR NF..."
                         value={nfSearch}
                         onChange={(e) => setNfSearch(e.target.value)}
-                        className="pl-12 pr-6 py-3 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/20 focus:bg-white outline-none transition-all w-full sm:w-64"
+                        className="pl-12 pr-6 py-3 border bg-gray-50 border-gray-100 focus:ring-titam-lime/20 focus:bg-white rounded-xl text-[10px] font-bold uppercase tracking-widest outline-none transition-all w-full sm:w-64"
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-2 border bg-gray-50 border-gray-100 rounded-xl px-4 py-3">
                       <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">Período:</span>
                       <div className="flex items-center gap-2">
                         <input 
@@ -1877,21 +1874,18 @@ export default function App() {
                   value={dailyStats.in_stock} 
                   subtitle="Unidades (Datas filtradas)"
                   icon={<Package className="text-titam-deep" />}
-                  isVoltaRedonda={isVoltaRedonda}
                 />
                 <StatCard 
                   title="Saídas Selecionadas" 
                   value={dailyStats.exited} 
                   subtitle="Unidades (Datas filtradas)"
                   icon={<ArrowUpRight className="text-titam-deep" />}
-                  isVoltaRedonda={isVoltaRedonda}
                 />
                 <StatCard 
                   title="Fornecedores" 
                   value={dailyStats.suppliers} 
                   subtitle="Nas datas filtradas"
                   icon={<Truck className="text-titam-deep" />}
-                  isVoltaRedonda={isVoltaRedonda}
                 />
               </div>
 
@@ -1900,7 +1894,7 @@ export default function App() {
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`mt-8 p-6 ${isVoltaRedonda ? 'bg-red-50/60 backdrop-blur-sm' : 'bg-red-50/50'} border border-red-100 rounded-2xl relative overflow-hidden transition-all duration-700`}
+                  className="mt-8 p-6 bg-red-50/50 border border-red-100 rounded-2xl relative overflow-hidden transition-all duration-700"
                 >
                   <div className="absolute top-0 right-0 p-4 opacity-10">
                     <AlertTriangle size={80} className="text-red-500" />
@@ -1912,7 +1906,7 @@ export default function App() {
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {dailyStats.queue_external_exceeded > 0 && (
-                        <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4 transition-all duration-700`}>
+                        <div className="bg-white p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4 transition-all duration-700">
                           <div className="p-3 bg-red-50 rounded-lg text-red-500">
                             <Clock size={20} />
                           </div>
@@ -1923,7 +1917,7 @@ export default function App() {
                         </div>
                       )}
                       {dailyStats.queue_internal_exceeded > 0 && (
-                        <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4 transition-all duration-700`}>
+                        <div className="bg-white p-4 rounded-xl border border-red-200 shadow-sm flex items-center gap-4 transition-all duration-700">
                           <div className="p-3 bg-red-50 rounded-lg text-red-500">
                             <Activity size={20} />
                           </div>
@@ -1945,7 +1939,7 @@ export default function App() {
                   Fluxo de Veículos (Quantidade)
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-700 flex items-center justify-between group relative overflow-hidden`}>
+                  <div className="bg-white border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md border transition-all duration-700 flex items-center justify-between group relative overflow-hidden">
                     {dailyStats.queue_external_exceeded > 0 && (
                       <div className="absolute top-0 left-0 w-1 h-full bg-red-500 animate-pulse"></div>
                     )}
@@ -1958,7 +1952,7 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      <h4 className={`text-4xl font-light ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} tracking-tighter`}>{dailyStats.queue_external}</h4>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_external}</h4>
                       <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Aguardando Entrada</p>
                     </div>
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${dailyStats.queue_external_exceeded > 0 ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
@@ -1966,7 +1960,7 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-700 flex items-center justify-between group relative overflow-hidden`}>
+                  <div className="bg-white border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md border transition-all duration-700 flex items-center justify-between group relative overflow-hidden">
                     {dailyStats.queue_internal_exceeded > 0 && (
                       <div className="absolute top-0 left-0 w-1 h-full bg-red-500 animate-pulse"></div>
                     )}
@@ -1979,7 +1973,7 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      <h4 className={`text-4xl font-light ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} tracking-tighter`}>{dailyStats.queue_internal}</h4>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_internal}</h4>
                       <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Em Operação</p>
                     </div>
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${dailyStats.queue_internal_exceeded > 0 ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-500 group-hover:bg-amber-500 group-hover:text-white'}`}>
@@ -1987,10 +1981,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-700 flex items-center justify-between group`}>
+                  <div className="bg-white border-gray-100 p-6 rounded-2xl shadow-sm hover:shadow-md border transition-all duration-700 flex items-center justify-between group">
                     <div>
                       <p className="text-[10px] font-bold text-titam-lime uppercase tracking-widest mb-2">Saídas</p>
-                      <h4 className={`text-4xl font-light ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} tracking-tighter`}>{dailyStats.queue_exit}</h4>
+                      <h4 className="text-4xl font-light text-gray-900 tracking-tighter">{dailyStats.queue_exit}</h4>
                       <p className="text-[10px] text-gray-400 mt-2 font-medium uppercase">Concluído</p>
                     </div>
                     <div className="w-12 h-12 rounded-xl bg-titam-lime/10 flex items-center justify-center group-hover:bg-titam-lime group-hover:text-titam-deep transition-all">
@@ -2002,9 +1996,9 @@ export default function App() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Bar Chart: Saídas por Dia */}
-                <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-8 rounded-2xl shadow-sm transition-all duration-700`}>
+                <div className="bg-white border-gray-100 p-8 rounded-2xl border shadow-sm transition-all duration-700">
                   <div className="flex items-center justify-between mb-8">
-                    <h3 className={`text-xs font-bold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} uppercase tracking-widest flex items-center gap-2`}>
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest flex items-center gap-2">
                       <BarChart3 size={16} className="text-titam-lime" />
                       Saídas por Dia
                     </h3>
@@ -2036,7 +2030,7 @@ export default function App() {
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               return (
-                                <div className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border-white/10' : 'bg-white border-gray-50'} p-4 rounded-xl shadow-2xl min-w-[200px] transition-all duration-700`}>
+                                <div className="bg-white border-gray-50 p-4 rounded-xl shadow-2xl border min-w-[200px] transition-all duration-700">
                                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">{label?.toString().split('-').reverse().join('/')}</p>
                                   <div className="space-y-3">
                                     {payload.map((entry: any, index: number) => {
@@ -2083,20 +2077,20 @@ export default function App() {
                 </div>
 
                 {/* Line Chart: Performance */}
-                <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-8 rounded-2xl shadow-sm transition-all duration-700`}>
+                <div className="bg-white border-gray-100 p-8 rounded-2xl border shadow-sm transition-all duration-700">
                   <div className="flex items-center justify-between mb-8">
-                    <h3 className={`text-xs font-bold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} uppercase tracking-widest flex items-center gap-2`}>
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest flex items-center gap-2">
                       <Activity size={16} className="text-amber-500" />
                       Performance
                     </h3>
                     <div className="flex gap-6">
                       <div className="flex flex-col items-end">
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Média Total</span>
-                        <span className={`text-sm font-black ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>{performanceAverages.avgTotal}m</span>
+                        <span className="text-sm font-black text-gray-900">{performanceAverages.avgTotal}m</span>
                       </div>
                       <div className="flex flex-col items-end">
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Média Descarga</span>
-                        <span className={`text-sm font-black ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>{performanceAverages.avgDescarga}m</span>
+                        <span className="text-sm font-black text-gray-900">{performanceAverages.avgDescarga}m</span>
                       </div>
                     </div>
                   </div>
@@ -2125,7 +2119,7 @@ export default function App() {
                           content={({ active, payload, label }) => {
                             if (active && payload && payload.length) {
                               return (
-                                <div className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border-white/10' : 'bg-white border-gray-50'} p-5 rounded-2xl shadow-2xl min-w-[220px] transition-all duration-700`}>
+                                <div className="bg-white border-gray-50 p-5 rounded-2xl shadow-2xl border min-w-[220px] transition-all duration-700">
                                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">{label}</p>
                                   <div className="space-y-4">
                                     {payload.map((entry: any, index: number) => (
@@ -2184,9 +2178,9 @@ export default function App() {
                 </div>
 
                 {/* Bar Chart: Queue Analysis */}
-                <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} p-6 rounded-xl shadow-sm transition-all duration-700`}>
+                <div className="bg-white border-gray-200 p-6 rounded-xl border shadow-sm transition-all duration-700">
                   <div className="flex flex-col items-center text-center mb-6">
-                    <h3 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} flex items-center gap-2 justify-center`}>
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2 justify-center">
                       <Activity size={18} className="text-blue-600" />
                       Fluxo de Veículos (Quantidade)
                     </h3>
@@ -2235,7 +2229,7 @@ export default function App() {
                             if (active && payload && payload.length) {
                               const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
                               return (
-                                <div className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border-white/10' : 'bg-white border-gray-100'} p-4 rounded-xl shadow-xl min-w-[180px] transition-all duration-700`}>
+                                <div className="bg-white border-gray-100 p-4 rounded-xl shadow-xl min-w-[180px] transition-all duration-700">
                                   <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">{label}</p>
                                   <div className="space-y-2">
                                     {payload.map((entry: any, index: number) => (
@@ -2298,9 +2292,9 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} rounded-xl shadow-sm overflow-hidden transition-all duration-700`}>
-                  <div className={`p-6 border-b ${isVoltaRedonda ? 'border-white/10' : 'border-gray-100'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
-                    <h2 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>Estoque por Fornecedor</h2>
+                <div className="bg-white border-gray-200 rounded-xl shadow-sm overflow-hidden transition-all duration-700">
+                  <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="font-semibold text-gray-900">Estoque por Fornecedor</h2>
                     <div className="relative w-full sm:w-64">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input 
@@ -2315,7 +2309,7 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className={`${isVoltaRedonda ? 'bg-white/5' : 'bg-gray-50'} border-b ${isVoltaRedonda ? 'border-white/10' : 'border-gray-100'}`}>
+                        <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-3 data-grid-header text-[10px]">Fornecedor</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
@@ -2324,10 +2318,10 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
                         </tr>
                       </thead>
-                      <tbody className={`divide-y ${isVoltaRedonda ? 'divide-white/5' : 'divide-gray-100'}`}>
+                      <tbody className="divide-y divide-gray-100">
                         {summary.map((s, i) => (
-                          <tr key={i} className={`hover:${isVoltaRedonda ? 'bg-white/5' : 'bg-gray-50'} transition-colors`}>
-                            <td className={`px-6 py-4 font-medium ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} text-xs`}>{s.fornecedor}</td>
+                          <tr key={i} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.fornecedor}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
@@ -2340,9 +2334,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} rounded-xl shadow-sm overflow-hidden transition-all duration-700`}>
-                  <div className={`p-6 border-b ${isVoltaRedonda ? 'border-white/10' : 'border-gray-100'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
-                    <h2 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>Estoque por Produto e Destino</h2>
+                <div className="bg-white border-gray-200 rounded-xl shadow-sm overflow-hidden transition-all duration-700">
+                  <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="font-semibold text-gray-900">Estoque por Produto e Destino</h2>
                     <div className="relative w-full sm:w-64">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                       <input 
@@ -2357,7 +2351,7 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className={`${isVoltaRedonda ? 'bg-white/5' : 'bg-gray-50'} border-b ${isVoltaRedonda ? 'border-white/10' : 'border-gray-100'}`}>
+                        <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-3 data-grid-header text-[10px]">Produto</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Destino</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
@@ -2367,11 +2361,11 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
                         </tr>
                       </thead>
-                      <tbody className={`divide-y ${isVoltaRedonda ? 'divide-white/5' : 'divide-gray-100'}`}>
+                      <tbody className="divide-y divide-gray-100">
                         {productDestSummary.map((s, i) => (
-                          <tr key={i} className={`hover:${isVoltaRedonda ? 'bg-white/5' : 'bg-gray-50'} transition-colors`}>
-                            <td className={`px-6 py-4 font-medium ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} text-xs`}>{s.descricao_produto}</td>
-                            <td className={`px-6 py-4 text-[10px] ${isVoltaRedonda ? 'text-gray-300' : 'text-gray-600'}`}>{s.destino}</td>
+                          <tr key={i} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.descricao_produto}</td>
+                            <td className="px-6 py-4 text-[10px] text-gray-600">{s.destino}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
@@ -2386,196 +2380,196 @@ export default function App() {
               </div>
 
               {/* Supplier Stock by Unloading Date */}
-              <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} p-6 rounded-xl shadow-sm transition-all duration-700`}>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
-                    <Truck size={18} className="text-titam-deep" />
-                    Estoque por Fornecedor por Dia (NFs Recebidas)
-                  </h3>
-                  <div className="flex gap-2">
-                    {selectedDates.slice(0, 3).map(d => (
-                      <span key={d} className={`text-[10px] font-bold ${isVoltaRedonda ? 'text-gray-300 bg-white/10' : 'text-gray-500 bg-gray-100'} px-2 py-0.5 rounded-full transition-all duration-700`}>
-                        {d.split('-').reverse().join('/')}
-                      </span>
-                    ))}
-                    {selectedDates.length > 3 && <span className={`text-[10px] font-bold ${isVoltaRedonda ? 'text-gray-300 bg-white/10' : 'text-gray-500 bg-gray-100'} px-2 py-0.5 rounded-full transition-all duration-700`}>+{selectedDates.length - 3}</span>}
+                <div className="bg-white border-gray-200 p-6 rounded-xl shadow-sm transition-all duration-700">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <Truck size={18} className="text-titam-deep" />
+                      Estoque por Fornecedor por Dia (NFs Recebidas)
+                    </h3>
+                    <div className="flex gap-2">
+                      {selectedDates.slice(0, 3).map(d => (
+                        <span key={d} className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full transition-all duration-700">
+                          {d.split('-').reverse().join('/')}
+                        </span>
+                      ))}
+                      {selectedDates.length > 3 && <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full transition-all duration-700">+{selectedDates.length - 3}</span>}
+                    </div>
                   </div>
-                </div>
-                
-                {supplierStockByDate.length > 0 ? (
-                  <div className="space-y-6">
-                    {/* Totals by Product Type */}
-                    <div className={`${isVoltaRedonda ? 'bg-white/5' : 'bg-titam-deep/5'} p-4 rounded-xl border ${isVoltaRedonda ? 'border-white/10' : 'border-titam-deep/10'} transition-all duration-700`}>
-                      <p className={`text-[10px] font-bold ${isVoltaRedonda ? 'text-titam-lime' : 'text-titam-deep'} uppercase tracking-widest mb-3`}>Total por Tipo de Produto (Período Selecionado)</p>
-                      <div className="flex flex-wrap gap-4">
-                        {productStockByDate.map((p, i) => (
-                          <div key={i} className={`flex items-center gap-2 ${isVoltaRedonda ? 'bg-black/40 border-white/10' : 'bg-white border-gray-100'} px-3 py-1.5 rounded-lg shadow-sm transition-all duration-700`}>
-                            <span className={`text-xs font-medium ${isVoltaRedonda ? 'text-gray-300' : 'text-gray-600'}`}>{p.name}:</span>
-                            <div className="flex items-baseline gap-1">
-                              <span className={`text-sm font-bold ${isVoltaRedonda ? 'text-white' : 'text-titam-deep'}`}>{p.count}</span>
-                              <span className="text-[10px] text-gray-400 font-medium">NFs</span>
-                              <span className="text-gray-300 mx-1">|</span>
-                              <span className="text-sm font-bold text-titam-lime">{p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                              <span className="text-[10px] text-gray-400 font-medium">Ton</span>
+                  
+                  {supplierStockByDate.length > 0 ? (
+                    <div className="space-y-6">
+                      {/* Totals by Product Type */}
+                      <div className="bg-titam-deep/5 p-4 rounded-xl border border-titam-deep/10 transition-all duration-700">
+                        <p className="text-[10px] font-bold text-titam-deep uppercase tracking-widest mb-3">Total por Tipo de Produto (Período Selecionado)</p>
+                        <div className="flex flex-wrap gap-4">
+                          {productStockByDate.map((p, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-white border border-gray-100 px-3 py-1.5 rounded-lg shadow-sm transition-all duration-700">
+                              <span className="text-xs font-medium text-gray-600">{p.name}:</span>
+                              <div className="flex items-baseline gap-1">
+                                <span className="text-sm font-bold text-titam-deep">{p.count}</span>
+                                <span className="text-[10px] text-gray-400 font-medium">NFs</span>
+                                <span className="text-gray-300 mx-1">|</span>
+                                <span className="text-sm font-bold text-titam-lime">{p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                <span className="text-[10px] text-gray-400 font-medium">Ton</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+  
+                      {/* Breakdown by Supplier and Product */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {supplierStockByDate.map((item, idx) => (
+                          <div key={idx} className="p-4 rounded-lg border border-gray-100 bg-gray-50/50 flex flex-col transition-all duration-700">
+                            <div className="text-center mb-3">
+                              <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
+                              <div className="flex items-center justify-center gap-4">
+                                <div>
+                                  <p className="text-2xl font-black text-titam-deep">{item.count}</p>
+                                  <p className="text-[9px] text-gray-400 font-bold uppercase">NFs</p>
+                                </div>
+                                <div className="w-px h-8 bg-gray-200"></div>
+                                <div>
+                                  <p className="text-2xl font-black text-titam-lime">{item.tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</p>
+                                  <p className="text-[9px] text-gray-400 font-bold uppercase">Ton</p>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="space-y-1.5 pt-3 border-t border-gray-200/50">
+                              {item.products.map((p, pi) => (
+                                <div key={pi} className="flex flex-col space-y-0.5">
+                                  <span className="text-[10px] text-gray-500 truncate font-medium" title={p.name}>{p.name}</span>
+                                  <div className="flex justify-between items-center text-[10px]">
+                                    <span className="text-gray-400">{p.count} NFs</span>
+                                    <span className="font-bold text-titam-deep bg-white border border-gray-100 px-1.5 py-0.5 rounded transition-all duration-700">
+                                      {p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
-
-                    {/* Breakdown by Supplier and Product */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {supplierStockByDate.map((item, idx) => (
-                        <div key={idx} className={`p-4 rounded-lg border ${isVoltaRedonda ? 'border-white/10 bg-white/5' : 'border-gray-100 bg-gray-50/50'} flex flex-col transition-all duration-700`}>
-                          <div className="text-center mb-3">
-                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">{item.name}</p>
-                            <div className="flex items-center justify-center gap-4">
-                              <div>
-                                <p className={`text-2xl font-black ${isVoltaRedonda ? 'text-white' : 'text-titam-deep'}`}>{item.count}</p>
-                                <p className="text-[9px] text-gray-400 font-bold uppercase">NFs</p>
-                              </div>
-                              <div className={`w-px h-8 ${isVoltaRedonda ? 'bg-white/10' : 'bg-gray-200'}`}></div>
-                              <div>
-                                <p className="text-2xl font-black text-titam-lime">{item.tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</p>
-                                <p className="text-[9px] text-gray-400 font-bold uppercase">Ton</p>
-                              </div>
-                            </div>
+                  ) : (
+                    <div className="py-12 flex flex-col items-center justify-center text-center text-gray-400">
+                      <Package size={48} className="mb-4 opacity-20" />
+                      <p className="text-sm font-medium">Nenhuma nota fiscal recebida nesta data.</p>
+                    </div>
+                  )}
+                </div>
+  
+                <div className="bg-white border-gray-200 p-6 rounded-xl shadow-sm transition-all duration-700">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <ArrowUpRight size={18} className="text-titam-deep" />
+                      Resumo de Saídas por Destino e Produto (Período Selecionado)
+                    </h3>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {selectedPeriodExitsSummary.length === 0 ? (
+                      <div className="col-span-full text-center py-12 bg-gray-50 border border-gray-200 rounded-xl border border-dashed transition-all duration-700">
+                        <p className="text-gray-400 text-sm">Nenhuma saída no período selecionado.</p>
+                      </div>
+                    ) : (
+                      selectedPeriodExitsSummary.map((destData) => (
+                        <div key={destData.destination} className="bg-gray-50/50 border border-gray-100 rounded-xl p-4 transition-all duration-700">
+                          <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1.5 h-4 bg-titam-lime rounded-full"></div>
+                            <h4 className="text-xs font-black text-gray-700 uppercase tracking-tight">{destData.destination}</h4>
                           </div>
-                          <div className={`space-y-1.5 pt-3 border-t ${isVoltaRedonda ? 'border-white/10' : 'border-gray-200/50'}`}>
-                            {item.products.map((p, pi) => (
-                              <div key={pi} className="flex flex-col space-y-0.5">
-                                <span className={`text-[10px] ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} truncate font-medium`} title={p.name}>{p.name}</span>
-                                <div className="flex justify-between items-center text-[10px]">
-                                  <span className="text-gray-400">{p.count} NFs</span>
-                                  <span className={`font-bold ${isVoltaRedonda ? 'text-white bg-white/10 border-white/10' : 'text-titam-deep bg-white border-gray-100'} px-1.5 py-0.5 rounded border transition-all duration-700`}>
-                                    {p.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton
-                                  </span>
+                          <div className="space-y-2">
+                            {Object.entries(destData.products).map(([prod, data]) => (
+                              <div key={prod} className="bg-white border border-gray-100 p-3 rounded-lg flex justify-between items-center shadow-sm transition-all duration-700">
+                                <div className="flex flex-col">
+                                  <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
+                                  <span className="text-xs font-black text-titam-deep">{data.count} Unidades</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
+                                  <span className="text-xs font-black text-titam-deep">{data.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
                                 </div>
                               </div>
                             ))}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      ))
+                    )}
                   </div>
-                ) : (
-                  <div className="py-12 flex flex-col items-center justify-center text-center text-gray-400">
-                    <Package size={48} className="mb-4 opacity-20" />
-                    <p className="text-sm font-medium">Nenhuma nota fiscal recebida nesta data.</p>
-                  </div>
-                )}
-              </div>
-
-              <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} p-6 rounded-xl shadow-sm transition-all duration-700`}>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
-                    <ArrowUpRight size={18} className="text-titam-deep" />
-                    Resumo de Saídas por Destino e Produto (Período Selecionado)
-                  </h3>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {selectedPeriodExitsSummary.length === 0 ? (
-                    <div className={`col-span-full text-center py-12 ${isVoltaRedonda ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-xl border border-dashed transition-all duration-700`}>
-                      <p className="text-gray-400 text-sm">Nenhuma saída no período selecionado.</p>
+  
+                {/* Monthly Accumulated Exits Section */}
+                <div className="bg-white border-gray-200 p-6 rounded-xl border shadow-sm transition-all duration-700">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                      <Calendar size={18} className="text-titam-deep" />
+                      Acumulado de Saídas por Mês (Destino e Material)
+                    </h3>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={exportDashboardPDF}
+                        className="px-3 py-1.5 bg-titam-deep text-white rounded-lg text-[10px] font-bold hover:opacity-90 transition-all flex items-center gap-2"
+                      >
+                        <FileDown size={14} />
+                        Exportar PDF
+                      </button>
                     </div>
-                  ) : (
-                    selectedPeriodExitsSummary.map((destData) => (
-                      <div key={destData.destination} className={`${isVoltaRedonda ? 'bg-white/5 border-white/10' : 'bg-gray-50/50 border-gray-100'} rounded-xl p-4 border transition-all duration-700`}>
-                        <div className="flex items-center gap-2 mb-4">
-                          <div className="w-1.5 h-4 bg-titam-lime rounded-full"></div>
-                          <h4 className={`text-xs font-black ${isVoltaRedonda ? 'text-white' : 'text-gray-700'} uppercase tracking-tight`}>{destData.destination}</h4>
-                        </div>
-                        <div className="space-y-2">
-                          {Object.entries(destData.products).map(([prod, data]) => (
-                            <div key={prod} className={`${isVoltaRedonda ? 'bg-black/40 border-white/10' : 'bg-white border-gray-100'} p-3 rounded-lg border flex justify-between items-center shadow-sm transition-all duration-700`}>
-                              <div className="flex flex-col">
-                                <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
-                                <span className={`text-xs font-black ${isVoltaRedonda ? 'text-white' : 'text-titam-deep'}`}>{data.count} Unidades</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
-                                <span className={`text-xs font-black ${isVoltaRedonda ? 'text-white' : 'text-titam-deep'}`}>{data.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                  </div>
+                  
+                  <div className="space-y-8">
+                    {monthlyAccumulatedExits.length === 0 ? (
+                      <div className="text-center py-12 bg-gray-50 border border-gray-200 rounded-xl border border-dashed transition-all duration-700">
+                        <p className="text-gray-400 text-sm">Nenhuma saída registrada até o momento.</p>
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Monthly Accumulated Exits Section */}
-              <div className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-200'} p-6 rounded-xl shadow-sm transition-all duration-700`}>
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className={`font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} flex items-center gap-2`}>
-                    <Calendar size={18} className="text-titam-deep" />
-                    Acumulado de Saídas por Mês (Destino e Material)
-                  </h3>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={exportDashboardPDF}
-                      className={`px-3 py-1.5 ${isVoltaRedonda ? 'bg-titam-lime text-titam-deep' : 'bg-titam-deep text-white'} rounded-lg text-[10px] font-bold hover:opacity-90 transition-all flex items-center gap-2`}
-                    >
-                      <FileDown size={14} />
-                      Exportar PDF
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="space-y-8">
-                  {monthlyAccumulatedExits.length === 0 ? (
-                    <div className={`text-center py-12 ${isVoltaRedonda ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-200'} rounded-xl border border-dashed transition-all duration-700`}>
-                      <p className="text-gray-400 text-sm">Nenhuma saída registrada até o momento.</p>
-                    </div>
-                  ) : (
-                    monthlyAccumulatedExits.map((monthData) => (
-                      <div key={monthData.month} className={`border ${isVoltaRedonda ? 'border-white/10' : 'border-gray-100'} rounded-xl overflow-hidden shadow-sm transition-all duration-700`}>
-                        <div className="bg-titam-deep px-4 py-3 flex justify-between items-center">
-                          <h4 className="text-white font-bold uppercase tracking-wider text-sm">
-                            {(() => {
-                              const [y, m] = monthData.month.split('-');
-                              return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-                            })()}
-                          </h4>
-                          <div className="flex gap-4 text-white/80 text-[10px] font-bold uppercase">
-                            <span>Total Mês: {Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0)} Un</span>
-                            <span>|</span>
-                            <span>{Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.tons, 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                    ) : (
+                      monthlyAccumulatedExits.map((monthData) => (
+                        <div key={monthData.month} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm transition-all duration-700">
+                          <div className="bg-titam-deep px-4 py-3 flex justify-between items-center">
+                            <h4 className="text-white font-bold uppercase tracking-wider text-sm">
+                              {(() => {
+                                const [y, m] = monthData.month.split('-');
+                                return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                              })()}
+                            </h4>
+                            <div className="flex gap-4 text-white/80 text-[10px] font-bold uppercase">
+                              <span>Total Mês: {Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0)} Un</span>
+                              <span>|</span>
+                              <span>{Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.tons, 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                            </div>
+                          </div>
+                          
+                          <div className="divide-y divide-gray-100">
+                            {Object.entries(monthData.destinations).map(([dest, destData]) => (
+                              <div key={dest} className="p-4 hover:bg-gray-50 transition-colors">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="w-2 h-2 rounded-full bg-titam-lime"></div>
+                                  <span className="text-xs font-black text-gray-700 uppercase tracking-tight">{dest}</span>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                  {Object.entries(destData.products).map(([prod, prodData]) => (
+                                    <div key={prod} className="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center shadow-sm transition-all duration-700">
+                                      <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
+                                        <span className="text-xs font-black text-titam-deep">{prodData.count} Unidades</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
+                                        <span className="text-xs font-black text-titam-deep">{prodData.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                        
-                        <div className="divide-y divide-gray-100">
-                          {Object.entries(monthData.destinations).map(([dest, destData]) => (
-                            <div key={dest} className="p-4 hover:bg-gray-50 transition-colors">
-                              <div className="flex items-center gap-2 mb-3">
-                                <div className="w-2 h-2 rounded-full bg-titam-lime"></div>
-                                <span className="text-xs font-black text-gray-700 uppercase tracking-tight">{dest}</span>
-                              </div>
-                              
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {Object.entries(destData.products).map(([prod, prodData]) => (
-                                  <div key={prod} className={`${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} p-3 rounded-lg border border-gray-100 flex justify-between items-center shadow-sm transition-all duration-700`}>
-                                    <div className="flex flex-col">
-                                      <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
-                                      <span className="text-xs font-black text-titam-deep">{prodData.count} Unidades</span>
-                                    </div>
-                                    <div className="text-right">
-                                      <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
-                                      <span className="text-xs font-black text-titam-deep">{prodData.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
             </motion.div>
           )}
 
@@ -2584,7 +2578,6 @@ export default function App() {
               title="Gestão de Entradas"
               entries={entries}
               readOnly={selectedBranchId === 'all'}
-              isVoltaRedonda={isVoltaRedonda}
               columns={[
                 { key: 'mes', label: 'Mês' },
                 { key: 'data_nf', label: 'Data NF' },
@@ -2609,21 +2602,21 @@ export default function App() {
           {activeTab === 'saida' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Total Saídas (Período)</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-titam-deep">{dailyStats.exited}</span>
                     <span className="text-xs text-gray-400 font-bold">UNIDADES</span>
                   </div>
                 </div>
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Peso Total (Período)</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-titam-lime">{dailyStats.exited_tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span>
                     <span className="text-xs text-gray-400 font-bold">TONELADAS</span>
                   </div>
                 </div>
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Média por NF</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-titam-deep">
@@ -2638,7 +2631,6 @@ export default function App() {
                 title="Gestão de Saídas"
                 entries={entries}
                 readOnly={selectedBranchId === 'all'}
-                isVoltaRedonda={isVoltaRedonda}
                 columns={[
                   { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
@@ -2664,7 +2656,6 @@ export default function App() {
               title="Faturamento e CTEs"
               entries={entries}
               readOnly={selectedBranchId === 'all'}
-              isVoltaRedonda={isVoltaRedonda}
               columns={[
                 { key: 'data_emissao_nf', label: 'Emissão NF' },
                 { key: 'nf_numero', label: 'N.F' },
@@ -2685,7 +2676,6 @@ export default function App() {
               title="Todos os Registros"
               entries={entries}
               readOnly={selectedBranchId === 'all'}
-              isVoltaRedonda={isVoltaRedonda}
               columns={[
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'descricao_produto', label: 'Produto' },
@@ -2708,7 +2698,6 @@ export default function App() {
               onImportBackup={importBackup} 
               onUndoLastImport={undoLastImport}
               isProcessing={isProcessing}
-              isVoltaRedonda={isVoltaRedonda}
             />
           )}
 
@@ -2727,7 +2716,7 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Externa */}
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
                   <div className="p-4 bg-blue-600 text-white flex justify-between items-center">
                     <h3 className="font-bold text-sm uppercase tracking-wider">Fila Externa</h3>
                     <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
@@ -2758,7 +2747,7 @@ export default function App() {
                 </div>
 
                 {/* Interna */}
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
                   <div className="p-4 bg-amber-500 text-white flex justify-between items-center">
                     <h3 className="font-bold text-sm uppercase tracking-wider">Fila Interna</h3>
                     <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
@@ -2789,7 +2778,7 @@ export default function App() {
                 </div>
 
                 {/* Saída */}
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
                   <div className="p-4 bg-titam-lime text-titam-deep flex justify-between items-center">
                     <h3 className="font-bold text-sm uppercase tracking-wider">Saídas de Hoje</h3>
                     <span className="bg-titam-deep/10 px-2 py-0.5 rounded text-xs font-black">
@@ -2834,7 +2823,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Disponíveis para Carga</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-emerald-600">
@@ -2843,7 +2832,7 @@ export default function App() {
                     <span className="text-xs text-gray-400 font-bold uppercase">Unidades</span>
                   </div>
                 </div>
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Em Manutenção</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-amber-500">
@@ -2852,7 +2841,7 @@ export default function App() {
                     <span className="text-xs text-gray-400 font-bold uppercase">Unidades</span>
                   </div>
                 </div>
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700`}>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
                   <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Em Uso / Operação</h3>
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-black text-blue-600">
@@ -2864,8 +2853,8 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} lg:col-span-2 rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
-                  <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-gray-50/50'} p-4 border-b border-gray-100 flex justify-between items-center transition-all duration-700`}>
+                <div className="bg-white lg:col-span-2 rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
+                  <div className="bg-gray-50/50 p-4 border-b border-gray-100 flex justify-between items-center transition-all duration-700">
                     <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Lista de Containers</h3>
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Total: {containers.length}
@@ -2874,7 +2863,7 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className={`${isVoltaRedonda ? 'bg-white/40' : 'bg-gray-50'} text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 transition-all duration-700`}>
+                        <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 transition-all duration-700">
                           <th className="px-6 py-4">Número</th>
                           <th className="px-6 py-4">Status</th>
                           <th className="px-6 py-4">Observação</th>
@@ -2935,7 +2924,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6 transition-all duration-700`}>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6 transition-all duration-700">
                   <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Novo Container</h3>
                   {selectedBranchId === 'all' ? (
                     <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex flex-col items-center text-center gap-3">
@@ -3011,8 +3000,8 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} lg:col-span-2 rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
-                  <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-gray-50/50'} p-4 border-b border-gray-100 flex justify-between items-center transition-all duration-700`}>
+                <div className="bg-white lg:col-span-2 rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
+                  <div className="bg-gray-50/50 p-4 border-b border-gray-100 flex justify-between items-center transition-all duration-700">
                     <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Lista de Filiais</h3>
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Total: {branches.length}
@@ -3021,7 +3010,7 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
-                        <tr className={`${isVoltaRedonda ? 'bg-white/40' : 'bg-gray-50'} text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 transition-all duration-700`}>
+                        <tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 transition-all duration-700">
                           <th className="px-6 py-4">Nome</th>
                           <th className="px-6 py-4">Código</th>
                           <th className="px-6 py-4">Localização</th>
@@ -3067,7 +3056,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6 transition-all duration-700`}>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6 transition-all duration-700">
                   <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep mb-6">Nova Filial</h3>
                   {selectedBranchId !== 'all' ? (
                     <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 flex flex-col items-center text-center gap-3">
@@ -3171,16 +3160,16 @@ export default function App() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border border-white/10 text-white' : 'bg-white text-gray-900'} rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-all duration-700`}
+                className="bg-white text-gray-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-all duration-700"
               >
                 <div className="p-6 flex flex-col items-center text-center">
-                  <div className={`w-16 h-16 ${isVoltaRedonda ? 'bg-amber-500/20 text-amber-500' : 'bg-amber-50 text-amber-500'} rounded-full flex items-center justify-center mb-4`}>
+                  <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mb-4">
                     <AlertTriangle size={32} />
                   </div>
-                  <h2 className={`text-xl font-bold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} mb-2`}>Confirmar Edição</h2>
-                  <p className={`${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} mb-6`}>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Confirmar Edição</h2>
+                  <p className="text-gray-500 mb-6">
                     Você tem certeza que deseja salvar as alterações feitas neste registro?
-                    <span className={`block mt-2 font-semibold ${isVoltaRedonda ? 'text-titam-lime' : 'text-titam-deep'}`}>
+                    <span className="block mt-2 font-semibold text-titam-deep">
                       NF: {selectedEntry.nf_numero}
                     </span>
                   </p>
@@ -3189,7 +3178,7 @@ export default function App() {
                     <button 
                       onClick={() => setShowEditConfirm(false)}
                       disabled={isUpdating}
-                      className={`flex-1 px-4 py-2 border ${isVoltaRedonda ? 'border-white/10 text-white hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-colors font-medium`}
+                      className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
                     >
                       Cancelar
                     </button>
@@ -3226,17 +3215,17 @@ export default function App() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border border-white/10 text-white' : 'bg-white text-gray-900'} rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-all duration-700`}
+                className="bg-white text-gray-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-all duration-700"
               >
                 <div className="p-6 flex flex-col items-center text-center">
-                  <div className={`w-16 h-16 ${isVoltaRedonda ? 'bg-red-500/20 text-red-500' : 'bg-red-50 text-red-500'} rounded-full flex items-center justify-center mb-4`}>
+                  <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
                     <AlertTriangle size={32} />
                   </div>
-                  <h2 className={`text-xl font-bold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} mb-2`}>Confirmar Exclusão</h2>
-                  <p className={`${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} mb-6`}>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Confirmar Exclusão</h2>
+                  <p className="text-gray-500 mb-6">
                     Você tem certeza que deseja excluir este registro? Esta ação não pode ser desfeita.
                     {entries.find(e => e.id === deleteConfirmation) && (
-                      <span className={`block mt-2 font-semibold ${isVoltaRedonda ? 'text-titam-lime' : 'text-titam-deep'}`}>
+                      <span className="block mt-2 font-semibold text-titam-deep">
                         NF: {entries.find(e => e.id === deleteConfirmation)?.nf_numero}
                       </span>
                     )}
@@ -3246,7 +3235,7 @@ export default function App() {
                     <button 
                       onClick={() => setDeleteConfirmation(null)}
                       disabled={isDeleting}
-                      className={`flex-1 px-4 py-2 border ${isVoltaRedonda ? 'border-white/10 text-white hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-colors font-medium`}
+                      className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
                     >
                       Cancelar
                     </button>
@@ -3280,20 +3269,20 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border border-white/10 text-white' : 'bg-white'} rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-auto transition-all duration-700`}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-auto transition-all duration-700"
             >
-              <div className={`p-6 border-b ${isVoltaRedonda ? 'border-white/10 bg-black/40' : 'border-gray-100 bg-white'} flex justify-between items-center sticky top-0 backdrop-blur-md z-10 transition-all duration-700`}>
-                <h2 className={`text-xl font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>Nova Entrada de Produto</h2>
+              <div className="p-6 border-b border-gray-100 bg-white flex justify-between items-center sticky top-0 backdrop-blur-md z-10 transition-all duration-700">
+                <h2 className="text-xl font-semibold text-gray-900">Nova Entrada de Produto</h2>
                 <div className="flex gap-2">
                   <button 
                     type="button"
                     onClick={() => setImportingNfe(true)}
-                    className={`flex items-center gap-2 ${isVoltaRedonda ? 'text-titam-lime border-titam-lime/50 hover:bg-titam-lime/10' : 'text-titam-deep border-titam-lime hover:bg-titam-lime/10'} px-3 py-1 rounded-lg text-sm font-medium transition-colors`}
+                    className="flex items-center gap-2 text-titam-deep border border-titam-lime hover:bg-titam-lime/10 px-3 py-1 rounded-lg text-sm font-medium transition-colors"
                   >
                     <FileJson size={16} />
                     Importar NF-e
                   </button>
-                  <button onClick={() => setShowForm(false)} className={`${isVoltaRedonda ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-600'} transition-colors`}>
+                  <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                     <X size={24} />
                   </button>
                 </div>
@@ -3304,16 +3293,16 @@ export default function App() {
                 className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6"
               >
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Mês de Referência</label>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
                   <input 
                     name="mes" 
                     required 
                     defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
-                    className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-gray-50 text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
+                    className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                   />
                 </div>
-                <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} isVoltaRedonda={isVoltaRedonda} />
-                <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} isVoltaRedonda={isVoltaRedonda} />
+                <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
+                <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
                 <Input 
                   label="Tonelada" 
                   name="tonelada" 
@@ -3321,7 +3310,6 @@ export default function App() {
                   required 
                   defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
-                  isVoltaRedonda={isVoltaRedonda}
                 />
                 <Input 
                   label="Valor" 
@@ -3331,35 +3319,34 @@ export default function App() {
                   required 
                   defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
-                  isVoltaRedonda={isVoltaRedonda}
                 />
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Descrição Produto</label>
-                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`} required>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                     <option value="" disabled>Selecione o produto</option>
                     <option value="Cal Dolomítico">Cal Dolomítico</option>
                     <option value="Cal Calcítico">Cal Calcítico</option>
                   </select>
                 </div>
-                <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} isVoltaRedonda={isVoltaRedonda} />
-                <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} isVoltaRedonda={isVoltaRedonda} />
-                <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} isVoltaRedonda={isVoltaRedonda} />
+                <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
+                <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
+                <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Status</label>
-                  <select name="status" defaultValue={formData.status || "Estoque"} className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`} required>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
+                  <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                     <option value="Estoque">Estoque</option>
-                    <option value="Trânsito">Trânsito</option>
+                    <option value="Trânsito Cheio">Trânsito Cheio</option>
                     <option value="Rejeitado">Rejeitado</option>
                     <option value="Embarcado">Embarcado</option>
                     <option value="Devolvido">Devolvido</option>
                   </select>
                 </div>
-                <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} isVoltaRedonda={isVoltaRedonda} />
-                <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} isVoltaRedonda={isVoltaRedonda} />
-                <Input label="Container" name="container" defaultValue={formData.container} isVoltaRedonda={isVoltaRedonda} />
+                <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
+                <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} />
+                <Input label="Container" name="container" defaultValue={formData.container} />
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Destino</label>
-                  <select name="destino" defaultValue={formData.destino || ""} className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`} required>
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                     <option value="" disabled>Selecione o destino</option>
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
@@ -3367,27 +3354,27 @@ export default function App() {
                 </div>
 
                 <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
+                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
+                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
                 </div>
 
                 <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} isVoltaRedonda={isVoltaRedonda} />
-                  <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} isVoltaRedonda={isVoltaRedonda} />
+                  <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} />
+                  <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} />
+                  <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} />
+                  <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} />
+                  <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} />
+                  <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} />
+                  <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} />
                 </div>
                 
                 <div className="md:col-span-3 flex justify-end gap-3 mt-4">
-                  <button type="button" onClick={() => setShowForm(false)} className={`px-6 py-2 border ${isVoltaRedonda ? 'border-white/10 text-white hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-colors`} disabled={isSaving}>Cancelar</button>
+                  <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors" disabled={isSaving}>Cancelar</button>
                   <button 
                     type="submit" 
                     disabled={isSaving}
-                    className={`px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors font-bold shadow-md active:scale-95 flex items-center gap-2 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className="px-6 py-2 bg-titam-lime text-titam-deep shadow-titam-lime/20 rounded-lg hover:opacity-90 transition-all font-bold shadow-md active:scale-95 flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   >
                     {isSaving ? (
                       <>
@@ -3408,17 +3395,17 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border border-white/10 text-white' : 'bg-white'} rounded-2xl shadow-2xl w-full max-w-xl p-8 transition-all duration-700`}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-xl p-8 transition-all duration-700"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className={`text-xl font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>Importar Dados da NF-e</h2>
-                <button onClick={() => setImportingNfe(false)} className={`${isVoltaRedonda ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-600'} transition-colors`}>
+                <h2 className="text-xl font-semibold text-gray-900">Importar Dados da NF-e</h2>
+                <button onClick={() => setImportingNfe(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <X size={24} />
                 </button>
               </div>
-              <p className={`${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} text-sm mb-4`}>Cole o conteúdo XML da Nota Fiscal ou o texto extraído para preenchimento automático.</p>
+              <p className="text-gray-500 text-sm mb-4">Cole o conteúdo XML da Nota Fiscal ou o texto extraído para preenchimento automático.</p>
               <textarea 
-                className={`w-full h-48 border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-xl p-4 focus:ring-2 focus:ring-titam-lime outline-none font-mono text-sm mb-6 transition-all duration-700`}
+                className="w-full h-48 border border-gray-200 bg-white text-gray-900 rounded-xl p-4 focus:ring-2 focus:ring-titam-lime outline-none font-mono text-sm mb-6 transition-all duration-700"
                 placeholder="Cole o XML aqui..."
                 value={nfeContent}
                 onChange={(e) => setNfeContent(e.target.value)}
@@ -3426,7 +3413,7 @@ export default function App() {
               <div className="flex justify-end gap-3">
                 <button 
                   onClick={() => setImportingNfe(false)} 
-                  className={`px-6 py-2 border ${isVoltaRedonda ? 'border-white/10 text-white hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-colors`}
+                  className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   Cancelar
                 </button>
@@ -3451,7 +3438,7 @@ export default function App() {
                     }
                   }}
                   disabled={isProcessing || !nfeContent}
-                  className={`px-6 py-2 bg-titam-lime text-titam-deep rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 font-bold ${(isProcessing || !nfeContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className="px-6 py-2 bg-titam-lime text-titam-deep shadow-titam-lime/20 rounded-lg hover:opacity-90 transition-all flex items-center gap-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isProcessing ? (
                     <>
@@ -3476,11 +3463,11 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className={`${isVoltaRedonda ? 'bg-black/80 backdrop-blur-md border border-white/10 text-white' : 'bg-white'} rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto transition-all duration-700`}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto transition-all duration-700"
             >
-              <div className={`p-6 border-b ${isVoltaRedonda ? 'border-white/10 bg-black/40' : 'border-gray-100 bg-white'} flex justify-between items-center sticky top-0 backdrop-blur-md z-10 transition-all duration-700`}>
-                <h2 className={`text-xl font-semibold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'}`}>Atualizar Registro: NF {selectedEntry.nf_numero}</h2>
-                <button onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} className={`${isVoltaRedonda ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-600'} transition-colors`}>
+              <div className="p-6 border-b border-gray-100 bg-white flex justify-between items-center sticky top-0 backdrop-blur-md z-10 transition-all duration-700">
+                <h2 className="text-xl font-semibold text-gray-900">Atualizar Registro: NF {selectedEntry.nf_numero}</h2>
+                <button onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <X size={24} />
                 </button>
               </div>
@@ -3493,40 +3480,34 @@ export default function App() {
                       label="Número NF" 
                       value={editFormData.nf_numero || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Fornecedor" 
                       value={editFormData.fornecedor || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Placa Veículo" 
                       value={editFormData.placa_veiculo || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Data NF" 
                       type="date"
                       value={editFormData.data_nf || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Data Descarga" 
                       type="date"
                       value={editFormData.data_descarga || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <div className="col-span-2 md:col-span-3">
                       <Input 
                         label="Chave de Acesso" 
                         value={editFormData.chave_acesso || ''} 
                         onChange={(e) => setEditFormData(prev => ({ ...prev, chave_acesso: e.target.value }))}
-                        isVoltaRedonda={isVoltaRedonda}
                       />
                     </div>
                   </div>
@@ -3534,33 +3515,33 @@ export default function App() {
 
                 {/* Section: Informações Gerais */}
                 <section className="space-y-4">
-                  <h3 className={`text-sm font-bold ${isVoltaRedonda ? 'text-titam-lime' : 'text-gray-600'} uppercase tracking-widest`}>Informações Gerais</h3>
+                  <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="flex flex-col gap-1">
-                      <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Mês de Referência</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
                       <input 
                         value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_posicionamento)}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, mes: e.target.value }))}
-                        className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-gray-50 text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
+                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Descrição Produto</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
                       <select 
                         value={editFormData.descricao_produto || ''}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
-                        className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
+                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       >
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
                         <option value="Cal Calcítico">Cal Calcítico</option>
                       </select>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Destino</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                       <select 
                         value={editFormData.destino || ''}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, destino: e.target.value }))}
-                        className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
+                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       >
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
@@ -3570,93 +3551,82 @@ export default function App() {
                       label="Container" 
                       value={editFormData.container || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Tonelada" 
                       type="text"
                       value={editFormData.tonelada !== undefined ? (typeof editFormData.tonelada === 'number' ? editFormData.tonelada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.tonelada) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Valor" 
                       type="text"
                       value={editFormData.valor !== undefined ? (typeof editFormData.valor === 'number' ? editFormData.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.valor) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Hora Chegada" 
                       type="time" 
                       value={editFormData.hora_chegada || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Hora Entrada" 
                       type="time" 
                       value={editFormData.hora_entrada || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Hora Saída" 
                       type="time" 
                       value={editFormData.hora_saida || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                   </div>
                 </section>
 
                 {/* Section: Saída */}
                 <section className="space-y-4">
-                  <h3 className={`text-sm font-bold ${isVoltaRedonda ? 'text-titam-lime' : 'text-titam-deep'} uppercase tracking-widest`}>Informações de Saída</h3>
+                  <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <Input 
                       label="Data de Posicionamento" 
                       type="date" 
                       value={editFormData.data_posicionamento || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Data Faturamento VLI" 
                       type="date" 
                       value={editFormData.data_faturamento_vli || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Horário de Posicionamento" 
                       type="time"
                       value={editFormData.horario_posicionamento || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Horário de Faturamento" 
                       type="time"
                       value={editFormData.horario_faturamento || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Nº Vagão" 
                       value={editFormData.numero_vagao || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <div className="flex flex-col gap-1">
-                      <label className={`text-xs font-semibold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wider`}>Status Atual</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
                       <select 
                         value={editFormData.status || ''}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                        className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-200 bg-white text-gray-900'} rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700`}
+                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       >
                         <option value="Estoque">Estoque</option>
-                        <option value="Trânsito">Trânsito</option>
+                        <option value="Trânsito Cheio">Trânsito Cheio</option>
                         <option value="Rejeitado">Rejeitado</option>
                         <option value="Embarcado">Embarcado</option>
                         <option value="Devolvido">Devolvido</option>
@@ -3667,53 +3637,46 @@ export default function App() {
 
                 {/* Section: Faturamento */}
                 <section className="space-y-4">
-                  <h3 className={`text-sm font-bold ${isVoltaRedonda ? 'text-titam-lime' : 'text-emerald-600'} uppercase tracking-widest`}>Faturamento</h3>
+                  <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <Input 
                       label="Data Emissão NF" 
                       type="date" 
                       value={editFormData.data_emissao_nf || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Emissão CTE Intertex" 
                       type="date" 
                       value={editFormData.data_emissao_cte || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="CTE Intertex" 
                       value={editFormData.cte_intertex || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Emissão CTE Transp." 
                       type="date" 
                       value={editFormData.data_emissao_cte_transp || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="CTE Transportador" 
                       value={editFormData.cte_transportador || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Data TITAM" 
                       type="date"
                       value={editFormData.data_titam || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                     <Input 
                       label="Faturamento Titam" 
                       value={editFormData.faturamento_titam || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
-                      isVoltaRedonda={isVoltaRedonda}
                     />
                   </div>
                 </section>
@@ -3721,7 +3684,7 @@ export default function App() {
                 <div className="flex justify-end gap-3 pt-4">
                   <button 
                     onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} 
-                    className={`px-6 py-2 border ${isVoltaRedonda ? 'border-white/10 text-white hover:bg-white/5' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-colors`}
+                    className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
                   >
                     Cancelar
                   </button>
@@ -3764,15 +3727,13 @@ function ReportsView({
   onExportBackup, 
   onImportBackup,
   onUndoLastImport,
-  isProcessing,
-  isVoltaRedonda
+  isProcessing
 }: { 
   entries: Entry[], 
   onExportBackup: () => void, 
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
   onUndoLastImport: () => void,
-  isProcessing: boolean,
-  isVoltaRedonda?: boolean
+  isProcessing: boolean
 }) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal'>('estoque');
   const [startDate, setStartDate] = useState('');
@@ -3782,7 +3743,7 @@ function ReportsView({
   const filteredEntries = entries.filter(entry => {
     const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
-    const matchesFornecedor = !filterFornecedor || entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase());
+    const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
     const matchesStatus = reportType === 'estoque' ? entry.status === 'Estoque' : true;
     return matchesDate && matchesFornecedor && matchesStatus;
   });
@@ -3830,7 +3791,7 @@ function ReportsView({
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4 items-end transition-all duration-700`}>
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4 items-end transition-all duration-700">
         <div className="md:col-span-5 flex justify-between items-center mb-2 border-b border-gray-100 pb-4">
           <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Ferramentas de Dados</h3>
           <div className="flex gap-3">
@@ -3865,7 +3826,7 @@ function ReportsView({
           <select 
             value={reportType}
             onChange={(e) => setReportType(e.target.value as any)}
-            className={`border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none ${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} transition-all duration-700`}
+            className="border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none bg-white transition-all duration-700"
           >
             <option value="estoque">Estoque por Fornecedor</option>
             <option value="faturamento">Faturamento Mensal</option>
@@ -3883,7 +3844,7 @@ function ReportsView({
             placeholder="Nome do fornecedor..."
             value={filterFornecedor}
             onChange={(e) => setFilterFornecedor(e.target.value)}
-            className={`border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none ${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} transition-all duration-700`}
+            className="border border-gray-200 bg-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -3894,7 +3855,7 @@ function ReportsView({
             type="date" 
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className={`border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none ${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} transition-all duration-700`}
+            className="border border-gray-200 bg-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -3905,26 +3866,26 @@ function ReportsView({
             type="date" 
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className={`border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none ${isVoltaRedonda ? 'bg-white/40' : 'bg-white'} transition-all duration-700`}
+            className="border border-gray-200 bg-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
           />
         </div>
         <button 
           onClick={exportToCSV}
-          className="bg-titam-lime text-titam-deep px-4 py-2 rounded-lg hover:opacity-90 transition-colors flex items-center justify-center gap-2 font-bold shadow-sm"
+          className="px-4 py-2 bg-titam-lime text-titam-deep shadow-titam-lime/20 rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-2 font-bold shadow-sm"
         >
           <Download size={18} />
           Exportar CSV
         </button>
       </div>
 
-      <div className={`${isVoltaRedonda ? 'bg-white/60 backdrop-blur-sm' : 'bg-white'} rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700`}>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
         <div className="p-6 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900 capitalize">Prévia: {reportType}</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className={`${isVoltaRedonda ? 'bg-white/40' : 'bg-gray-50'} border-b border-gray-100 transition-all duration-700`}>
+              <tr className="bg-gray-50 border-b border-gray-100 transition-all duration-700">
                 {reportType === 'estoque' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
@@ -4116,77 +4077,86 @@ function ReportsView({
   );
 }
 
-function NavItem({ icon, label, active, onClick, isVoltaRedonda }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, isVoltaRedonda?: boolean }) {
+function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
+  const activeBg = 'bg-titam-lime';
+  const activeText = 'text-titam-deep';
+
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active ? (isVoltaRedonda ? 'bg-titam-lime/80 backdrop-blur-sm text-titam-deep font-bold shadow-lg' : 'bg-titam-lime text-titam-deep font-bold shadow-lg') : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${active ? `${activeBg} ${activeText} font-bold shadow-[0_8px_20px_-10px_rgba(0,0,0,0.1)]` : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
     >
-      {icon}
-      <span>{label}</span>
+      <div className={`transition-transform duration-300 ${active ? 'scale-110' : ''}`}>
+        {icon}
+      </div>
+      <span className="text-[11px] uppercase tracking-widest leading-none">{label}</span>
       {active && <ChevronRight size={14} className="ml-auto" />}
     </button>
   );
 }
 
-function StatCard({ title, value, subtitle, icon, isVoltaRedonda }: { title: string, value: number | string, subtitle: string, icon: React.ReactNode, isVoltaRedonda?: boolean }) {
-  const brandDeep = isVoltaRedonda ? '#000000' : '#1E3932';
+function StatCard({ title, value, subtitle, icon }: { title: string, value: number | string, subtitle: string, icon: React.ReactNode }) {
+  const brandDeep = '#1E3932';
   
   return (
     <motion.div 
       whileHover={{ y: -4, scale: 1.01 }}
-      className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} p-8 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 group relative overflow-hidden`}
+      className={`bg-white border-gray-100 p-8 rounded-2xl border shadow-sm hover:shadow-2xl transition-all duration-300 group relative overflow-hidden`}
     >
       {/* Subtle Grid Background */}
-      <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `radial-gradient(${brandDeep} 1px, transparent 1px)`, backgroundSize: '20px 20px' }}></div>
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: `radial-gradient(${brandDeep} 1px, transparent 1px)`, backgroundSize: '24px 24px' }}></div>
       
-      <div className="absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 bg-titam-lime opacity-[0.05] rounded-full transition-transform duration-500 group-hover:scale-150"></div>
+      <div className="absolute top-0 right-0 w-32 h-32 -mr-16 -mt-16 bg-titam-lime opacity-[0.03] rounded-full transition-transform duration-500 group-hover:scale-150"></div>
       
       <div className="relative z-10">
-        <div className="flex items-center justify-between mb-6">
-          <div className="p-3 bg-gray-50 rounded-2xl text-gray-400 group-hover:text-titam-lime group-hover:bg-titam-lime/10 transition-all duration-300 shadow-inner">
+        <div className="flex items-center justify-between mb-8">
+          <div className="p-4 bg-gray-50 text-gray-400 group-hover:text-titam-lime group-hover:bg-titam-lime/10 rounded-2xl transition-all duration-300">
             {icon}
           </div>
-          <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] group-hover:text-titam-lime/30 transition-colors">
+          <div className="text-[9px] font-black uppercase tracking-[0.3em] text-gray-300 group-hover:text-titam-lime/30 transition-colors">
             {title.split(' ')[0]}
           </div>
         </div>
-        <div className="space-y-1">
-          <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1">{title}</h3>
-          <div className="flex items-baseline gap-2">
-            <div className={`text-5xl font-black ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} tracking-tighter tabular-nums drop-shadow-sm`}>{value}</div>
-            {typeof value === 'number' && <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">un</div>}
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-gray-400">{title}</h3>
+            <div className="flex items-baseline gap-2">
+              <div className="text-5xl font-light text-gray-900 tracking-tighter tabular-nums transition-colors duration-500">{value}</div>
+              {typeof value === 'number' && <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">un</div>}
+            </div>
           </div>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5 pt-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-titam-lime animate-pulse shadow-[0_0_8px_rgba(var(--brand-primary-rgb),0.8)]"></span>
-            {subtitle}
-          </p>
+          
+          <div className="flex items-center gap-2 pt-4 border-t border-gray-50">
+            <span className="w-1.5 h-1.5 rounded-full bg-titam-lime animate-pulse"></span>
+            <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-gray-400">
+              {subtitle}
+            </p>
+          </div>
         </div>
       </div>
     </motion.div>
   );
 }
 
-function Input({ label, isVoltaRedonda, ...props }: { label: string, isVoltaRedonda?: boolean } & React.InputHTMLAttributes<HTMLInputElement>) {
+function Input({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className={`text-[10px] font-bold ${isVoltaRedonda ? 'text-gray-400' : 'text-gray-400'} uppercase tracking-widest ml-1`}>{label}</label>
+      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">{label}</label>
       <input 
-        className={`border ${isVoltaRedonda ? 'border-white/10 bg-white/5 text-white' : 'border-gray-100 bg-gray-50/50 text-gray-900'} rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime ${isVoltaRedonda ? 'focus:bg-white/10' : 'focus:bg-white'} outline-none transition-all`}
+        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all"
         {...props}
       />
     </div>
   );
 }
 
-function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false, isVoltaRedonda }: { 
+function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false }: { 
   title: string, 
   entries: Entry[], 
   columns: { key: keyof Entry, label: string }[], 
   onEdit: (e: Entry) => void,
   onDelete: (id: string | number) => void,
-  readOnly?: boolean,
-  isVoltaRedonda?: boolean
+  readOnly?: boolean
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -4215,11 +4185,11 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`${isVoltaRedonda ? 'bg-black/40 backdrop-blur-md border-white/10 text-white' : 'bg-white border-gray-100'} rounded-2xl shadow-sm overflow-hidden transition-all duration-700`}
+      className={`bg-white border-gray-100 rounded-2xl border overflow-hidden transition-all duration-700`}
     >
-      <div className={`p-6 border-b ${isVoltaRedonda ? 'border-white/10 bg-black/20' : 'border-gray-50 bg-white/50'} flex justify-between items-center backdrop-blur-sm sticky top-0 z-20 transition-all duration-700`}>
+      <div className={`p-6 border-b border-gray-50 bg-white/50 flex justify-between items-center backdrop-blur-sm sticky top-0 z-20 transition-all duration-700`}>
         <div className="flex items-center gap-4 flex-1">
-          <h2 className={`text-sm font-bold ${isVoltaRedonda ? 'text-white' : 'text-gray-900'} uppercase tracking-widest whitespace-nowrap`}>{title}</h2>
+          <h2 className={`text-[11px] font-black text-gray-900 uppercase tracking-[0.2em] whitespace-nowrap`}>{title}</h2>
           {showSearch && (
             <motion.div 
               initial={{ width: 0, opacity: 0 }}
@@ -4228,10 +4198,10 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
             >
               <input 
                 type="text"
-                placeholder="Pesquisar..."
+                placeholder="PROCURAR..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-titam-lime/30 outline-none"
+                className="w-full bg-gray-50 border-gray-100 border rounded-xl px-4 py-2 text-[10px] font-bold uppercase tracking-widest focus:ring-2 focus:ring-titam-lime/30 outline-none transition-all"
                 autoFocus
               />
             </motion.div>
@@ -4240,28 +4210,25 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
         <div className="flex gap-2">
           <button 
             onClick={() => setShowSearch(!showSearch)}
-            className={`p-2.5 rounded-xl transition-all ${showSearch ? 'bg-titam-lime text-titam-deep shadow-lg shadow-titam-lime/20' : 'text-gray-400 hover:bg-gray-50 border border-gray-100'}`}
+            className={`p-2.5 rounded-xl transition-all ${showSearch ? 'bg-titam-lime text-titam-deep' : 'text-gray-400 hover:bg-gray-50 border border-gray-100'}`}
           >
             <Search size={16} />
-          </button>
-          <button className="p-2.5 text-gray-400 hover:bg-gray-50 border border-gray-100 rounded-xl transition-all">
-            <Filter size={16} />
           </button>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className={`${isVoltaRedonda ? 'bg-white/40' : 'bg-gray-50/50'} transition-all duration-700`}>
+            <tr className={`bg-gray-50/50 transition-all duration-700`}>
               {columns.map(col => (
-                <th key={col.key as string} className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 italic font-serif opacity-70">{col.label}</th>
+                <th key={col.key as string} className={`px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] border-b border-gray-50 text-gray-400 italic font-serif`}>{col.label}</th>
               ))}
               {!readOnly && (
-                <th className={`px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 sticky right-0 ${isVoltaRedonda ? 'bg-white/40' : 'bg-gray-50/50'} z-10 italic font-serif opacity-70 transition-all duration-700`}>Ações</th>
+                <th className={`px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] border-b border-gray-50 text-gray-400 bg-gray-50/50 sticky right-0 z-10 italic font-serif transition-all duration-700`}>Ações</th>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className={`divide-y divide-gray-50`}>
             {filteredEntries.length === 0 ? (
               <tr>
                 <td colSpan={columns.length + 1} className="px-6 py-16 text-center">
@@ -4273,12 +4240,12 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
               </tr>
             ) : (
               filteredEntries.map((entry) => (
-                <tr key={entry.id} className={`group ${isVoltaRedonda ? 'hover:bg-white/10' : 'hover:bg-titam-deep hover:text-white'} transition-all duration-200 cursor-default`}>
+                <tr key={entry.id} className={`group hover:bg-titam-deep hover:text-white transition-all duration-200 cursor-default`}>
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-5 text-[11px] font-medium transition-colors">
                       <div className="flex items-center gap-2">
                         <span className={`
-                          ${col.key === 'status' ? 'px-2 py-1 rounded-md bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white text-[9px] font-black uppercase tracking-wider' : ''}
+                          ${col.key === 'status' ? `px-2 py-1 rounded-md bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white text-[9px] font-black uppercase tracking-widest transition-all` : ''}
                           ${(col.key === 'valor' || col.key === 'tonelada' || col.key === 'nf_numero' || (col.key as unknown as string) === 'total_time' || (col.key as unknown as string) === 'descarga_time') ? 'font-mono tracking-tighter' : ''}
                         `}>
                           {(col.key as unknown as string) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
@@ -4294,11 +4261,11 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
                     </td>
                   ))}
                   {!readOnly && (
-                    <td className={`px-6 py-5 sticky right-0 ${isVoltaRedonda ? 'bg-black/60 backdrop-blur-md border-l border-white/10' : 'bg-white border-l border-gray-50 group-hover:bg-titam-deep'} z-10 group-hover:border-white/10 transition-all duration-200`}>
+                    <td className={`px-6 py-5 sticky right-0 bg-white border-l border-gray-50 group-hover:bg-titam-deep z-10 transition-all duration-200`}>
                       <div className="flex items-center gap-4">
                         <button 
                           onClick={() => onEdit(entry)}
-                          className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep group-hover:text-titam-lime transition-colors"
+                          className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep transition-colors"
                         >
                           Editar
                         </button>
@@ -4307,7 +4274,7 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false,
                             e.stopPropagation();
                             onDelete(entry.id);
                           }}
-                          className="text-gray-300 group-hover:text-red-400 transition-colors"
+                          className={`text-gray-300 group-hover:text-red-400 transition-colors`}
                         >
                           <Trash2 size={14} />
                         </button>
