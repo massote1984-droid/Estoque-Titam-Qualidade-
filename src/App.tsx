@@ -168,6 +168,9 @@ export default function App() {
   const [nfSearch, setNfSearch] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [productFilter, setProductFilter] = useState<string>('all');
+
+  const uniqueProducts = Array.from(new Set(entries.map(e => e.descricao_produto).filter(Boolean))).sort();
 
   useEffect(() => {
     if (selectedEntry) {
@@ -584,6 +587,10 @@ export default function App() {
     if (!Array.isArray(entries)) return [];
     let filtered = entries;
     
+    if (productFilter !== 'all') {
+      filtered = filtered.filter(e => e && e.descricao_produto === productFilter);
+    }
+    
     if (nfSearch) {
       const search = nfSearch.toLowerCase();
       filtered = filtered.filter(e => 
@@ -597,7 +604,12 @@ export default function App() {
     }
     
     return filtered;
-  }, [entries, nfSearch]);
+  }, [entries, productFilter, nfSearch]);
+
+  const filteredEntriesByProduct = React.useMemo(() => {
+    if (productFilter === 'all') return entries;
+    return entries.filter(e => e && e.descricao_produto === productFilter);
+  }, [entries, productFilter]);
 
   const performanceChartData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -849,6 +861,8 @@ export default function App() {
     }).length;
 
     return {
+      arrival_count: arrivals.length,
+      arrival_tons: arrivals.reduce((acc, e) => acc + (e.tonelada || 0), 0),
       in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
       exited: exits.length,
       suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length,
@@ -1169,6 +1183,7 @@ export default function App() {
           tonelada: baseData.tonelada || updates.tonelada || 0,
           valor: baseData.valor || updates.valor || 0,
           descricao_produto: baseData.descricao_produto || updates.descricao_produto || "",
+          id_lote: baseData.id_lote || updates.id_lote || "",
           data_nf: baseData.data_nf || updates.data_nf || "",
           data_descarga: baseData.data_descarga || updates.data_descarga || "",
           data_posicionamento: baseData.data_posicionamento || updates.data_posicionamento || "",
@@ -1176,6 +1191,9 @@ export default function App() {
           placa_veiculo: baseData.placa_veiculo || updates.placa_veiculo || "",
           container: baseData.container || updates.container || "",
           destino: baseData.destino || updates.destino || "",
+          transportador: baseData.transportador || updates.transportador || "",
+          data_carregamento_rodoviario: baseData.data_carregamento_rodoviario || updates.data_carregamento_rodoviario || "",
+          placa_saida: baseData.placa_saida || updates.placa_saida || "",
           status: 'Trânsito Cheio' as const,
           branchId: voltaRedondaBranch.id,
           created_at: serverTimestamp(),
@@ -1700,6 +1718,22 @@ export default function App() {
                 <span className="uppercase tracking-widest">Sincronizando</span>
               </div>
             )}
+
+            {uniqueProducts.length > 0 && (
+              <div className="hidden lg:flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm transition-all duration-700">
+                <Package size={16} className="text-titam-lime" />
+                <select
+                  value={productFilter}
+                  onChange={(e) => setProductFilter(e.target.value)}
+                  className="bg-transparent outline-none text-[10px] font-bold text-gray-700 uppercase cursor-pointer"
+                >
+                  <option value="all">Todos Produtos</option>
+                  {uniqueProducts.map(product => (
+                    <option key={product} value={product}>{product}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             
             <div className="flex items-center bg-white p-1 rounded-xl border border-gray-100 shadow-sm transition-all duration-700">
               <button 
@@ -1776,6 +1810,20 @@ export default function App() {
                         onChange={(e) => setNfSearch(e.target.value)}
                         className="pl-12 pr-6 py-3 border bg-gray-50 border-gray-100 focus:ring-titam-lime/20 focus:bg-white rounded-xl text-[10px] font-bold uppercase tracking-widest outline-none transition-all w-full sm:w-64"
                       />
+                    </div>
+
+                    <div className="flex items-center gap-2 border bg-gray-50 border-gray-100 rounded-xl px-4 py-3">
+                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">Produto:</span>
+                      <select 
+                        value={productFilter}
+                        onChange={(e) => setProductFilter(e.target.value)}
+                        className="bg-transparent outline-none text-[10px] font-bold text-gray-700 uppercase cursor-pointer"
+                      >
+                        <option value="all">Todos os Produtos</option>
+                        {uniqueProducts.map(product => (
+                          <option key={product} value={product}>{product}</option>
+                        ))}
+                      </select>
                     </div>
 
                     <div className="flex items-center gap-2 border bg-gray-50 border-gray-100 rounded-xl px-4 py-3">
@@ -2574,14 +2622,42 @@ export default function App() {
           )}
 
           {activeTab === 'entrada' && (
-            <DataView 
-              title="Gestão de Entradas"
-              entries={entries}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Total Entradas (Período)</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-deep">{dailyStats.arrival_count}</span>
+                    <span className="text-xs text-gray-400 font-bold">UNIDADES</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Peso Total (Período)</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-lime">{dailyStats.arrival_tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span>
+                    <span className="text-xs text-gray-400 font-bold">TONELADAS</span>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-700">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase mb-4">Média por NF</h3>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-titam-deep">
+                      {dailyStats.arrival_count > 0 ? (dailyStats.arrival_tons / dailyStats.arrival_count).toLocaleString('pt-BR', { minimumFractionDigits: 1 }) : '0,0'}
+                    </span>
+                    <span className="text-xs text-gray-400 font-bold">TON/NF</span>
+                  </div>
+                </div>
+              </div>
+
+              <DataView 
+                title="Gestão de Entradas"
+                entries={filteredEntriesByProduct}
               readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'mes', label: 'Mês' },
                 { key: 'data_nf', label: 'Data NF' },
                 { key: 'nf_numero', label: 'N.F' },
+                { key: 'id_lote', label: 'ID Lote' },
                 { key: 'data_descarga', label: 'Data Descarga' },
                 { key: 'tonelada', label: 'Tonelada' },
                 { key: 'valor', label: 'Valor' },
@@ -2597,7 +2673,8 @@ export default function App() {
               onEdit={setSelectedEntry}
               onDelete={handleDeleteEntry}
             />
-          )}
+          </div>
+        )}
 
           {activeTab === 'saida' && (
             <div className="space-y-6">
@@ -2629,14 +2706,18 @@ export default function App() {
 
               <DataView 
                 title="Gestão de Saídas"
-                entries={entries}
+                entries={filteredEntriesByProduct}
                 readOnly={selectedBranchId === 'all'}
                 columns={[
                   { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
+                  { key: 'id_lote', label: 'ID Lote' },
                   { key: 'descricao_produto', label: 'Produto' },
                   { key: 'tonelada', label: 'Tonelada' },
                   { key: 'container', label: 'Container' },
+                  { key: 'transportador', label: 'Transportador' },
+                  { key: 'data_carregamento_rodoviario', label: 'Carregamento Rod.' },
+                  { key: 'placa_saida', label: 'Placa Saída' },
                   { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
                   { key: 'horario_posicionamento', label: 'Horário de Posicionamento' },
                   { key: 'horario_faturamento', label: 'Horário de Faturamento' },
@@ -2654,7 +2735,7 @@ export default function App() {
           {activeTab === 'faturamento' && (
             <DataView 
               title="Faturamento e CTEs"
-              entries={entries}
+              entries={filteredEntriesByProduct}
               readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'data_emissao_nf', label: 'Emissão NF' },
@@ -2674,7 +2755,7 @@ export default function App() {
           {activeTab === 'lista' && (
             <DataView 
               title="Todos os Registros"
-              entries={entries}
+              entries={filteredEntriesByProduct}
               readOnly={selectedBranchId === 'all'}
               columns={[
                 { key: 'nf_numero', label: 'N.F' },
@@ -2693,7 +2774,7 @@ export default function App() {
 
           {activeTab === 'relatorios' && (
             <ReportsView 
-              entries={entries} 
+              entries={filteredEntriesByProduct} 
               onExportBackup={exportBackup} 
               onImportBackup={importBackup} 
               onUndoLastImport={undoLastImport}
@@ -3326,8 +3407,10 @@ export default function App() {
                     <option value="" disabled>Selecione o produto</option>
                     <option value="Cal Dolomítico">Cal Dolomítico</option>
                     <option value="Cal Calcítico">Cal Calcítico</option>
+                    <option value="Bobina de Aço">Bobina de Aço</option>
                   </select>
                 </div>
+                <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
                 <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                 <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
@@ -3351,6 +3434,12 @@ export default function App() {
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
                   </select>
+                </div>
+
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                  <Input label="Transportador" name="transportador" defaultValue={formData.transportador} />
+                  <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
+                  <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
                 </div>
 
                 <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
@@ -3534,8 +3623,14 @@ export default function App() {
                       >
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
                         <option value="Cal Calcítico">Cal Calcítico</option>
+                        <option value="Bobina de Aço">Bobina de Aço</option>
                       </select>
                     </div>
+                    <Input 
+                      label="ID do Lote" 
+                      value={editFormData.id_lote || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, id_lote: e.target.value }))}
+                    />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                       <select 
@@ -3588,7 +3683,23 @@ export default function App() {
                 {/* Section: Saída */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <Input 
+                      label="Transportador" 
+                      value={editFormData.transportador || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                    />
+                    <Input 
+                      label="Data Carregamento Rodoviário" 
+                      type="date"
+                      value={editFormData.data_carregamento_rodoviario || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_carregamento_rodoviario: e.target.value }))}
+                    />
+                    <Input 
+                      label="Placa Veículo (Saída)" 
+                      value={editFormData.placa_saida || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, placa_saida: e.target.value }))}
+                    />
                     <Input 
                       label="Data de Posicionamento" 
                       type="date" 
@@ -3760,7 +3871,7 @@ function ReportsView({
       : reportType === 'transporte_municipal'
       ? ['Mês', 'Data NF', 'NF', 'Fornecedor', 'Tonelada', 'Produto', 'Destino']
       : reportType === 'saida_detalhada'
-      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'Produto', 'Volume (Ton)', 'Placa', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
+      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
@@ -3769,7 +3880,7 @@ function ReportsView({
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino];
-      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.descricao_produto, e.tonelada, e.placa_veiculo, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
+      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
 
@@ -3950,9 +4061,13 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
                     <th className="px-6 py-3 data-grid-header">Data Descarga</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
+                    <th className="px-6 py-3 data-grid-header">ID Lote</th>
                     <th className="px-6 py-3 data-grid-header">Produto</th>
                     <th className="px-6 py-3 data-grid-header">Volume (Ton)</th>
                     <th className="px-6 py-3 data-grid-header">Placa</th>
+                    <th className="px-6 py-3 data-grid-header">Transportador</th>
+                    <th className="px-6 py-3 data-grid-header">Data Carreg. Rod.</th>
+                    <th className="px-6 py-3 data-grid-header">Placa Saída</th>
                     <th className="px-6 py-3 data-grid-header">Container</th>
                     <th className="px-6 py-3 data-grid-header">Vagão</th>
                     <th className="px-6 py-3 data-grid-header">Fat. VLI</th>
@@ -4043,9 +4158,13 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.id_lote || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.placa_veiculo}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.transportador || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_carregamento_rodoviario || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.placa_saida || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.numero_vagao || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_faturamento_vli || '-'}</td>
@@ -4170,6 +4289,9 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
       entry.fornecedor,
       entry.descricao_produto,
       entry.placa_veiculo,
+      entry.placa_saida,
+      entry.transportador,
+      entry.id_lote,
       entry.numero_vagao,
       entry.destino
     ];

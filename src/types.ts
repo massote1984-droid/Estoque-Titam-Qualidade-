@@ -12,7 +12,11 @@ export interface Entry {
   fornecedor: string;
   placa_veiculo: string;
   container: string;
+  id_lote?: string;
   destino: string;
+  transportador?: string;
+  data_carregamento_rodoviario?: string;
+  placa_saida?: string;
   data_posicionamento?: string;
   data_faturamento_vli?: string;
   horario_posicionamento?: string;
