@@ -13,6 +13,7 @@ export interface Entry {
   placa_veiculo: string;
   container: string;
   id_lote?: string;
+  cliente?: string;
   destino: string;
   transportador?: string;
   data_carregamento_rodoviario?: string;

@@ -1192,6 +1192,7 @@ export default function App() {
           container: baseData.container || updates.container || "",
           destino: baseData.destino || updates.destino || "",
           transportador: baseData.transportador || updates.transportador || "",
+          cliente: baseData.cliente || updates.cliente || "",
           data_carregamento_rodoviario: baseData.data_carregamento_rodoviario || updates.data_carregamento_rodoviario || "",
           placa_saida: baseData.placa_saida || updates.placa_saida || "",
           status: 'Trânsito Cheio' as const,
@@ -2716,6 +2717,7 @@ export default function App() {
                   { key: 'tonelada', label: 'Tonelada' },
                   { key: 'container', label: 'Container' },
                   { key: 'transportador', label: 'Transportador' },
+                  { key: 'cliente', label: 'Cliente' },
                   { key: 'data_carregamento_rodoviario', label: 'Carregamento Rod.' },
                   { key: 'placa_saida', label: 'Placa Saída' },
                   { key: 'data_faturamento_vli', label: 'Data Fat. VLI' },
@@ -3436,8 +3438,9 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
                   <Input label="Transportador" name="transportador" defaultValue={formData.transportador} />
+                  <Input label="Cliente" name="cliente" defaultValue={formData.cliente} />
                   <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
                   <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
                 </div>
@@ -3683,11 +3686,16 @@ export default function App() {
                 {/* Section: Saída */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <Input 
                       label="Transportador" 
                       value={editFormData.transportador || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                    />
+                    <Input 
+                      label="Cliente" 
+                      value={editFormData.cliente || ''} 
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
                     />
                     <Input 
                       label="Data Carregamento Rodoviário" 
@@ -3871,7 +3879,7 @@ function ReportsView({
       : reportType === 'transporte_municipal'
       ? ['Mês', 'Data NF', 'NF', 'Fornecedor', 'Tonelada', 'Produto', 'Destino']
       : reportType === 'saida_detalhada'
-      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
+      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Cliente', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : ['Emissão NF', 'NF', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
@@ -3880,7 +3888,7 @@ function ReportsView({
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino];
-      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
+      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.cliente, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       return [e.data_emissao_nf, e.nf_numero, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
 
@@ -4066,6 +4074,7 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Volume (Ton)</th>
                     <th className="px-6 py-3 data-grid-header">Placa</th>
                     <th className="px-6 py-3 data-grid-header">Transportador</th>
+                    <th className="px-6 py-3 data-grid-header">Cliente</th>
                     <th className="px-6 py-3 data-grid-header">Data Carreg. Rod.</th>
                     <th className="px-6 py-3 data-grid-header">Placa Saída</th>
                     <th className="px-6 py-3 data-grid-header">Container</th>
@@ -4163,6 +4172,7 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm mono-value">{e.tonelada}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.placa_veiculo}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.transportador || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.cliente || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_carregamento_rodoviario || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.placa_saida || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
