@@ -170,7 +170,15 @@ export default function App() {
   const [endDate, setEndDate] = useState<string>('');
   const [productFilter, setProductFilter] = useState<string>('all');
 
-  const uniqueProducts = Array.from(new Set(entries.map(e => e.descricao_produto).filter(Boolean))).sort();
+  const uniqueProducts = React.useMemo(() => {
+    const products = new Set(entries.map(e => e.descricao_produto).filter(Boolean));
+    products.add("Cal Dolomítico");
+    products.add("Cal Calcítico");
+    if (isTitam) {
+      products.add("Bobina de Aço");
+    }
+    return Array.from(products).sort();
+  }, [entries, isTitam]);
 
   useEffect(() => {
     if (selectedEntry) {
@@ -817,7 +825,17 @@ export default function App() {
   const productStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
-    const productMap: Record<string, { count: number, tons: number }> = {};
+    
+    // Initialize with mandatory products to ensure they always show up
+    const productMap: Record<string, { count: number, tons: number }> = {
+      "Cal Dolomítico": { count: 0, tons: 0 },
+      "Cal Calcítico": { count: 0, tons: 0 }
+    };
+    
+    if (isTitam) {
+      productMap["Bobina de Aço"] = { count: 0, tons: 0 };
+    }
+
     filtered.forEach(e => {
       const product = e.descricao_produto || 'Não especificado';
       if (!productMap[product]) {
@@ -826,8 +844,13 @@ export default function App() {
       productMap[product].count += 1;
       productMap[product].tons += (e.tonelada || 0);
     });
-    return Object.entries(productMap).map(([name, data]) => ({ name, count: data.count, tons: data.tons }));
-  }, [filteredEntriesForDashboard, selectedDates]);
+    
+    // Filter out 0 counts for other products, but maybe keep the main ones?
+    // User wants to "constar a bobina de aço também", which implies visibility.
+    return Object.entries(productMap)
+      .map(([name, data]) => ({ name, count: data.count, tons: data.tons }))
+      .filter(p => p.count > 0 || ["Cal Dolomítico", "Cal Calcítico", "Bobina de Aço"].includes(p.name));
+  }, [filteredEntriesForDashboard, selectedDates, isTitam]);
 
   const dailyStats = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { in_stock: 0, exited: 0, suppliers: 0 };
@@ -3433,7 +3456,7 @@ export default function App() {
                   </select>
                 </div>
                 <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
-                <Input label="Placa do Veículo" name="placa_veiculo" required defaultValue={formData.placa_veiculo} />
+                <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
                 <Input label="Container" name="container" defaultValue={formData.container} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
@@ -3441,6 +3464,7 @@ export default function App() {
                     <option value="" disabled>Selecione o destino</option>
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
+                    <option value="Cosmorama - SP">Cosmorama - SP</option>
                   </select>
                 </div>
 
@@ -3649,6 +3673,7 @@ export default function App() {
                       >
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
+                        <option value="Cosmorama - SP">Cosmorama - SP</option>
                       </select>
                     </div>
                     <Input 
