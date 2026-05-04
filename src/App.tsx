@@ -754,6 +754,7 @@ export default function App() {
         fornecedor: s,
         estoque: supplierEntries.filter(e => e && e.status === 'Estoque').length,
         rejeitado: supplierEntries.filter(e => e && e.status === 'Rejeitado').length,
+        transito_cheio: supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').length,
         embarcado: supplierEntries.filter(e => e && e.status === 'Embarcado').length,
         devolvido: supplierEntries.filter(e => e && e.status === 'Devolvido').length,
         total: supplierEntries.length
@@ -778,6 +779,7 @@ export default function App() {
         destino: dest,
         estoque: filtered.filter(e => e && e.status === 'Estoque').length,
         rejeitado: filtered.filter(e => e && e.status === 'Rejeitado').length,
+        transito_cheio: filtered.filter(e => e && e.status === 'Trânsito Cheio').length,
         embarcado: filtered.filter(e => e && e.status === 'Embarcado').length,
         devolvido: filtered.filter(e => e && e.status === 'Devolvido').length,
         total: filtered.length
@@ -2362,6 +2364,7 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Fornecedor</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Devolvido</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
@@ -2373,6 +2376,7 @@ export default function App() {
                             <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.fornecedor}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-amber-600 font-bold">{s.devolvido}</td>
                             <td className="px-6 py-4 mono-value text-xs font-black text-titam-deep">{s.total}</td>
@@ -2405,6 +2409,7 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Destino</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Devolvido</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Total</th>
@@ -2417,6 +2422,7 @@ export default function App() {
                             <td className="px-6 py-4 text-[10px] text-gray-600">{s.destino}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-amber-600 font-bold">{s.devolvido}</td>
                             <td className="px-6 py-4 mono-value text-xs font-black text-titam-deep">{s.total}</td>
@@ -4399,7 +4405,7 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
                       <div className="flex items-center gap-4">
                         <button 
                           onClick={() => onEdit(entry)}
-                          className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep transition-colors"
+                          className="text-[10px] font-black uppercase tracking-[0.15em] text-titam-deep group-hover:text-white transition-colors"
                         >
                           Editar
                         </button>
