@@ -200,9 +200,22 @@ export default function App() {
 
   // Alertas Automáticos de Impacto (Filas Estouradas)
   useEffect(() => {
+    // Se não for Titam e não for visualização geral, removemos alertas de impacto existentes
+    // Isso garante que os alertas de "Impacto Crítico" da TITAM não apareçam quando o usuário seleciona outra filial
+    if (!isTitam && selectedBranchId !== 'all') {
+      setNotifications(prev => prev.filter(n => !n.id.startsWith('impact-')));
+    }
+
     if (activeTab !== 'dashboard' || entries.length === 0) return;
 
     const checkQueueImpacts = () => {
+      // Identifica IDs das filiais que são TITAM (Regra de alerta registrada apenas para TITAM)
+      const titamBranchIds = new Set(
+        branches
+          .filter(b => b.name?.toLowerCase().includes('titam'))
+          .map(b => b.id)
+      );
+
       const now = new Date();
       const today = now.toISOString().split('T')[0];
       const currentH = now.getHours();
@@ -216,6 +229,9 @@ export default function App() {
       entries.forEach(entry => {
         // Apenas para registros de hoje
         if (entry.data_descarga === today) {
+          // Apenas para a filial TITAM (conforme regra de alerta cadastrada)
+          if (!titamBranchIds.has(entry.branchId)) return;
+
           // Fila Externa: Chegou mas não entrou
           if (entry.hora_chegada && !entry.hora_entrada) {
             const [h, m] = entry.hora_chegada.split(':').map(Number);
@@ -268,7 +284,7 @@ export default function App() {
     checkQueueImpacts();
     
     return () => clearInterval(interval);
-  }, [entries, activeTab]);
+  }, [entries, activeTab, branches, isTitam, selectedBranchId]);
 
   const triggerTestAlert = () => {
     const alerts = [
@@ -758,14 +774,16 @@ export default function App() {
 
     return suppliers.map(s => {
       const supplierEntries = filteredEntriesForDashboard.filter(e => e && e.fornecedor === s);
+      const getVal = (e: any) => e.descricao_produto === 'Minério de Ferro' ? (Number(e.tonelada) || 0) : 1;
+      
       return {
         fornecedor: s,
-        estoque: supplierEntries.filter(e => e && e.status === 'Estoque').length,
-        rejeitado: supplierEntries.filter(e => e && e.status === 'Rejeitado').length,
-        transito_cheio: supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').length,
-        embarcado: supplierEntries.filter(e => e && e.status === 'Embarcado').length,
-        devolvido: supplierEntries.filter(e => e && e.status === 'Devolvido').length,
-        total: supplierEntries.length
+        estoque: Math.round(supplierEntries.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        embarcado: Math.round(supplierEntries.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        devolvido: Math.round(supplierEntries.filter(e => e && e.status === 'Devolvido').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        total: Math.round(supplierEntries.reduce((sum, e) => sum + getVal(e), 0) * 100) / 100
       };
     });
   }, [filteredEntriesForDashboard, supplierFilter]);
@@ -782,15 +800,17 @@ export default function App() {
     return productDests.map(pd => {
       const [prod, dest] = (pd as string).split('|');
       const filtered = filteredEntries.filter(e => e && e.descricao_produto === prod && e.destino === dest);
+      const getVal = (e: any) => prod === 'Minério de Ferro' ? (Number(e.tonelada) || 0) : 1;
+      
       return {
         descricao_produto: prod,
         destino: dest,
-        estoque: filtered.filter(e => e && e.status === 'Estoque').length,
-        rejeitado: filtered.filter(e => e && e.status === 'Rejeitado').length,
-        transito_cheio: filtered.filter(e => e && e.status === 'Trânsito Cheio').length,
-        embarcado: filtered.filter(e => e && e.status === 'Embarcado').length,
-        devolvido: filtered.filter(e => e && e.status === 'Devolvido').length,
-        total: filtered.length
+        estoque: Math.round(filtered.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        embarcado: Math.round(filtered.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        devolvido: Math.round(filtered.filter(e => e && e.status === 'Devolvido').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        total: Math.round(filtered.reduce((sum, e) => sum + getVal(e), 0) * 100) / 100
       };
     });
   }, [filteredEntriesForDashboard, productDestSupplierFilter]);
@@ -1220,6 +1240,8 @@ export default function App() {
           cliente: baseData.cliente || updates.cliente || "",
           data_carregamento_rodoviario: baseData.data_carregamento_rodoviario || updates.data_carregamento_rodoviario || "",
           placa_saida: baseData.placa_saida || updates.placa_saida || "",
+          data_faturamento_vli: baseData.data_faturamento_vli || updates.data_faturamento_vli || "",
+          numero_vagao: baseData.numero_vagao || updates.numero_vagao || "",
           status: 'Trânsito Cheio' as const,
           branchId: voltaRedondaBranch.id,
           created_at: serverTimestamp(),
@@ -3439,6 +3461,7 @@ export default function App() {
                     <option value="Cal Dolomítico">Cal Dolomítico</option>
                     <option value="Cal Calcítico">Cal Calcítico</option>
                     <option value="Bobina de Aço">Bobina de Aço</option>
+                    {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
                   </select>
                 </div>
                 <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
@@ -3465,6 +3488,7 @@ export default function App() {
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
                     <option value="Cosmorama - SP">Cosmorama - SP</option>
+                    {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
                   </select>
                 </div>
 
@@ -3489,6 +3513,8 @@ export default function App() {
                   <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} />
                   <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} />
                   <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} />
+                  <Input label="Data Faturamento VLI" name="data_faturamento_vli" type="date" defaultValue={formData.data_faturamento_vli} />
+                  <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
                 </div>
                 
                 <div className="md:col-span-3 flex justify-end gap-3 mt-4">
@@ -3657,6 +3683,7 @@ export default function App() {
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
                         <option value="Cal Calcítico">Cal Calcítico</option>
                         <option value="Bobina de Aço">Bobina de Aço</option>
+                        {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
                       </select>
                     </div>
                     <Input 
@@ -3674,6 +3701,7 @@ export default function App() {
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
                         <option value="Cosmorama - SP">Cosmorama - SP</option>
+                        {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
                       </select>
                     </div>
                     <Input 
