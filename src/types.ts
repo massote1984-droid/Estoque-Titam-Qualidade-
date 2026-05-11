@@ -70,3 +70,33 @@ export interface Branch {
   created_at: any;
   uid: string;
 }
+
+export interface Supplier {
+  id: string;
+  name: string;
+  cnpj?: string;
+  contact?: string;
+  branchId: string;
+  created_at: any;
+  uid: string;
+}
+
+export interface Transporter {
+  id: string;
+  name: string;
+  cnpj?: string;
+  contact?: string;
+  branchId: string;
+  created_at: any;
+  uid: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  cnpj?: string;
+  contact?: string;
+  branchId: string;
+  created_at: any;
+  uid: string;
+}

@@ -64,6 +64,48 @@
         "uid": { "type": "string" }
       },
       "required": ["name", "code"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "A supplier company",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contact": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
+    },
+    "Transporter": {
+      "title": "Transporter",
+      "description": "A transporter company",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contact": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer company",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contact": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
     }
   },
   "firestore": {
@@ -78,6 +120,18 @@
     "branches": {
       "schema": "Branch",
       "description": "Collection of company branches"
+    },
+    "suppliers": {
+      "schema": "Supplier",
+      "description": "Collection of suppliers"
+    },
+    "transporters": {
+      "schema": "Transporter",
+      "description": "Collection of transporters"
+    },
+    "customers": {
+      "schema": "Customer",
+      "description": "Collection of customers"
     }
   }
 }

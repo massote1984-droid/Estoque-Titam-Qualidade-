@@ -29,7 +29,8 @@ import {
   RefreshCw as SyncIcon,
   FileDown,
   Scale,
-  Building2
+  Building2,
+  Users
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -119,7 +120,7 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
@@ -127,6 +128,9 @@ export default function App() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [transporters, setTransporters] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>(localStorage.getItem('selected_branch_id') || '');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -143,6 +147,35 @@ export default function App() {
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setUserRole(null);
+      return;
+    }
+    
+    // Fetch user role from 'users' collection
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+      if (snapshot.exists()) {
+        setUserRole(snapshot.data().role || 'user');
+      } else {
+        setUserRole('user');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const isAdmin = userRole === 'admin' || (user?.email === 'massote1984@gmail.com' && user?.emailVerified);
+
+  // Protect admin tabs
+  useEffect(() => {
+    if (userRole && !isAdmin && (activeTab === 'filiais' || activeTab === 'cadastros')) {
+      setActiveTab('dashboard');
+    }
+  }, [userRole, isAdmin, activeTab]);
+
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
   const isTitam = selectedBranch?.name?.toLowerCase().includes('titam') || false;
   const brandPrimaryColor = '#B6D932';
@@ -576,10 +609,31 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, 'containers', user);
     });
 
+    // Fetch Suppliers
+    const qSuppliers = query(collection(db, 'suppliers'), orderBy('name', 'asc'));
+    const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
+      setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers', user));
+
+    // Fetch Transporters
+    const qTransporters = query(collection(db, 'transporters'), orderBy('name', 'asc'));
+    const unsubscribeTransporters = onSnapshot(qTransporters, (snapshot) => {
+      setTransporters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transporters', user));
+
+    // Fetch Customers
+    const qCustomers = query(collection(db, 'customers'), orderBy('name', 'asc'));
+    const unsubscribeCustomers = onSnapshot(qCustomers, (snapshot) => {
+      setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'customers', user));
+
     return () => {
       unsubscribeBranches();
       unsubscribeEntries();
       unsubscribeContainers();
+      unsubscribeSuppliers();
+      unsubscribeTransporters();
+      unsubscribeCustomers();
     };
   }, [user, selectedBranchId]);
 
@@ -1399,6 +1453,111 @@ export default function App() {
     }
   };
 
+  const handleCreateSupplier = async (name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, 'suppliers'), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Fornecedor ${name} cadastrado com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'suppliers', user);
+      addNotification(`Erro ao cadastrar fornecedor: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteSupplier = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'suppliers', id));
+      addNotification("Fornecedor excluído com sucesso!", "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'suppliers', user);
+      addNotification(`Erro ao excluir fornecedor: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCreateTransporter = async (name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, 'transporters'), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Transportador ${name} cadastrado com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'transporters', user);
+      addNotification(`Erro ao cadastrar transportador: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteTransporter = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'transporters', id));
+      addNotification("Transportador excluído com sucesso!", "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'transporters', user);
+      addNotification(`Erro ao excluir transportador: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCreateCustomer = async (name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, 'customers'), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Cliente ${name} cadastrado com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'customers', user);
+      addNotification(`Erro ao cadastrar cliente: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteCustomer = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'customers', id));
+      addNotification("Cliente excluído com sucesso!", "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'customers', user);
+      addNotification(`Erro ao excluir cliente: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleMigrateOrphanData = async (targetBranchId: string) => {
     if (!targetBranchId || targetBranchId === 'all' || !user) return;
     setIsProcessing(true);
@@ -1685,12 +1844,22 @@ export default function App() {
             active={activeTab === 'containers'} 
             onClick={() => setActiveTab('containers')} 
           />
-          <NavItem 
-            icon={<Building2 size={18} />} 
-            label="Gestão de Filiais" 
-            active={activeTab === 'filiais'} 
-            onClick={() => setActiveTab('filiais')} 
-          />
+          {isAdmin && (
+            <>
+              <NavItem 
+                icon={<Building2 size={18} />} 
+                label="Gestão de Filiais" 
+                active={activeTab === 'filiais'} 
+                onClick={() => setActiveTab('filiais')} 
+              />
+              <NavItem 
+                icon={<Users size={18} />} 
+                label="Base de Cadastros" 
+                active={activeTab === 'cadastros'} 
+                onClick={() => setActiveTab('cadastros')} 
+              />
+            </>
+          )}
         </nav>
 
         <div className="p-4 border-t border-white/10">
@@ -3290,6 +3459,235 @@ export default function App() {
               </div>
             </motion.div>
           )}
+
+          {activeTab === 'cadastros' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-8"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Base de Cadastros</h2>
+                  <p className="text-gray-500 text-sm">Gerencie fornecedores, transportadores e clientes por filial</p>
+                </div>
+              </div>
+              
+              {/* Quick Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {[
+                  { label: 'Fornecedores', count: suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length, icon: <Package className="text-blue-600" />, color: 'blue' },
+                  { label: 'Transportadores', count: transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length, icon: <Truck className="text-emerald-600" />, color: 'emerald' },
+                  { label: 'Clientes', count: customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Building2 className="text-indigo-600" />, color: 'indigo' },
+                ].map((stat, i) => (
+                  <div key={i} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm transition-all duration-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className={`p-2 bg-${stat.color}-50 rounded-lg`}>
+                        {stat.icon}
+                      </div>
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Cadastrados</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-4xl font-black text-${stat.color}-600 tracking-tighter`}>{stat.count}</span>
+                      <span className="text-xs font-bold text-gray-400 uppercase">{stat.label}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Three Columns Registration Sections */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                {/* Fornecedores */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
+                      <Package size={18} className="text-titam-lime" />
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Fornecedores</h3>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Package size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum fornecedor</p>
+                        </div>
+                      ) : (
+                        suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).map(sup => (
+                          <div key={sup.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{sup.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {sup.cnpj && <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">{sup.cnpj}</p>}
+                                {selectedBranchId === 'all' && (
+                                  <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                    {branches.find(b => b.id === sup.branchId)?.name || 'N/A'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteSupplier(sup.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.target as HTMLFormElement;
+                        const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                        const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
+                        const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                        handleCreateSupplier(name, branchId, cnpj);
+                        form.reset();
+                      }} className="space-y-3">
+                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                          <option value="" disabled>Selecionar Filial</option>
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        <input name="name" required placeholder="Nome do Fornecedor" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Fornecedor
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transportadores */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
+                      <Truck size={18} className="text-titam-lime" />
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Transportadores</h3>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Truck size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum transportador</p>
+                        </div>
+                      ) : (
+                        transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).map(tr => (
+                          <div key={tr.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{tr.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {tr.cnpj && <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">{tr.cnpj}</p>}
+                                {selectedBranchId === 'all' && (
+                                  <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                    {branches.find(b => b.id === tr.branchId)?.name || 'N/A'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteTransporter(tr.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.target as HTMLFormElement;
+                        const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                        const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
+                        const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                        handleCreateTransporter(name, branchId, cnpj);
+                        form.reset();
+                      }} className="space-y-3">
+                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                          <option value="" disabled>Selecionar Filial</option>
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        <input name="name" required placeholder="Nome do Transportador" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Transportador
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Clientes */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
+                      <Building2 size={18} className="text-titam-lime" />
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Clientes</h3>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Building2 size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum cliente</p>
+                        </div>
+                      ) : (
+                        customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).map(cl => (
+                          <div key={cl.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{cl.name}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {cl.cnpj && <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">{cl.cnpj}</p>}
+                                {selectedBranchId === 'all' && (
+                                  <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                    {branches.find(b => b.id === cl.branchId)?.name || 'N/A'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteCustomer(cl.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.target as HTMLFormElement;
+                        const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                        const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
+                        const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                        handleCreateCustomer(name, branchId, cnpj);
+                        form.reset();
+                      }} className="space-y-3">
+                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                          <option value="" disabled>Selecionar Filial</option>
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        <input name="name" required placeholder="Nome do Cliente" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Cliente
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Edit Confirmation Modal */}
@@ -3485,7 +3883,14 @@ export default function App() {
                     <option value="Devolvido">Devolvido</option>
                   </select>
                 </div>
-                <Input label="Fornecedor" name="fornecedor" required defaultValue={formData.fornecedor} />
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
+                  <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                    <option value="" disabled>Selecione o fornecedor</option>
+                    {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    {suppliers.filter(s => s.branchId === selectedBranchId).length === 0 && <option value={formData.fornecedor || ""} disabled>{formData.fornecedor || "Sem fornecedores cadastrados para esta filial"}</option>}
+                  </select>
+                </div>
                 <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
                 <Input label="Container" name="container" defaultValue={formData.container} />
                 <div className="flex flex-col gap-1">
@@ -3496,12 +3901,25 @@ export default function App() {
                     <option value="Resende - RJ">Resende - RJ</option>
                     <option value="Cosmorama - SP">Cosmorama - SP</option>
                     {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
+                    {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
 
                 <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Transportador" name="transportador" defaultValue={formData.transportador} />
-                  <Input label="Cliente" name="cliente" defaultValue={formData.cliente} />
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
+                    <select name="transportador" defaultValue={formData.transportador || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
+                      <option value="">Selecione o transportador</option>
+                      {transporters.filter(t => t.branchId === selectedBranchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</label>
+                    <select name="cliente" defaultValue={formData.cliente || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
+                      <option value="">Selecione o cliente</option>
+                      {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  </div>
                   <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
                   <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
                 </div>
@@ -3636,11 +4054,20 @@ export default function App() {
                       value={editFormData.nf_numero || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
                     />
-                    <Input 
-                      label="Fornecedor" 
-                      value={editFormData.fornecedor || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
-                    />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Fornecedor</label>
+                      <select 
+                        value={editFormData.fornecedor || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
+                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                      >
+                        <option value="">Selecione o fornecedor</option>
+                        {suppliers.filter(s => s.branchId === editFormData.branchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {!suppliers.filter(s => s.branchId === editFormData.branchId).find(s => s.name === editFormData.fornecedor) && editFormData.fornecedor && (
+                          <option value={editFormData.fornecedor}>{editFormData.fornecedor}</option>
+                        )}
+                      </select>
+                    </div>
                     <Input 
                       label="Placa Veículo" 
                       value={editFormData.placa_veiculo || ''} 
@@ -3703,12 +4130,17 @@ export default function App() {
                       <select 
                         value={editFormData.destino || ''}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, destino: e.target.value }))}
-                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
                       >
+                        <option value="">Selecione o destino</option>
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
                         <option value="Cosmorama - SP">Cosmorama - SP</option>
                         {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
+                        {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG"].includes(editFormData.destino) && (
+                          <option value={editFormData.destino}>{editFormData.destino}</option>
+                        )}
                       </select>
                     </div>
                     <Input 
@@ -3753,16 +4185,34 @@ export default function App() {
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Input 
-                      label="Transportador" 
-                      value={editFormData.transportador || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
-                    />
-                    <Input 
-                      label="Cliente" 
-                      value={editFormData.cliente || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
-                    />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Transportador</label>
+                      <select 
+                        value={editFormData.transportador || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                      >
+                        <option value="">Selecione o transportador</option>
+                        {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                        {!transporters.filter(t => t.branchId === editFormData.branchId).find(t => t.name === editFormData.transportador) && editFormData.transportador && (
+                          <option value={editFormData.transportador}>{editFormData.transportador}</option>
+                        )}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente</label>
+                      <select 
+                        value={editFormData.cliente || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
+                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                      >
+                        <option value="">Selecione o cliente</option>
+                        {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.cliente) && editFormData.cliente && (
+                          <option value={editFormData.cliente}>{editFormData.cliente}</option>
+                        )}
+                      </select>
+                    </div>
                     <Input 
                       label="Data Carregamento Rodoviário" 
                       type="date"
