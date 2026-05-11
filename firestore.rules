@@ -82,9 +82,7 @@ service cloud.firestore {
     }
 
     function isValidEntry(data) {
-      return data.keys().hasAll(['nf_numero', 'fornecedor', 'status', 'uid', 'branchId']) &&
-             data.nf_numero is string &&
-             data.fornecedor is string &&
+      return data.keys().hasAll(['status', 'uid', 'branchId']) &&
              data.status is string &&
              data.uid is string &&
              data.branchId is string;

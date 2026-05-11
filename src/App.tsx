@@ -30,7 +30,9 @@ import {
   FileDown,
   Scale,
   Building2,
-  Users
+  Users,
+  Square,
+  CheckSquare
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -142,6 +144,7 @@ export default function App() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | number | null>(null);
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<(string | number)[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showEditConfirm, setShowEditConfirm] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -178,6 +181,7 @@ export default function App() {
 
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
   const isTitam = selectedBranch?.name?.toLowerCase().includes('titam') || false;
+  const isVoltaRedonda = selectedBranch?.name?.toLowerCase().includes('volta redonda') || false;
   const brandPrimaryColor = '#B6D932';
   const brandDeepColor = '#1E3932';
 
@@ -833,6 +837,8 @@ export default function App() {
       return {
         fornecedor: s,
         estoque: Math.round(supplierEntries.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        vazio_terminal: Math.round(supplierEntries.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_vazio: Math.round(supplierEntries.filter(e => e && e.status === 'Transito vazio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         em_descarga: Math.round(supplierEntries.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -861,6 +867,8 @@ export default function App() {
         descricao_produto: prod,
         destino: dest,
         estoque: Math.round(filtered.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        vazio_terminal: Math.round(filtered.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_vazio: Math.round(filtered.filter(e => e && e.status === 'Transito vazio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         em_descarga: Math.round(filtered.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -1202,10 +1210,12 @@ export default function App() {
     }
 
     const sanitizeNumeric = (val: any) => {
+      if (val === undefined || val === null) return 0;
       if (typeof val !== 'string') return val;
-      return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
+      const sanitized = val.replace(/\./g, '').replace(',', '.');
+      return parseFloat(sanitized) || 0;
     };
-    
+
     const data: any = {
       ...rawData,
       valor: sanitizeNumeric(rawData.valor),
@@ -1228,8 +1238,13 @@ export default function App() {
       setShowForm(false);
       setFormData({});
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'entries', user);
-      addNotification("Erro ao salvar registro.", "error");
+      console.error("Error saving entry:", error);
+      addNotification("Erro ao salvar registro: " + (error instanceof Error ? error.message : "Erro desconhecido"), "error");
+      try {
+        handleFirestoreError(error, OperationType.CREATE, 'entries', user);
+      } catch (e) {
+        // Ignorar o throw do handleFirestoreError para não quebrar o fluxo da UI mais do que o necessário
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1324,8 +1339,10 @@ export default function App() {
     if (!user || !id) return false;
     const sanitizedUpdates = { ...updates };
     const sanitizeNumeric = (val: any) => {
+      if (val === undefined || val === null) return 0;
       if (typeof val !== 'string') return val;
-      return parseFloat(val.replace(/\./g, '').replace(',', '.')) || 0;
+      const sanitized = val.replace(/\./g, '').replace(',', '.');
+      return parseFloat(sanitized) || 0;
     };
 
     if (sanitizedUpdates.valor !== undefined) {
@@ -1639,6 +1656,30 @@ export default function App() {
 
   const handleDeleteEntry = (id: string | number) => {
     setDeleteConfirmation(id);
+  };
+
+  const handleBulkDeleteEntries = (ids: (string | number)[]) => {
+    setBulkDeleteConfirmation(ids);
+  };
+
+  const executeBulkDelete = async () => {
+    if (!user || !bulkDeleteConfirmation) return;
+    
+    setIsDeleting(true);
+    try {
+      const batch = writeBatch(db);
+      bulkDeleteConfirmation.forEach((id) => {
+        batch.delete(doc(db, 'entries', String(id)));
+      });
+      await batch.commit();
+      addNotification(`${bulkDeleteConfirmation.length} registros excluídos com sucesso!`, "info");
+      setBulkDeleteConfirmation(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `entries/bulk`, user);
+      addNotification("Erro ao excluir registros. Verifique suas permissões.", "error");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const executeDelete = async () => {
@@ -2579,6 +2620,12 @@ export default function App() {
                         <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-3 data-grid-header text-[10px]">Fornecedor</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          {isVoltaRedonda && (
+                            <>
+                              <th className="px-6 py-3 data-grid-header text-[10px]">Vazio Term.</th>
+                              <th className="px-6 py-3 data-grid-header text-[10px]">Trans. Vazio</th>
+                            </>
+                          )}
                           <th className="px-6 py-3 data-grid-header text-[10px]">Descarga</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
@@ -2592,6 +2639,12 @@ export default function App() {
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.fornecedor}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            {isVoltaRedonda && (
+                              <>
+                                <td className="px-6 py-4 mono-value text-xs text-purple-600 font-bold">{(s as any).vazio_terminal || 0}</td>
+                                <td className="px-6 py-4 mono-value text-xs text-pink-600 font-bold">{(s as any).transito_vazio || 0}</td>
+                              </>
+                            )}
                             <td className="px-6 py-4 mono-value text-xs text-orange-600 font-bold">{s.em_descarga || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
@@ -2626,6 +2679,12 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Produto</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Destino</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          {isVoltaRedonda && (
+                            <>
+                              <th className="px-6 py-3 data-grid-header text-[10px]">Vazio Term.</th>
+                              <th className="px-6 py-3 data-grid-header text-[10px]">Trans. Vazio</th>
+                            </>
+                          )}
                           <th className="px-6 py-3 data-grid-header text-[10px]">Descarga</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
@@ -2640,6 +2699,12 @@ export default function App() {
                             <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.descricao_produto}</td>
                             <td className="px-6 py-4 text-[10px] text-gray-600">{s.destino}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            {isVoltaRedonda && (
+                              <>
+                                <td className="px-6 py-4 mono-value text-xs text-purple-600 font-bold">{(s as any).vazio_terminal || 0}</td>
+                                <td className="px-6 py-4 mono-value text-xs text-pink-600 font-bold">{(s as any).transito_vazio || 0}</td>
+                              </>
+                            )}
                             <td className="px-6 py-4 mono-value text-xs text-orange-600 font-bold">{s.em_descarga || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
@@ -2879,27 +2944,28 @@ export default function App() {
               <DataView 
                 title="Gestão de Entradas"
                 entries={filteredEntriesByProduct}
-              readOnly={selectedBranchId === 'all'}
-              columns={[
-                { key: 'mes', label: 'Mês' },
-                { key: 'data_nf', label: 'Data NF' },
-                { key: 'nf_numero', label: 'N.F' },
-                { key: 'id_lote', label: 'ID Lote' },
-                { key: 'data_descarga', label: 'Data Descarga' },
-                { key: 'tonelada', label: 'Tonelada' },
-                { key: 'valor', label: 'Valor' },
-                { key: 'fornecedor', label: 'Fornecedor' },
-                { key: 'container', label: 'Container' },
-                { key: 'hora_chegada', label: 'Chegada' },
-                { key: 'hora_entrada', label: 'Entrada' },
-                { key: 'hora_saida', label: 'Saída' },
-                { key: 'total_time' as any, label: 'Tempo Total' },
-                { key: 'descarga_time' as any, label: 'Tempo Descarga' },
-                { key: 'status', label: 'Status' }
-              ]}
-              onEdit={setSelectedEntry}
-              onDelete={handleDeleteEntry}
-            />
+                readOnly={selectedBranchId === 'all'}
+                columns={[
+                  { key: 'mes', label: 'Mês' },
+                  { key: 'data_nf', label: 'Data NF' },
+                  { key: 'nf_numero', label: 'N.F' },
+                  { key: 'id_lote', label: 'ID Lote' },
+                  { key: 'data_descarga', label: 'Data Descarga' },
+                  { key: 'tonelada', label: 'Tonelada' },
+                  { key: 'valor', label: 'Valor' },
+                  { key: 'fornecedor', label: 'Fornecedor' },
+                  { key: 'container', label: 'Container' },
+                  { key: 'hora_chegada', label: 'Chegada' },
+                  { key: 'hora_entrada', label: 'Entrada' },
+                  { key: 'hora_saida', label: 'Saída' },
+                  { key: 'total_time' as any, label: 'Tempo Total' },
+                  { key: 'descarga_time' as any, label: 'Tempo Descarga' },
+                  { key: 'status', label: 'Status' }
+                ]}
+                onEdit={setSelectedEntry}
+                onDelete={handleDeleteEntry}
+                onBulkDelete={handleBulkDeleteEntries}
+              />
           </div>
         )}
 
@@ -2956,6 +3022,7 @@ export default function App() {
                 ]}
                 onEdit={setSelectedEntry}
                 onDelete={handleDeleteEntry}
+                onBulkDelete={handleBulkDeleteEntries}
               />
             </div>
           )}
@@ -2977,6 +3044,7 @@ export default function App() {
               ]}
               onEdit={setSelectedEntry}
               onDelete={handleDeleteEntry}
+              onBulkDelete={handleBulkDeleteEntries}
             />
           )}
 
@@ -2997,6 +3065,7 @@ export default function App() {
               ]}
               onEdit={setSelectedEntry}
               onDelete={handleDeleteEntry}
+              onBulkDelete={handleBulkDeleteEntries}
             />
           )}
 
@@ -3773,14 +3842,14 @@ export default function App() {
                     <button 
                       onClick={() => setDeleteConfirmation(null)}
                       disabled={isDeleting}
-                      className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
+                      className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium cursor-pointer"
                     >
                       Cancelar
                     </button>
                     <button 
                       onClick={executeDelete}
                       disabled={isDeleting}
-                      className={`flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-bold shadow-md flex items-center justify-center gap-2 ${isDeleting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      className={`flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer ${isDeleting ? 'opacity-70 cursor-not-allowed' : ''}`}
                     >
                       {isDeleting ? (
                         <>
@@ -3791,6 +3860,54 @@ export default function App() {
                         <>
                           <Trash2 size={18} />
                           Excluir
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {bulkDeleteConfirmation && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white text-gray-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-all duration-700"
+              >
+                <div className="p-6 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+                    <Trash2 size={32} />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Exclusão em Massa</h2>
+                  <p className="text-gray-500 mb-6">
+                    Você tem certeza que deseja excluir <span className="font-black text-red-600">{bulkDeleteConfirmation.length}</span> registros selecionados? Esta ação é irreversível.
+                  </p>
+                  
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => setBulkDeleteConfirmation(null)}
+                      disabled={isDeleting}
+                      className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={executeBulkDelete}
+                      disabled={isDeleting}
+                      className={`flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer ${isDeleting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isDeleting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Excluindo...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={16} />
+                          Confirmar ({bulkDeleteConfirmation.length})
                         </>
                       )}
                     </button>
@@ -3839,13 +3956,13 @@ export default function App() {
                     className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                   />
                 </div>
-                <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
-                <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
+                <Input label="Chave de Acesso NF" name="chave_acesso" required={!isVoltaRedonda} defaultValue={formData.chave_acesso} />
+                <Input label="N.F" name="nf_numero" required={!isVoltaRedonda} defaultValue={formData.nf_numero} />
                 <Input 
                   label="Tonelada" 
                   name="tonelada" 
                   type="text" 
-                  required 
+                  required={!isVoltaRedonda} 
                   defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
                 />
@@ -3854,22 +3971,23 @@ export default function App() {
                   name="valor" 
                   type="text" 
                   maxLength={12} 
-                  required 
+                  required={!isVoltaRedonda} 
                   defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                   placeholder="0,00" 
                 />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
                     <option value="" disabled>Selecione o produto</option>
                     <option value="Cal Dolomítico">Cal Dolomítico</option>
                     <option value="Cal Calcítico">Cal Calcítico</option>
                     <option value="Bobina de Aço">Bobina de Aço</option>
                     {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
+                    {isVoltaRedonda && <option value="Vazio">Vazio</option>}
                   </select>
                 </div>
                 <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
-                <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
+                <Input label="Data N.F" name="data_nf" type="date" required={!isVoltaRedonda} defaultValue={formData.data_nf} />
                 <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                 <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
                 <div className="flex flex-col gap-1">
@@ -3881,27 +3999,36 @@ export default function App() {
                     <option value="Rejeitado">Rejeitado</option>
                     <option value="Embarcado">Embarcado</option>
                     <option value="Devolvido">Devolvido</option>
+                    {isVoltaRedonda && (
+                      <>
+                        <option value="Vazio Terminal">Vazio Terminal</option>
+                        <option value="Transito vazio">Transito vazio</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
-                  <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                  <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
                     <option value="" disabled>Selecione o fornecedor</option>
                     {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     {suppliers.filter(s => s.branchId === selectedBranchId).length === 0 && <option value={formData.fornecedor || ""} disabled>{formData.fornecedor || "Sem fornecedores cadastrados para esta filial"}</option>}
                   </select>
                 </div>
                 <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
-                <Input label="Container" name="container" defaultValue={formData.container} />
+                <Input label="Container" name="container" defaultValue={formData.container} required={isVoltaRedonda} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
                     <option value="" disabled>Selecione o destino</option>
                     <option value="Serra - ES">Serra - ES</option>
                     <option value="Resende - RJ">Resende - RJ</option>
                     <option value="Cosmorama - SP">Cosmorama - SP</option>
                     {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
-                    {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    {isVoltaRedonda && <option value="Arcos - MG">Arcos - MG</option>}
+                    {customers
+                      .filter(c => isVoltaRedonda ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
+                      .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
 
@@ -4117,7 +4244,8 @@ export default function App() {
                         <option value="Cal Dolomítico">Cal Dolomítico</option>
                         <option value="Cal Calcítico">Cal Calcítico</option>
                         <option value="Bobina de Aço">Bobina de Aço</option>
-                        {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
+                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('titam') || isTitam) && <option value="Minério de Ferro">Minério de Ferro</option>}
+                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && <option value="Vazio">Vazio</option>}
                       </select>
                     </div>
                     <Input 
@@ -4136,9 +4264,13 @@ export default function App() {
                         <option value="Serra - ES">Serra - ES</option>
                         <option value="Resende - RJ">Resende - RJ</option>
                         <option value="Cosmorama - SP">Cosmorama - SP</option>
-                        {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
-                        {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG"].includes(editFormData.destino) && (
+                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('titam') || isTitam) && <option value="Timoteo - MG">Timoteo - MG</option>}
+                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && <option value="Arcos - MG">Arcos - MG</option>}
+                        {customers
+                          .filter(c => c.branchId === editFormData.branchId)
+                          .filter(c => (branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
+                          .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG", "Arcos - MG"].includes(editFormData.destino) && (
                           <option value={editFormData.destino}>{editFormData.destino}</option>
                         )}
                       </select>
@@ -4266,6 +4398,12 @@ export default function App() {
                         <option value="Rejeitado">Rejeitado</option>
                         <option value="Embarcado">Embarcado</option>
                         <option value="Devolvido">Devolvido</option>
+                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && (
+                          <>
+                            <option value="Vazio Terminal">Vazio Terminal</option>
+                            <option value="Transito vazio">Transito vazio</option>
+                          </>
+                        )}
                       </select>
                     </div>
                   </div>
@@ -4798,20 +4936,21 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
   );
 }
 
-function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false }: { 
+function DataView({ title, entries, columns, onEdit, onDelete, onBulkDelete, readOnly = false }: { 
   title: string, 
   entries: Entry[], 
   columns: { key: keyof Entry, label: string }[], 
   onEdit: (e: Entry) => void,
   onDelete: (id: string | number) => void,
+  onBulkDelete: (ids: (string | number)[]) => void,
   readOnly?: boolean
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
 
   const filteredEntries = entries.filter(entry => {
     const searchStr = searchTerm.toLowerCase();
-    // Explicitly search in key fields to ensure container and others are always included
     const searchableFields = [
       entry.nf_numero,
       entry.container,
@@ -4831,6 +4970,26 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
       val && typeof val !== 'object' && val.toString().toLowerCase().includes(searchStr)
     );
   });
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === filteredEntries.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredEntries.map(e => e.id));
+    }
+  };
+
+  const handleToggleSelect = (id: string | number) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.length === 0) return;
+    onBulkDelete(selectedIds);
+    setSelectedIds([]);
+  };
 
   return (
     <motion.div 
@@ -4859,6 +5018,17 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
           )}
         </div>
         <div className="flex gap-2">
+          {selectedIds.length > 0 && !readOnly && (
+            <motion.button 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-all shadow-lg shadow-red-200"
+            >
+              <Trash2 size={14} />
+              Excluir ({selectedIds.length})
+            </motion.button>
+          )}
           <button 
             onClick={() => setShowSearch(!showSearch)}
             className={`p-2.5 rounded-xl transition-all ${showSearch ? 'bg-titam-lime text-titam-deep' : 'text-gray-400 hover:bg-gray-50 border border-gray-100'}`}
@@ -4871,6 +5041,20 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className={`bg-gray-50/50 transition-all duration-700`}>
+              {!readOnly && (
+                <th className="px-6 py-4 border-b border-gray-50">
+                  <button 
+                    onClick={handleToggleSelectAll}
+                    className="text-gray-400 hover:text-titam-deep transition-colors"
+                  >
+                    {selectedIds.length === filteredEntries.length && filteredEntries.length > 0 ? (
+                      <CheckSquare size={16} className="text-titam-lime" />
+                    ) : (
+                      <Square size={16} />
+                    )}
+                  </button>
+                </th>
+              )}
               {columns.map(col => (
                 <th key={col.key as string} className={`px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] border-b border-gray-50 text-gray-400 italic font-serif`}>{col.label}</th>
               ))}
@@ -4882,7 +5066,7 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
           <tbody className={`divide-y divide-gray-50`}>
             {filteredEntries.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + 1} className="px-6 py-16 text-center">
+                <td colSpan={columns.length + (readOnly ? 0 : 2)} className="px-6 py-16 text-center">
                   <div className="flex flex-col items-center gap-2 opacity-20">
                     <Package size={48} />
                     <p className="text-xs font-bold uppercase tracking-widest">Nenhum registro</p>
@@ -4891,7 +5075,17 @@ function DataView({ title, entries, columns, onEdit, onDelete, readOnly = false 
               </tr>
             ) : (
               filteredEntries.map((entry) => (
-                <tr key={entry.id} className={`group hover:bg-titam-deep hover:text-white transition-all duration-200 cursor-default`}>
+                <tr key={entry.id} className={`group ${selectedIds.includes(entry.id) ? 'bg-titam-lime/10' : 'hover:bg-titam-deep hover:text-white'} transition-all duration-200 cursor-default`}>
+                  {!readOnly && (
+                    <td className="px-6 py-5 border-b border-gray-50">
+                      <button 
+                        onClick={() => handleToggleSelect(entry.id)}
+                        className={`transition-colors ${selectedIds.includes(entry.id) ? 'text-titam-lime' : 'text-gray-300 group-hover:text-white/50'}`}
+                      >
+                        {selectedIds.includes(entry.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                      </button>
+                    </td>
+                  )}
                   {columns.map(col => (
                     <td key={col.key as string} className="px-6 py-5 text-[11px] font-medium transition-colors">
                       <div className="flex items-center gap-2">

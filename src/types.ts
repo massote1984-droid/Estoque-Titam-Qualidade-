@@ -8,7 +8,7 @@ export interface Entry {
   descricao_produto: string;
   data_nf: string;
   data_descarga: string;
-  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito Cheio' | 'Em descarga';
+  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito Cheio' | 'Em descarga' | 'Vazio Terminal' | 'Transito vazio';
   fornecedor: string;
   placa_veiculo: string;
   container: string;
@@ -45,10 +45,14 @@ export interface Entry {
 export interface StockSummary {
   fornecedor: string;
   estoque: number;
+  vazio_terminal?: number;
+  transito_vazio?: number;
   rejeitado: number;
   embarcado: number;
   devolvido: number;
   total: number;
+  em_descarga?: number;
+  transito_cheio?: number;
 }
 
 export interface Container {

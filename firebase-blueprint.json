@@ -35,7 +35,7 @@
         "created_at": { "type": "string", "format": "date-time" },
         "uid": { "type": "string" }
       },
-      "required": ["nf_numero", "fornecedor", "status", "branchId"]
+      "required": ["status", "branchId"]
     },
     "Container": {
       "title": "Container",
