@@ -779,6 +779,7 @@ export default function App() {
       return {
         fornecedor: s,
         estoque: Math.round(supplierEntries.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(supplierEntries.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(supplierEntries.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -806,6 +807,7 @@ export default function App() {
         descricao_produto: prod,
         destino: dest,
         estoque: Math.round(filtered.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(filtered.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(filtered.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -2408,6 +2410,7 @@ export default function App() {
                         <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-3 data-grid-header text-[10px]">Fornecedor</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Descarga</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
@@ -2420,6 +2423,7 @@ export default function App() {
                           <tr key={i} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.fornecedor}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-orange-600 font-bold">{s.em_descarga || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
@@ -2453,6 +2457,7 @@ export default function App() {
                           <th className="px-6 py-3 data-grid-header text-[10px]">Produto</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Destino</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Estoque</th>
+                          <th className="px-6 py-3 data-grid-header text-[10px]">Descarga</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Rejeitado</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">T. Cheio</th>
                           <th className="px-6 py-3 data-grid-header text-[10px]">Embarcado</th>
@@ -2466,6 +2471,7 @@ export default function App() {
                             <td className="px-6 py-4 font-medium text-gray-900 text-xs">{s.descricao_produto}</td>
                             <td className="px-6 py-4 text-[10px] text-gray-600">{s.destino}</td>
                             <td className="px-6 py-4 mono-value text-xs text-blue-600 font-bold">{s.estoque}</td>
+                            <td className="px-6 py-4 mono-value text-xs text-orange-600 font-bold">{s.em_descarga || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-red-600 font-bold">{s.rejeitado}</td>
                             <td className="px-6 py-4 mono-value text-xs text-indigo-600 font-bold">{s.transito_cheio || 0}</td>
                             <td className="px-6 py-4 mono-value text-xs text-emerald-600 font-bold">{s.embarcado}</td>
@@ -3470,8 +3476,9 @@ export default function App() {
                 <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                  <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                  <select name="status" defaultValue={formData.status || (isTitam ? "Em descarga" : "Estoque")} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                     <option value="Estoque">Estoque</option>
+                    <option value="Em descarga">Em descarga</option>
                     <option value="Trânsito Cheio">Trânsito Cheio</option>
                     <option value="Rejeitado">Rejeitado</option>
                     <option value="Embarcado">Embarcado</option>
@@ -3804,6 +3811,7 @@ export default function App() {
                         className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       >
                         <option value="Estoque">Estoque</option>
+                        <option value="Em descarga">Em descarga</option>
                         <option value="Trânsito Cheio">Trânsito Cheio</option>
                         <option value="Rejeitado">Rejeitado</option>
                         <option value="Embarcado">Embarcado</option>
