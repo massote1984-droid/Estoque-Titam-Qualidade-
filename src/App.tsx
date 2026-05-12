@@ -34,7 +34,9 @@ import {
   Square,
   CheckSquare,
   MapPin,
-  Boxes
+  Boxes,
+  Edit2,
+  Check
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -201,6 +203,7 @@ export default function App() {
     return dates;
   });
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
+  const [editingRegistration, setEditingRegistration] = useState<{id: string, type: 'suppliers' | 'transporters' | 'customers' | 'products' | 'destinations', data: any} | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(localStorage.getItem('last_import_batch'));
   const isSyncing = React.useRef(false);
   const [isSyncingState, setIsSyncingState] = useState(false);
@@ -1513,6 +1516,27 @@ export default function App() {
     }
   };
 
+  const handleUpdateSupplier = async (id: string, name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'suppliers', id), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        updated_at: serverTimestamp()
+      });
+      addNotification(`Fornecedor ${name} atualizado com sucesso!`, "info");
+      setEditingRegistration(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'suppliers', user);
+      addNotification(`Erro ao atualizar fornecedor: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleDeleteSupplier = async (id: string) => {
     if (!user) return;
     try {
@@ -1543,6 +1567,27 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'transporters', user);
       addNotification(`Erro ao cadastrar transportador: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpdateTransporter = async (id: string, name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'transporters', id), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        updated_at: serverTimestamp()
+      });
+      addNotification(`Transportador ${name} atualizado com sucesso!`, "info");
+      setEditingRegistration(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'transporters', user);
+      addNotification(`Erro ao atualizar transportador: ${err.message}`, "error");
     } finally {
       setIsProcessing(false);
     }
@@ -1583,6 +1628,27 @@ export default function App() {
     }
   };
 
+  const handleUpdateCustomer = async (id: string, name: string, branchId: string, cnpj?: string, contact?: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'customers', id), {
+        name,
+        branchId,
+        cnpj: cnpj || '',
+        contact: contact || '',
+        updated_at: serverTimestamp()
+      });
+      addNotification(`Cliente ${name} atualizado com sucesso!`, "info");
+      setEditingRegistration(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'customers', user);
+      addNotification(`Erro ao atualizar cliente: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleDeleteCustomer = async (id: string) => {
     if (!user) return;
     try {
@@ -1616,6 +1682,25 @@ export default function App() {
     }
   };
 
+  const handleUpdateProduct = async (id: string, name: string, branchId: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'products', id), {
+        name,
+        branchId,
+        updated_at: serverTimestamp()
+      });
+      addNotification(`Produto ${name} atualizado com sucesso!`, "info");
+      setEditingRegistration(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'products', user);
+      addNotification(`Erro ao atualizar produto: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleDeleteProduct = async (id: string) => {
     if (!user) return;
     try {
@@ -1644,6 +1729,25 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'destinations', user);
       addNotification(`Erro ao cadastrar destino: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpdateDestination = async (id: string, name: string, branchId: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, 'destinations', id), {
+        name,
+        branchId,
+        updated_at: serverTimestamp()
+      });
+      addNotification(`Destino ${name} atualizado com sucesso!`, "info");
+      setEditingRegistration(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, 'destinations', user);
+      addNotification(`Erro ao atualizar destino: ${err.message}`, "error");
     } finally {
       setIsProcessing(false);
     }
@@ -3684,35 +3788,86 @@ export default function App() {
                                 )}
                               </div>
                             </div>
-                            <button 
-                              onClick={() => handleDeleteSupplier(sup.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: sup.id, type: 'suppliers', data: sup });
+                                  const form = document.getElementById('form-suppliers');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteSupplier(sup.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
 
-                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                    <div id="form-suppliers" className="p-5 border-t border-gray-100 bg-gray-50/30">
                       <form onSubmit={(e) => {
                         e.preventDefault();
                         const form = e.target as HTMLFormElement;
                         const name = (form.elements.namedItem('name') as HTMLInputElement).value;
                         const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
                         const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
-                        handleCreateSupplier(name, branchId, cnpj);
+                        
+                        if (editingRegistration?.type === 'suppliers' && editingRegistration?.id) {
+                          handleUpdateSupplier(editingRegistration.id, name, branchId, cnpj);
+                        } else {
+                          handleCreateSupplier(name, branchId, cnpj);
+                        }
                         form.reset();
                       }} className="space-y-3">
-                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                            {editingRegistration?.type === 'suppliers' ? 'Editar Fornecedor' : 'Novo Fornecedor'}
+                          </span>
+                          {editingRegistration?.type === 'suppliers' && (
+                            <button 
+                              type="button"
+                              onClick={() => setEditingRegistration(null)}
+                              className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                        <select 
+                          name="branchId" 
+                          required 
+                          defaultValue={editingRegistration?.type === 'suppliers' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                          key={`sup-branch-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                        >
                           <option value="" disabled>Selecionar Filial</option>
                           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <input name="name" required placeholder="Nome do Fornecedor" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
-                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Nome do Fornecedor" 
+                          defaultValue={editingRegistration?.type === 'suppliers' ? editingRegistration.data.name : ""}
+                          key={`sup-name-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
+                        <input 
+                          name="cnpj" 
+                          placeholder="CNPJ (Opcional)" 
+                          defaultValue={editingRegistration?.type === 'suppliers' ? editingRegistration.data.cnpj : ""}
+                          key={`sup-cnpj-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Fornecedor
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'suppliers' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'suppliers' ? 'Salvar Alterações' : 'Adicionar Fornecedor'}
                         </button>
                       </form>
                     </div>
@@ -3747,35 +3902,86 @@ export default function App() {
                                 )}
                               </div>
                             </div>
-                            <button 
-                              onClick={() => handleDeleteTransporter(tr.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: tr.id, type: 'transporters', data: tr });
+                                  const form = document.getElementById('form-transporters');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteTransporter(tr.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
 
-                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                    <div id="form-transporters" className="p-5 border-t border-gray-100 bg-gray-50/30">
                       <form onSubmit={(e) => {
                         e.preventDefault();
                         const form = e.target as HTMLFormElement;
                         const name = (form.elements.namedItem('name') as HTMLInputElement).value;
                         const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
                         const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
-                        handleCreateTransporter(name, branchId, cnpj);
+                        
+                        if (editingRegistration?.type === 'transporters' && editingRegistration?.id) {
+                          handleUpdateTransporter(editingRegistration.id, name, branchId, cnpj);
+                        } else {
+                          handleCreateTransporter(name, branchId, cnpj);
+                        }
                         form.reset();
                       }} className="space-y-3">
-                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                            {editingRegistration?.type === 'transporters' ? 'Editar Transportador' : 'Novo Transportador'}
+                          </span>
+                          {editingRegistration?.type === 'transporters' && (
+                            <button 
+                              type="button"
+                              onClick={() => setEditingRegistration(null)}
+                              className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                        <select 
+                          name="branchId" 
+                          required 
+                          defaultValue={editingRegistration?.type === 'transporters' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                          key={`tr-branch-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                        >
                           <option value="" disabled>Selecionar Filial</option>
                           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <input name="name" required placeholder="Nome do Transportador" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
-                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Nome do Transportador" 
+                          defaultValue={editingRegistration?.type === 'transporters' ? editingRegistration.data.name : ""}
+                          key={`tr-name-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
+                        <input 
+                          name="cnpj" 
+                          placeholder="CNPJ (Opcional)" 
+                          defaultValue={editingRegistration?.type === 'transporters' ? editingRegistration.data.cnpj : ""}
+                          key={`tr-cnpj-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Transportador
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'transporters' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'transporters' ? 'Salvar Alterações' : 'Adicionar Transportador'}
                         </button>
                       </form>
                     </div>
@@ -3810,35 +4016,86 @@ export default function App() {
                                 )}
                               </div>
                             </div>
-                            <button 
-                              onClick={() => handleDeleteCustomer(cl.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: cl.id, type: 'customers', data: cl });
+                                  const form = document.getElementById('form-customers');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteCustomer(cl.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
 
-                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                    <div id="form-customers" className="p-5 border-t border-gray-100 bg-gray-50/30">
                       <form onSubmit={(e) => {
                         e.preventDefault();
                         const form = e.target as HTMLFormElement;
                         const name = (form.elements.namedItem('name') as HTMLInputElement).value;
                         const cnpj = (form.elements.namedItem('cnpj') as HTMLInputElement).value;
                         const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
-                        handleCreateCustomer(name, branchId, cnpj);
+                        
+                        if (editingRegistration?.type === 'customers' && editingRegistration?.id) {
+                          handleUpdateCustomer(editingRegistration.id, name, branchId, cnpj);
+                        } else {
+                          handleCreateCustomer(name, branchId, cnpj);
+                        }
                         form.reset();
                       }} className="space-y-3">
-                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                            {editingRegistration?.type === 'customers' ? 'Editar Cliente' : 'Novo Cliente'}
+                          </span>
+                          {editingRegistration?.type === 'customers' && (
+                            <button 
+                              type="button"
+                              onClick={() => setEditingRegistration(null)}
+                              className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                        <select 
+                          name="branchId" 
+                          required 
+                          defaultValue={editingRegistration?.type === 'customers' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                          key={`cl-branch-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                        >
                           <option value="" disabled>Selecionar Filial</option>
                           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <input name="name" required placeholder="Nome do Cliente" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
-                        <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Nome do Cliente" 
+                          defaultValue={editingRegistration?.type === 'customers' ? editingRegistration.data.name : ""}
+                          key={`cl-name-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
+                        <input 
+                          name="cnpj" 
+                          placeholder="CNPJ (Opcional)" 
+                          defaultValue={editingRegistration?.type === 'customers' ? editingRegistration.data.cnpj : ""}
+                          key={`cl-cnpj-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Cliente
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'customers' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'customers' ? 'Salvar Alterações' : 'Adicionar Cliente'}
                         </button>
                       </form>
                     </div>
@@ -3870,33 +4127,78 @@ export default function App() {
                                 </span>
                               )}
                             </div>
-                            <button 
-                              onClick={() => handleDeleteProduct(prod.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: prod.id, type: 'products', data: prod });
+                                  const form = document.getElementById('form-products');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteProduct(prod.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
-                        ))
-                      )}
-                    </div>
+                         ))
+                       )}
+                     </div>
 
-                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                    <div id="form-products" className="p-5 border-t border-gray-100 bg-gray-50/30">
                       <form onSubmit={(e) => {
                         e.preventDefault();
                         const form = e.target as HTMLFormElement;
                         const name = (form.elements.namedItem('name') as HTMLInputElement).value;
                         const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
-                        handleCreateProduct(name, branchId);
+                        
+                        if (editingRegistration?.type === 'products' && editingRegistration?.id) {
+                          handleUpdateProduct(editingRegistration.id, name, branchId);
+                        } else {
+                          handleCreateProduct(name, branchId);
+                        }
                         form.reset();
                       }} className="space-y-3">
-                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                            {editingRegistration?.type === 'products' ? 'Editar Produto' : 'Novo Produto'}
+                          </span>
+                          {editingRegistration?.type === 'products' && (
+                            <button 
+                              type="button"
+                              onClick={() => setEditingRegistration(null)}
+                              className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                        <select 
+                          name="branchId" 
+                          required 
+                          defaultValue={editingRegistration?.type === 'products' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                          key={`prod-branch-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                        >
                           <option value="" disabled>Selecionar Filial</option>
                           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <input name="name" required placeholder="Nome do Produto" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Nome do Produto" 
+                          defaultValue={editingRegistration?.type === 'products' ? editingRegistration.data.name : ""}
+                          key={`prod-name-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Produto
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'products' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'products' ? 'Salvar Alterações' : 'Adicionar Produto'}
                         </button>
                       </form>
                     </div>
@@ -3928,33 +4230,78 @@ export default function App() {
                                 </span>
                               )}
                             </div>
-                            <button 
-                              onClick={() => handleDeleteDestination(dest.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: dest.id, type: 'destinations', data: dest });
+                                  const form = document.getElementById('form-destinations');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteDestination(dest.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
 
-                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                    <div id="form-destinations" className="p-5 border-t border-gray-100 bg-gray-50/30">
                       <form onSubmit={(e) => {
                         e.preventDefault();
                         const form = e.target as HTMLFormElement;
                         const name = (form.elements.namedItem('name') as HTMLInputElement).value;
                         const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
-                        handleCreateDestination(name, branchId);
+                        
+                        if (editingRegistration?.type === 'destinations' && editingRegistration?.id) {
+                          handleUpdateDestination(editingRegistration.id, name, branchId);
+                        } else {
+                          handleCreateDestination(name, branchId);
+                        }
                         form.reset();
                       }} className="space-y-3">
-                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                            {editingRegistration?.type === 'destinations' ? 'Editar Destino' : 'Novo Destino'}
+                          </span>
+                          {editingRegistration?.type === 'destinations' && (
+                            <button 
+                              type="button"
+                              onClick={() => setEditingRegistration(null)}
+                              className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+                        <select 
+                          name="branchId" 
+                          required 
+                          defaultValue={editingRegistration?.type === 'destinations' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                          key={`dest-branch-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                        >
                           <option value="" disabled>Selecionar Filial</option>
                           {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
-                        <input name="name" required placeholder="Nome do Destino" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <input 
+                          name="name" 
+                          required 
+                          placeholder="Nome do Destino" 
+                          defaultValue={editingRegistration?.type === 'destinations' ? editingRegistration.data.name : ""}
+                          key={`dest-name-${editingRegistration?.id || 'new'}`}
+                          className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                        />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Destino
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'destinations' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'destinations' ? 'Salvar Alterações' : 'Adicionar Destino'}
                         </button>
                       </form>
                     </div>
