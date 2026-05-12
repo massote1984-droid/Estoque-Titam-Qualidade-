@@ -1389,17 +1389,31 @@ export default function App() {
 
     try {
       setIsUpdating(true);
+      addNotification(`Iniciando atualização da NF ${updates.nf_numero || 'selecionada'}...`, "info");
+      console.log(`[Update] Starting update for entry ${id}`, sanitizedUpdates);
+      
       const entryRef = doc(db, 'entries', String(id));
-      await updateDoc(entryRef, sanitizedUpdates);
+      await setDoc(entryRef, sanitizedUpdates, { merge: true });
+      console.log(`[Update] Firestore merge successful for ${id}`);
 
-      // Tentar disparar integração
-      await triggerIntegration(id, sanitizedUpdates);
+      try {
+        await triggerIntegration(id, sanitizedUpdates);
+      } catch (intError) {
+        console.error("[Update] Integration error (non-fatal):", intError);
+      }
 
-      addNotification("Registro atualizado!", "info");
+      addNotification(`Registro NF ${updates.nf_numero || 'atual'} atualizado com sucesso!`, "info");
       return true;
-    } catch (error) {
+    } catch (error: any) {
+      console.error("[Update] FATAL Error updating entry:", error);
       handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
-      addNotification("Erro ao atualizar registro.", "error");
+      
+      let errorMessage = error.message || 'Erro desconhecido';
+      if (errorMessage.toLowerCase().includes('permission-denied') || errorMessage.toLowerCase().includes('permissão negada')) {
+        errorMessage = 'Erro de Permissão (Security Rules). Verifique se você é o autor ou administrador.';
+      }
+      
+      addNotification(`Erro ao salvar NF ${updates.nf_numero || 'atual'}: ${errorMessage}`, "error");
       return false;
     } finally {
       setIsUpdating(false);
