@@ -22,6 +22,8 @@ export interface Entry {
   data_faturamento_vli?: string;
   horario_posicionamento?: string;
   horario_faturamento?: string;
+  data_final_carregamento?: string;
+  horario_final_carregamento?: string;
   numero_vagao?: string;
   hora_chegada?: string;
   hora_entrada?: string;
@@ -33,6 +35,7 @@ export interface Entry {
   cte_transportador?: string;
   data_titam?: string;
   faturamento_titam?: string;
+  modal?: 'Rodoviário' | 'Ferroviário';
   branchId: string;
   created_at: any;
   created_by_email?: string;

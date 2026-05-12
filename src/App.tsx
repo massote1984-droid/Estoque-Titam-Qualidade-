@@ -32,7 +32,9 @@ import {
   Building2,
   Users,
   Square,
-  CheckSquare
+  CheckSquare,
+  MapPin,
+  Boxes
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -133,6 +135,8 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [transporters, setTransporters] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [destinations, setDestinations] = useState<any[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>(localStorage.getItem('selected_branch_id') || '');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -219,11 +223,15 @@ export default function App() {
 
   useEffect(() => {
     if (selectedEntry) {
-      setEditFormData(selectedEntry);
+      const isVR = branches.find(b => b.id === selectedEntry.branchId)?.name?.toLowerCase().includes('volta redonda') || false;
+      setEditFormData({
+        ...selectedEntry,
+        modal: selectedEntry.modal || (isVR ? 'Rodoviário' : undefined)
+      });
     } else {
       setEditFormData({});
     }
-  }, [selectedEntry]);
+  }, [selectedEntry, branches]);
 
   const addNotification = (message: string, type: 'info' | 'warning' | 'error' | 'critical' = 'info', persistent: boolean = false) => {
     const id = Math.random().toString(36).substring(7);
@@ -631,6 +639,18 @@ export default function App() {
       setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'customers', user));
 
+    // Fetch Products
+    const qProducts = query(collection(db, 'products'), orderBy('name', 'asc'));
+    const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'products', user));
+
+    // Fetch Destinations
+    const qDestinations = query(collection(db, 'destinations'), orderBy('name', 'asc'));
+    const unsubscribeDestinations = onSnapshot(qDestinations, (snapshot) => {
+      setDestinations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'destinations', user));
+
     return () => {
       unsubscribeBranches();
       unsubscribeEntries();
@@ -638,6 +658,8 @@ export default function App() {
       unsubscribeSuppliers();
       unsubscribeTransporters();
       unsubscribeCustomers();
+      unsubscribeProducts();
+      unsubscribeDestinations();
     };
   }, [user, selectedBranchId]);
 
@@ -1570,6 +1592,72 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'customers', user);
       addNotification(`Erro ao excluir cliente: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCreateProduct = async (name: string, branchId: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, 'products'), {
+        name,
+        branchId,
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Produto ${name} cadastrado com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'products', user);
+      addNotification(`Erro ao cadastrar produto: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'products', id));
+      addNotification("Produto excluído com sucesso!", "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'products', user);
+      addNotification(`Erro ao excluir produto: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCreateDestination = async (name: string, branchId: string) => {
+    if (!user || !branchId) return;
+    setIsProcessing(true);
+    try {
+      await addDoc(collection(db, 'destinations'), {
+        name,
+        branchId,
+        uid: user.uid,
+        created_at: serverTimestamp()
+      });
+      addNotification(`Destino ${name} cadastrado com sucesso!`, "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'destinations', user);
+      addNotification(`Erro ao cadastrar destino: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteDestination = async (id: string) => {
+    if (!user) return;
+    try {
+      setIsProcessing(true);
+      await deleteDoc(doc(db, 'destinations', id));
+      addNotification("Destino excluído com sucesso!", "info");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, 'destinations', user);
+      addNotification(`Erro ao excluir destino: ${err.message}`, "error");
     } finally {
       setIsProcessing(false);
     }
@@ -3543,32 +3631,34 @@ export default function App() {
               </div>
               
               {/* Quick Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                 {[
-                  { label: 'Fornecedores', count: suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length, icon: <Package className="text-blue-600" />, color: 'blue' },
+                  { label: 'Fornecedores', count: suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length, icon: <Building2 className="text-blue-600" />, color: 'blue' },
                   { label: 'Transportadores', count: transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length, icon: <Truck className="text-emerald-600" />, color: 'emerald' },
-                  { label: 'Clientes', count: customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Building2 className="text-indigo-600" />, color: 'indigo' },
+                  { label: 'Clientes', count: customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Users className="text-indigo-600" />, color: 'indigo' },
+                  { label: 'Produtos', count: products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).length, icon: <Boxes className="text-titam-deep" />, color: 'lime' },
+                  { label: 'Destinos', count: destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).length, icon: <MapPin className="text-amber-600" />, color: 'amber' },
                 ].map((stat, i) => (
-                  <div key={i} className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm transition-all duration-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className={`p-2 bg-${stat.color}-50 rounded-lg`}>
+                  <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm transition-all duration-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`p-1.5 ${stat.color === 'lime' ? 'bg-titam-lime/20' : `bg-${stat.color}-50`} rounded-lg`}>
                         {stat.icon}
                       </div>
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Cadastrados</span>
+                      <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Cadastrados</span>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className={`text-4xl font-black text-${stat.color}-600 tracking-tighter`}>{stat.count}</span>
-                      <span className="text-xs font-bold text-gray-400 uppercase">{stat.label}</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`text-2xl font-black ${stat.color === 'lime' ? 'text-titam-deep' : `text-${stat.color}-600`} tracking-tighter`}>{stat.count}</span>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase">{stat.label}</span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Three Columns Registration Sections */}
+              {/* Grid Registration Sections */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                 {/* Fornecedores */}
                 <div className="space-y-6">
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
                     <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
                       <Package size={18} className="text-titam-lime" />
                       <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Fornecedores</h3>
@@ -3631,7 +3721,7 @@ export default function App() {
 
                 {/* Transportadores */}
                 <div className="space-y-6">
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
                     <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
                       <Truck size={18} className="text-titam-lime" />
                       <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Transportadores</h3>
@@ -3694,7 +3784,7 @@ export default function App() {
 
                 {/* Clientes */}
                 <div className="space-y-6">
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[700px] transition-all duration-700">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
                     <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
                       <Building2 size={18} className="text-titam-lime" />
                       <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Clientes</h3>
@@ -3749,6 +3839,122 @@ export default function App() {
                         <input name="cnpj" placeholder="CNPJ (Opcional)" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
                         <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
                           {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Cliente
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Produtos */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
+                      <Boxes size={18} className="text-titam-lime" />
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Produtos</h3>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Boxes size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum produto</p>
+                        </div>
+                      ) : (
+                        products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).map(prod => (
+                          <div key={prod.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{prod.name}</p>
+                              {selectedBranchId === 'all' && (
+                                <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                  {branches.find(b => b.id === prod.branchId)?.name || 'N/A'}
+                                </span>
+                              )}
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteProduct(prod.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.target as HTMLFormElement;
+                        const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                        const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                        handleCreateProduct(name, branchId);
+                        form.reset();
+                      }} className="space-y-3">
+                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                          <option value="" disabled>Selecionar Filial</option>
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        <input name="name" required placeholder="Nome do Produto" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Produto
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Destinos */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center gap-3 transition-all duration-700">
+                      <MapPin size={18} className="text-titam-lime" />
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Destinos</h3>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <MapPin size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum destino</p>
+                        </div>
+                      ) : (
+                        destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).map(dest => (
+                          <div key={dest.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{dest.name}</p>
+                              {selectedBranchId === 'all' && (
+                                <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                  {branches.find(b => b.id === dest.branchId)?.name || 'N/A'}
+                                </span>
+                              )}
+                            </div>
+                            <button 
+                              onClick={() => handleDeleteDestination(dest.id)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        const form = e.target as HTMLFormElement;
+                        const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+                        const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                        handleCreateDestination(name, branchId);
+                        form.reset();
+                      }} className="space-y-3">
+                        <select name="branchId" required defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""} className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white">
+                          <option value="" disabled>Selecionar Filial</option>
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        <input name="name" required placeholder="Nome do Destino" className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar Destino
                         </button>
                       </form>
                     </div>
@@ -3945,131 +4151,201 @@ export default function App() {
               <form 
                 key={JSON.stringify(formData)}
                 onSubmit={handleCreateEntry} 
-                className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6"
+                className="p-8 space-y-8"
               >
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
-                  <input 
-                    name="mes" 
-                    required 
-                    defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
-                    className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                  />
-                </div>
-                <Input label="Chave de Acesso NF" name="chave_acesso" required={!isVoltaRedonda} defaultValue={formData.chave_acesso} />
-                <Input label="N.F" name="nf_numero" required={!isVoltaRedonda} defaultValue={formData.nf_numero} />
-                <Input 
-                  label="Tonelada" 
-                  name="tonelada" 
-                  type="text" 
-                  required={!isVoltaRedonda} 
-                  defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                  placeholder="0,00" 
-                />
-                <Input 
-                  label="Valor" 
-                  name="valor" 
-                  type="text" 
-                  maxLength={12} 
-                  required={!isVoltaRedonda} 
-                  defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                  placeholder="0,00" 
-                />
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                  <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
-                    <option value="" disabled>Selecione o produto</option>
-                    <option value="Cal Dolomítico">Cal Dolomítico</option>
-                    <option value="Cal Calcítico">Cal Calcítico</option>
-                    <option value="Bobina de Aço">Bobina de Aço</option>
-                    {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
-                    {isVoltaRedonda && <option value="Vazio">Vazio</option>}
-                  </select>
-                </div>
-                <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
-                <Input label="Data N.F" name="data_nf" type="date" required={!isVoltaRedonda} defaultValue={formData.data_nf} />
-                <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
-                <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                  <select name="status" defaultValue={formData.status || (isTitam ? "Em descarga" : "Estoque")} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                    <option value="Estoque">Estoque</option>
-                    <option value="Em descarga">Em descarga</option>
-                    <option value="Trânsito Cheio">Trânsito Cheio</option>
-                    <option value="Rejeitado">Rejeitado</option>
-                    <option value="Embarcado">Embarcado</option>
-                    <option value="Devolvido">Devolvido</option>
-                    {isVoltaRedonda && (
-                      <>
+                {!isVoltaRedonda ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                      <input 
+                        name="mes" 
+                        required 
+                        defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
+                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+                      />
+                    </div>
+                    <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
+                    <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
+                    <Input 
+                      label="Tonelada" 
+                      name="tonelada" 
+                      type="text" 
+                      required 
+                      defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      placeholder="0,00" 
+                    />
+                    <Input 
+                      label="Valor" 
+                      name="valor" 
+                      type="text" 
+                      maxLength={12} 
+                      required 
+                      defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      placeholder="0,00" 
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
+                        <option value="" disabled>Selecione o produto</option>
+                        <option value="Cal Dolomítico">Cal Dolomítico</option>
+                        <option value="Cal Calcítico">Cal Calcítico</option>
+                        <option value="Bobina de Aço">Bobina de Aço</option>
+                        {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
+                        {products.filter(p => p.branchId === selectedBranchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
+                    <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
+                    <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
+                    <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
+                      <select name="status" defaultValue={formData.status || (isTitam ? "Em descarga" : "Estoque")} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="Estoque">Estoque</option>
+                        <option value="Em descarga">Em descarga</option>
+                        <option value="Trânsito Cheio">Trânsito Cheio</option>
+                        <option value="Rejeitado">Rejeitado</option>
+                        <option value="Embarcado">Embarcado</option>
+                        <option value="Devolvido">Devolvido</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
+                      <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="" disabled>Selecione o fornecedor</option>
+                        {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
+                    <Input label="Container" name="container" defaultValue={formData.container} />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                      <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
+                        <option value="" disabled>Selecione o destino</option>
+                        <option value="Serra - ES">Serra - ES</option>
+                        <option value="Resende - RJ">Resende - RJ</option>
+                        <option value="Cosmorama - SP">Cosmorama - SP</option>
+                        {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
+                        {destinations.filter(d => d.branchId === selectedBranchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                        {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                      <input 
+                        name="mes" 
+                        required 
+                        defaultValue={formData.mes || getMonthName(formData.data_nf || new Date().toISOString().split('T')[0])} 
+                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+                      />
+                    </div>
+                    <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
+                    <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
+                    <Input 
+                      label="Tonelada" 
+                      name="tonelada" 
+                      type="text" 
+                      required 
+                      defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      placeholder="0,00" 
+                    />
+                    <Input 
+                      label="Valor" 
+                      name="valor" 
+                      type="text" 
+                      maxLength={12} 
+                      required 
+                      defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                      placeholder="0,00" 
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="" disabled>Selecione o produto</option>
+                        <option value="Vazio">Vazio</option>
+                        {products.filter(p => p.branchId === selectedBranchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
+                    <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
+                    <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
+                      <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="Estoque">Estoque</option>
+                        <option value="Em descarga">Em descarga</option>
+                        <option value="Trânsito Cheio">Trânsito Cheio</option>
+                        <option value="Rejeitado">Rejeitado</option>
+                        <option value="Embarcado">Embarcado</option>
+                        <option value="Devolvido">Devolvido</option>
                         <option value="Vazio Terminal">Vazio Terminal</option>
                         <option value="Transito vazio">Transito vazio</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
-                  <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
-                    <option value="" disabled>Selecione o fornecedor</option>
-                    {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    {suppliers.filter(s => s.branchId === selectedBranchId).length === 0 && <option value={formData.fornecedor || ""} disabled>{formData.fornecedor || "Sem fornecedores cadastrados para esta filial"}</option>}
-                  </select>
-                </div>
-                <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
-                <Input label="Container" name="container" defaultValue={formData.container} required={isVoltaRedonda} />
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                  <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required={!isVoltaRedonda}>
-                    <option value="" disabled>Selecione o destino</option>
-                    <option value="Serra - ES">Serra - ES</option>
-                    <option value="Resende - RJ">Resende - RJ</option>
-                    <option value="Cosmorama - SP">Cosmorama - SP</option>
-                    {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
-                    {isVoltaRedonda && <option value="Arcos - MG">Arcos - MG</option>}
-                    {customers
-                      .filter(c => isVoltaRedonda ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
-                      .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
-                    <select name="transportador" defaultValue={formData.transportador || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
-                      <option value="">Selecione o transportador</option>
-                      {transporters.filter(t => t.branchId === selectedBranchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                    </select>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
+                      <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="" disabled>Selecione o fornecedor</option>
+                        {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                      <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                        <option value="" disabled>Selecione o destino</option>
+                        <option value="Arcos - MG">Arcos - MG</option>
+                        {destinations.filter(d => d.branchId === selectedBranchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                      </select>
+                    </div>
+                    <Input label="Container" name="container" defaultValue={formData.container} />
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</label>
-                    <select name="cliente" defaultValue={formData.cliente || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
-                      <option value="">Selecione o cliente</option>
-                      {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
-                  <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
-                </div>
+                )}
 
-                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
-                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
-                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
-                </div>
+                {!isVoltaRedonda && (
+                  <>
+                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
+                        <select name="transportador" defaultValue={formData.transportador || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
+                          <option value="">Selecione o transportador</option>
+                          {transporters.filter(t => t.branchId === selectedBranchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</label>
+                        <select name="cliente" defaultValue={formData.cliente || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
+                          <option value="">Selecione o cliente</option>
+                          {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
+                      <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
+                    </div>
 
-                <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} />
-                  <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} />
-                  <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} />
-                  <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} />
-                  <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} />
-                  <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} />
-                  <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} />
-                  <Input label="Data Faturamento VLI" name="data_faturamento_vli" type="date" defaultValue={formData.data_faturamento_vli} />
-                  <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
-                </div>
-                
-                <div className="md:col-span-3 flex justify-end gap-3 mt-4">
+                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                      <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
+                      <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
+                      <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
+                    </div>
+
+                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
+                      <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} />
+                      <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} />
+                      <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} />
+                      <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} />
+                      <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} />
+                      <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} />
+                      <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} />
+                      <Input label="Data Faturamento VLI" name="data_faturamento_vli" type="date" defaultValue={formData.data_faturamento_vli} />
+                      <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-end gap-3 mt-4 border-t border-gray-100 pt-6">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors" disabled={isSaving}>Cancelar</button>
                   <button 
                     type="submit" 
@@ -4172,6 +4448,10 @@ export default function App() {
                 </button>
               </div>
               <div className="p-8 space-y-8">
+                {(() => {
+                  const isVREdit = branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || false;
+                  return (
+                    <>
                 {/* Section: Entrada */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-titam-lime uppercase tracking-widest">Informações de Entrada</h3>
@@ -4195,11 +4475,13 @@ export default function App() {
                         )}
                       </select>
                     </div>
-                    <Input 
-                      label="Placa Veículo" 
-                      value={editFormData.placa_veiculo || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
-                    />
+                    {!isVREdit && (
+                      <Input 
+                        label="Placa Veículo" 
+                        value={editFormData.placa_veiculo || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
+                      />
+                    )}
                     <Input 
                       label="Data NF" 
                       type="date"
@@ -4241,11 +4523,9 @@ export default function App() {
                         onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
                         className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       >
-                        <option value="Cal Dolomítico">Cal Dolomítico</option>
-                        <option value="Cal Calcítico">Cal Calcítico</option>
-                        <option value="Bobina de Aço">Bobina de Aço</option>
-                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('titam') || isTitam) && <option value="Minério de Ferro">Minério de Ferro</option>}
-                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && <option value="Vazio">Vazio</option>}
+                        <option value="">Selecione o produto</option>
+                        {isVREdit && <option value="Vazio">Vazio</option>}
+                        {products.filter(p => p.branchId === editFormData.branchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                     </div>
                     <Input 
@@ -4265,12 +4545,15 @@ export default function App() {
                         <option value="Resende - RJ">Resende - RJ</option>
                         <option value="Cosmorama - SP">Cosmorama - SP</option>
                         {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('titam') || isTitam) && <option value="Timoteo - MG">Timoteo - MG</option>}
-                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && <option value="Arcos - MG">Arcos - MG</option>}
+                        {isVREdit && <option value="Arcos - MG">Arcos - MG</option>}
+                        {destinations.filter(d => d.branchId === editFormData.branchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                         {customers
                           .filter(c => c.branchId === editFormData.branchId)
-                          .filter(c => (branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
+                          .filter(c => isVREdit ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
                           .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG", "Arcos - MG"].includes(editFormData.destino) && (
+                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && 
+                         !destinations.filter(d => d.branchId === editFormData.branchId).find(d => d.name === editFormData.destino) && 
+                         editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG", "Arcos - MG"].includes(editFormData.destino) && (
                           <option value={editFormData.destino}>{editFormData.destino}</option>
                         )}
                       </select>
@@ -4292,99 +4575,158 @@ export default function App() {
                       value={editFormData.valor !== undefined ? (typeof editFormData.valor === 'number' ? editFormData.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.valor) : ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
                     />
-                    <Input 
-                      label="Hora Chegada" 
-                      type="time" 
-                      value={editFormData.hora_chegada || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
-                    />
-                    <Input 
-                      label="Hora Entrada" 
-                      type="time" 
-                      value={editFormData.hora_entrada || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
-                    />
-                    <Input 
-                      label="Hora Saída" 
-                      type="time" 
-                      value={editFormData.hora_saida || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
-                    />
+                    {!isVREdit && (
+                      <>
+                        <Input 
+                          label="Hora Chegada" 
+                          type="time" 
+                          value={editFormData.hora_chegada || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
+                        />
+                        <Input 
+                          label="Hora Entrada" 
+                          type="time" 
+                          value={editFormData.hora_entrada || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
+                        />
+                        <Input 
+                          label="Hora Saída" 
+                          type="time" 
+                          value={editFormData.hora_saida || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
+                        />
+                      </>
+                    )}
                   </div>
                 </section>
 
                 {/* Section: Saída */}
                 <section className="space-y-4">
                   <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
+                  
+                  {isVREdit && (
+                    <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 mb-4">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Modal de Transporte</label>
+                      <div className="flex gap-4 mt-2">
+                        <button 
+                          type="button"
+                          onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Rodoviário' }))}
+                          className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Rodoviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
+                        >
+                          Rodoviário
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Ferroviário' }))}
+                          className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Ferroviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
+                        >
+                          Ferroviário
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Transportador</label>
-                      <select 
-                        value={editFormData.transportador || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
-                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
-                      >
-                        <option value="">Selecione o transportador</option>
-                        {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                        {!transporters.filter(t => t.branchId === editFormData.branchId).find(t => t.name === editFormData.transportador) && editFormData.transportador && (
-                          <option value={editFormData.transportador}>{editFormData.transportador}</option>
-                        )}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente</label>
-                      <select 
-                        value={editFormData.cliente || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
-                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
-                      >
-                        <option value="">Selecione o cliente</option>
-                        {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.cliente) && editFormData.cliente && (
-                          <option value={editFormData.cliente}>{editFormData.cliente}</option>
-                        )}
-                      </select>
-                    </div>
-                    <Input 
-                      label="Data Carregamento Rodoviário" 
-                      type="date"
-                      value={editFormData.data_carregamento_rodoviario || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_carregamento_rodoviario: e.target.value }))}
-                    />
-                    <Input 
-                      label="Placa Veículo (Saída)" 
-                      value={editFormData.placa_saida || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, placa_saida: e.target.value }))}
-                    />
-                    <Input 
-                      label="Data de Posicionamento" 
-                      type="date" 
-                      value={editFormData.data_posicionamento || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
-                    />
-                    <Input 
-                      label="Data Faturamento VLI" 
-                      type="date" 
-                      value={editFormData.data_faturamento_vli || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
-                    />
-                    <Input 
-                      label="Horário de Posicionamento" 
-                      type="time"
-                      value={editFormData.horario_posicionamento || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
-                    />
-                    <Input 
-                      label="Horário de Faturamento" 
-                      type="time"
-                      value={editFormData.horario_faturamento || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
-                    />
-                    <Input 
-                      label="Nº Vagão" 
-                      value={editFormData.numero_vagao || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
-                    />
+                    {(!isVREdit || editFormData.modal === 'Rodoviário') && (
+                      <>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Transportador</label>
+                          <select 
+                            value={editFormData.transportador || ''} 
+                            onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                            className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                          >
+                            <option value="">Selecione o transportador</option>
+                            {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                            {!transporters.filter(t => t.branchId === editFormData.branchId).find(t => t.name === editFormData.transportador) && editFormData.transportador && (
+                              <option value={editFormData.transportador}>{editFormData.transportador}</option>
+                            )}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente</label>
+                          <select 
+                            value={editFormData.cliente || ''} 
+                            onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
+                            className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                          >
+                            <option value="">Selecione o cliente</option>
+                            {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                            {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.cliente) && editFormData.cliente && (
+                              <option value={editFormData.cliente}>{editFormData.cliente}</option>
+                            )}
+                          </select>
+                        </div>
+                        <Input 
+                          label="Data Carregamento Rodoviário" 
+                          type="date"
+                          value={editFormData.data_carregamento_rodoviario || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_carregamento_rodoviario: e.target.value }))}
+                        />
+                        <Input 
+                          label="Placa Veículo (Saída)" 
+                          value={editFormData.placa_saida || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, placa_saida: e.target.value }))}
+                        />
+                      </>
+                    )}
+
+                    {(!isVREdit || editFormData.modal === 'Ferroviário') && (
+                      <>
+                        <Input 
+                          label="Data de Posicionamento" 
+                          type="date" 
+                          value={editFormData.data_posicionamento || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
+                        />
+                        <Input 
+                          label="Horário de Posicionamento" 
+                          type="time"
+                          value={editFormData.horario_posicionamento || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
+                        />
+                        <Input 
+                          label="Data Final Carregamento" 
+                          type="date"
+                          value={editFormData.data_final_carregamento || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_final_carregamento: e.target.value }))}
+                        />
+                        <Input 
+                          label="Horário Final Carregamento" 
+                          type="time"
+                          value={editFormData.horario_final_carregamento || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, horario_final_carregamento: e.target.value }))}
+                        />
+                        <Input 
+                          label="Nº Vagão" 
+                          value={editFormData.numero_vagao || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
+                        />
+                        <Input 
+                          label="Número do Container" 
+                          value={editFormData.container || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
+                        />
+                      </>
+                    )}
+
+                    {!isVREdit && (
+                      <Input 
+                        label="Data Faturamento VLI" 
+                        type="date" 
+                        value={editFormData.data_faturamento_vli || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
+                      />
+                    )}
+                    {!isVREdit && (
+                      <Input 
+                        label="Horário de Faturamento" 
+                        type="time"
+                        value={editFormData.horario_faturamento || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
+                      />
+                    )}
+
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
                       <select 
@@ -4398,7 +4740,7 @@ export default function App() {
                         <option value="Rejeitado">Rejeitado</option>
                         <option value="Embarcado">Embarcado</option>
                         <option value="Devolvido">Devolvido</option>
-                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || isVoltaRedonda) && (
+                        {isVREdit && (
                           <>
                             <option value="Vazio Terminal">Vazio Terminal</option>
                             <option value="Transito vazio">Transito vazio</option>
@@ -4410,50 +4752,55 @@ export default function App() {
                 </section>
 
                 {/* Section: Faturamento */}
-                <section className="space-y-4">
-                  <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Input 
-                      label="Data Emissão NF" 
-                      type="date" 
-                      value={editFormData.data_emissao_nf || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
-                    />
-                    <Input 
-                      label="Emissão CTE Intertex" 
-                      type="date" 
-                      value={editFormData.data_emissao_cte || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
-                    />
-                    <Input 
-                      label="CTE Intertex" 
-                      value={editFormData.cte_intertex || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
-                    />
-                    <Input 
-                      label="Emissão CTE Transp." 
-                      type="date" 
-                      value={editFormData.data_emissao_cte_transp || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
-                    />
-                    <Input 
-                      label="CTE Transportador" 
-                      value={editFormData.cte_transportador || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
-                    />
-                    <Input 
-                      label="Data TITAM" 
-                      type="date"
-                      value={editFormData.data_titam || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
-                    />
-                    <Input 
-                      label="Faturamento Titam" 
-                      value={editFormData.faturamento_titam || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
-                    />
-                  </div>
-                </section>
+                {!isVREdit && (
+                  <section className="space-y-4">
+                    <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input 
+                        label="Data Emissão NF" 
+                        type="date" 
+                        value={editFormData.data_emissao_nf || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
+                      />
+                      <Input 
+                        label="Emissão CTE Intertex" 
+                        type="date" 
+                        value={editFormData.data_emissao_cte || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
+                      />
+                      <Input 
+                        label="CTE Intertex" 
+                        value={editFormData.cte_intertex || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
+                      />
+                      <Input 
+                        label="Emissão CTE Transp." 
+                        type="date" 
+                        value={editFormData.data_emissao_cte_transp || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
+                      />
+                      <Input 
+                        label="CTE Transportador" 
+                        value={editFormData.cte_transportador || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
+                      />
+                      <Input 
+                        label="Data TITAM" 
+                        type="date"
+                        value={editFormData.data_titam || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
+                      />
+                      <Input 
+                        label="Faturamento Titam" 
+                        value={editFormData.faturamento_titam || ''} 
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
+                      />
+                    </div>
+                  </section>
+                )}
+                    </>
+                  );
+                })()}
 
                 <div className="flex justify-end gap-3 pt-4">
                   <button 
@@ -4935,6 +5282,8 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
     </div>
   );
 }
+
+
 
 function DataView({ title, entries, columns, onEdit, onDelete, onBulkDelete, readOnly = false }: { 
   title: string, 

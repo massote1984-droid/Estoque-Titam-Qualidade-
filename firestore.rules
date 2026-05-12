@@ -143,6 +143,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidNamedEntity(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /destinations/{destinationId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidNamedEntity(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
     match /entries/{entryId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidEntry(request.resource.data) && request.resource.data.uid == request.auth.uid;

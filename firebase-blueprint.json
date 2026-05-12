@@ -106,6 +106,30 @@
         "uid": { "type": "string" }
       },
       "required": ["name", "branchId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A product type",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
+    },
+    "Destination": {
+      "title": "Destination",
+      "description": "A shipment destination",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
     }
   },
   "firestore": {
@@ -132,6 +156,14 @@
     "customers": {
       "schema": "Customer",
       "description": "Collection of customers"
+    },
+    "products": {
+      "schema": "Product",
+      "description": "Collection of products"
+    },
+    "destinations": {
+      "schema": "Destination",
+      "description": "Collection of destinations"
     }
   }
 }
