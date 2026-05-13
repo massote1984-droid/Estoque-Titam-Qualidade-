@@ -63,6 +63,7 @@ import {
   onSnapshot, 
   addDoc, 
   updateDoc, 
+  setDoc,
   deleteDoc, 
   doc, 
   query, 
@@ -148,6 +149,7 @@ export default function App() {
   const [formData, setFormData] = useState<Partial<Entry>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [lastUpdateError, setLastUpdateError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | number | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<(string | number)[] | null>(null);
@@ -1361,59 +1363,90 @@ export default function App() {
   };
 
   const handleUpdateEntry = async (id: string | number, updates: Partial<Entry>) => {
-    if (!user || !id) return false;
-    const sanitizedUpdates = { ...updates };
+    console.log(`[Update] handleUpdateEntry iniciada para ID: ${id}`, updates);
+    
+    if (!user) {
+      console.error("[Update] Erro: Usuário não autenticado");
+      addNotification("Sessão expirada. Faça login novamente.", "error");
+      return false;
+    }
+
+    // Garantir que temos um ID válido e extrair se for objeto
+    const docId = typeof id === 'object' && id !== null ? (id as any).id : id;
+    
+    if (!docId || String(docId).trim() === '') {
+      console.error("[Update] Erro: ID inválido", id);
+      addNotification("Erro interno: ID do registro inválido.", "error");
+      return false;
+    }
+
     const sanitizeNumeric = (val: any) => {
-      if (val === undefined || val === null) return 0;
-      if (typeof val !== 'string') return val;
+      if (val === undefined || val === null || val === '') return 0;
+      if (typeof val === 'number') return val;
+      if (typeof val !== 'string') return 0;
       const sanitized = val.replace(/\./g, '').replace(',', '.');
-      return parseFloat(sanitized) || 0;
+      const parsed = parseFloat(sanitized);
+      return isNaN(parsed) ? 0 : parsed;
     };
-
-    if (sanitizedUpdates.valor !== undefined) {
-      sanitizedUpdates.valor = sanitizeNumeric(sanitizedUpdates.valor);
-    }
-    if (sanitizedUpdates.tonelada !== undefined) {
-      sanitizedUpdates.tonelada = sanitizeNumeric(sanitizedUpdates.tonelada);
-    }
-
-    // Remove fields that shouldn't be updated or are incompatible
-    delete sanitizedUpdates.id;
-    delete sanitizedUpdates.isPending;
-    delete sanitizedUpdates.created_at;
-    delete sanitizedUpdates.uid;
-
-    // Add tracking info
-    sanitizedUpdates.updated_at = serverTimestamp();
-    sanitizedUpdates.updated_by_email = user.email || 'Usuário';
 
     try {
       setIsUpdating(true);
-      addNotification(`Iniciando atualização da NF ${updates.nf_numero || 'selecionada'}...`, "info");
-      console.log(`[Update] Starting update for entry ${id}`, sanitizedUpdates);
+      setLastUpdateError(null);
       
-      const entryRef = doc(db, 'entries', String(id));
-      await setDoc(entryRef, sanitizedUpdates, { merge: true });
-      console.log(`[Update] Firestore merge successful for ${id}`);
+      // Criar payload limpo
+      const sanitizedUpdates: any = {};
+      const ignoreFields = ['id', 'isPending', 'created_at', 'uid', 'import_batch'];
+      
+      Object.entries(updates).forEach(([key, value]) => {
+        if (!ignoreFields.includes(key) && value !== undefined && value !== null) {
+          if (key === 'valor' || key === 'tonelada') {
+            sanitizedUpdates[key] = sanitizeNumeric(value);
+          } else {
+            sanitizedUpdates[key] = value;
+          }
+        }
+      });
 
+      // Metadados de atualização
+      sanitizedUpdates.updated_at = serverTimestamp();
+      sanitizedUpdates.updated_by_email = user.email || 'Usuário';
+
+      console.log(`[Update] Enviando para Firestore: entries/${docId}`, sanitizedUpdates);
+      
+      const entryRef = doc(db, 'entries', String(docId));
+      await setDoc(entryRef, sanitizedUpdates, { merge: true });
+      
+      console.log(`[Update] Sucesso no merge do Firestore para ${docId}`);
+
+      // Tentar disparar integração (não bloqueante)
       try {
-        await triggerIntegration(id, sanitizedUpdates);
+        await triggerIntegration(docId, sanitizedUpdates);
       } catch (intError) {
-        console.error("[Update] Integration error (non-fatal):", intError);
+        console.error("[Update] Erro na integração (não fatal):", intError);
       }
 
-      addNotification(`Registro NF ${updates.nf_numero || 'atual'} atualizado com sucesso!`, "info");
+      addNotification(`Registro NF ${updates.nf_numero || 'selecionada'} atualizado com sucesso!`, "info");
       return true;
     } catch (error: any) {
-      console.error("[Update] FATAL Error updating entry:", error);
-      handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
+      console.error("[Update] Erro FATAL ao salvar no Firestore:", error);
       
       let errorMessage = error.message || 'Erro desconhecido';
       if (errorMessage.toLowerCase().includes('permission-denied') || errorMessage.toLowerCase().includes('permissão negada')) {
-        errorMessage = 'Erro de Permissão (Security Rules). Verifique se você é o autor ou administrador.';
+        errorMessage = 'Erro de Permissão (Security Rules). Verifique se você é administrador.';
+      } else if (errorMessage.toLowerCase().includes('offline') || errorMessage.toLowerCase().includes('network')) {
+        errorMessage = 'Erro de Conexão. Verifique sua internet.';
       }
       
-      addNotification(`Erro ao salvar NF ${updates.nf_numero || 'atual'}: ${errorMessage}`, "error");
+      setLastUpdateError(errorMessage);
+      addNotification(`Erro ao salvar: ${errorMessage}`, "error");
+      
+      // Registrar erro detalhado para diagnóstico
+      try {
+        handleFirestoreError(error, OperationType.UPDATE, `entries/${docId}`, user);
+      } catch (e) {
+        // Ignora o throw do handleFirestoreError para não travar a UI
+      }
+      
       return false;
     } finally {
       setIsUpdating(false);
@@ -4346,11 +4379,19 @@ export default function App() {
                     <span className="block mt-2 font-semibold text-titam-deep">
                       NF: {selectedEntry.nf_numero}
                     </span>
+                    {lastUpdateError && (
+                      <span className="block mt-4 p-3 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100 font-medium animate-pulse">
+                        ⚠️ {lastUpdateError}
+                      </span>
+                    )}
                   </p>
                   
                   <div className="flex gap-3 w-full">
                     <button 
-                      onClick={() => setShowEditConfirm(false)}
+                      onClick={() => {
+                        setShowEditConfirm(false);
+                        setLastUpdateError(null);
+                      }}
                       disabled={isUpdating}
                       className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
                     >
@@ -4362,6 +4403,7 @@ export default function App() {
                         if (success) {
                           setShowEditConfirm(false);
                           setSelectedEntry(null);
+                          setLastUpdateError(null);
                         }
                       }}
                       disabled={isUpdating}
@@ -4624,8 +4666,11 @@ export default function App() {
                     />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
                         <option value="" disabled>Selecione o produto</option>
+                        <option value="Cal Dolomítico">Cal Dolomítico</option>
+                        <option value="Cal Calcítico">Cal Calcítico</option>
+                        <option value="Bobina de Aço">Bobina de Aço</option>
                         <option value="Vazio">Vazio</option>
                         {products.filter(p => p.branchId === selectedBranchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
@@ -4810,7 +4855,9 @@ export default function App() {
               </div>
               <div className="p-8 space-y-8">
                 {(() => {
-                  const isVREdit = branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('volta redonda') || false;
+                  const editBranch = branches.find(b => b.id === editFormData.branchId);
+                  const isVREdit = editBranch?.name?.toLowerCase().includes('volta redonda') || false;
+                  const isTitamEdit = editBranch?.name?.toLowerCase().includes('titam') || false;
                   return (
                     <>
                 {/* Section: Entrada */}
@@ -4882,11 +4929,21 @@ export default function App() {
                       <select 
                         value={editFormData.descricao_produto || ''}
                         onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
-                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
                       >
                         <option value="">Selecione o produto</option>
+                        <option value="Cal Dolomítico">Cal Dolomítico</option>
+                        <option value="Cal Calcítico">Cal Calcítico</option>
+                        <option value="Bobina de Aço">Bobina de Aço</option>
                         {isVREdit && <option value="Vazio">Vazio</option>}
+                        {isTitamEdit && <option value="Minério de Ferro">Minério de Ferro</option>}
                         {products.filter(p => p.branchId === editFormData.branchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        {/* Fallback for existing value not in list */}
+                        {editFormData.descricao_produto && 
+                         !["Cal Dolomítico", "Cal Calcítico", "Bobina de Aço", "Vazio", "Minério de Ferro"].includes(editFormData.descricao_produto) &&
+                         !products.some(p => p.name === editFormData.descricao_produto && p.branchId === editFormData.branchId) && (
+                           <option key="current" value={editFormData.descricao_produto}>{editFormData.descricao_produto}</option>
+                        )}
                       </select>
                     </div>
                     <Input 

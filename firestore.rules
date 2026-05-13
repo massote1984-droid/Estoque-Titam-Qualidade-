@@ -118,59 +118,35 @@ service cloud.firestore {
     }
 
     match /branches/{branchId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidBranch(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isValidBranch(request.resource.data);
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /suppliers/{supplierId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidNamedEntity(request.resource.data) || isAdmin());
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /transporters/{transporterId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidNamedEntity(request.resource.data) || isAdmin());
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /customers/{customerId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidNamedEntity(request.resource.data) || isAdmin());
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /products/{productId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidNamedEntity(request.resource.data) || isAdmin());
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /destinations/{destinationId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidNamedEntity(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidNamedEntity(request.resource.data) || isAdmin());
-      allow delete: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /entries/{entryId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if isAuthenticated();
+      allow read, write: if isAuthenticated();
     }
 
     match /containers/{containerId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidContainer(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && (isValidContainer(request.resource.data) || isAdmin());
-      allow delete: if isAuthenticated() && (isDocOwner() || isAdmin());
+      allow read, write: if isAuthenticated();
     }
   }
 }
