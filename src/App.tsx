@@ -2078,7 +2078,7 @@ export default function App() {
         <nav className="flex-1 p-4 space-y-2 mt-4">
           <NavItem 
             icon={<LayoutDashboard size={18} />} 
-            label="Dashboard" 
+            label="Painel" 
             active={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
           />
@@ -2120,7 +2120,7 @@ export default function App() {
           />
           <NavItem 
             icon={<Package size={18} />} 
-            label="Containers" 
+            label="Contêineres" 
             active={activeTab === 'containers'} 
             onClick={() => setActiveTab('containers')} 
           />
