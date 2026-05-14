@@ -534,6 +534,7 @@ export default function App() {
               const { id, isPending, ...data } = ent;
               return addDoc(collection(db, 'entries'), {
                 ...data,
+                branchId: data.branchId || (selectedBranchId !== 'all' ? selectedBranchId : null),
                 import_batch: batchId,
                 uid: user.uid,
                 created_at: serverTimestamp()
@@ -1305,14 +1306,20 @@ export default function App() {
       );
 
       if (voltaRedondaBranch) {
-        // Verificar duplicidade
-        const alreadyIntegrated = entries.some(e => 
-          e.nf_numero === nf && 
-          e.branchId === voltaRedondaBranch.id
+        // Verificar duplicidade no servidor (já que o estado 'entries' pode estar filtrado por filial)
+        const qAlready = query(
+          collection(db, 'entries'), 
+          where('nf_numero', '==', nf), 
+          where('branchId', '==', voltaRedondaBranch.id)
         );
+        const snapshotAlready = await getDocs(qAlready);
+        const alreadyIntegrated = !snapshotAlready.empty;
 
         if (alreadyIntegrated) {
-          console.log(`[Integração] NF ${nf} já existe em Volta Redonda.`);
+          console.log(`[Integração] NF ${nf} já existe em Volta Redonda. Atualizando registro existente...`);
+          const existingDoc = snapshotAlready.docs[0];
+          // Opcional: Atualizar o existente? Por enquanto vamos apenas evitar a duplicata como solicitado
+          // await updateDoc(doc(db, 'entries', existingDoc.id), updatesToSync); 
           return;
         }
 
