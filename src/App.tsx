@@ -5310,7 +5310,7 @@ function ReportsView({
       ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Cliente', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : reportType === 'estoque_minerio'
       ? ['Data NF', 'NF', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Data do Recebimento', 'Placa do Veículo', 'Destino']
-      : ['Emissão NF', 'NF', 'Fornecedor', 'Peso', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
+      : ['Emissão NF', 'NF', 'Fornecedor', 'Tipo de Material', 'Peso', 'Destino', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
       if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.container, e.fornecedor, e.descricao_produto, e.tonelada, e.status, ''];
@@ -5320,7 +5320,7 @@ function ReportsView({
       if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino, e.placa_veiculo];
       if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.cliente, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       if (reportType === 'estoque_minerio') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_descarga, e.placa_veiculo, e.destino];
-      return [e.data_emissao_nf, e.nf_numero, e.fornecedor, e.tonelada, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
+      return [e.data_emissao_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.destino, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
 
     const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
@@ -5524,7 +5524,9 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Emissão NF</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
+                    <th className="px-6 py-3 data-grid-header">Tipo de Material</th>
                     <th className="px-6 py-3 data-grid-header">Peso</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
                     <th className="px-6 py-3 data-grid-header">Emissão CTE Intertex</th>
                     <th className="px-6 py-3 data-grid-header">CTE Intertex</th>
                     <th className="px-6 py-3 data-grid-header">Emissão CTE Transp.</th>
@@ -5638,7 +5640,9 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_nf || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.descricao_produto || '-'}</td>
                       <td className="px-6 py-4 text-sm mono-value">{e.tonelada || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.destino || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.cte_intertex || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_emissao_cte_transp || '-'}</td>
