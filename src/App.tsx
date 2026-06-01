@@ -5281,7 +5281,7 @@ function ReportsView({
   onUndoLastImport: () => void,
   isProcessing: boolean
 }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
@@ -5291,7 +5291,11 @@ function ReportsView({
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
     const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
     const matchesStatus = (reportType === 'estoque' || reportType === 'estoque_minerio') ? entry.status === 'Estoque' : true;
-    const matchesProduct = reportType === 'estoque_minerio' ? entry.descricao_produto === 'Minério de Ferro' : true;
+    const matchesProduct = reportType === 'estoque_minerio' 
+      ? entry.descricao_produto === 'Minério de Ferro' 
+      : reportType === 'faturamento_bobinas'
+      ? entry.descricao_produto === 'Bobina de Aço'
+      : true;
     return matchesDate && matchesFornecedor && matchesStatus && matchesProduct;
   });
 
@@ -5310,6 +5314,8 @@ function ReportsView({
       ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Cliente', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : reportType === 'estoque_minerio'
       ? ['Data NF', 'NF', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Data do Recebimento', 'Placa do Veículo', 'Destino']
+      : reportType === 'faturamento_bobinas'
+      ? ['Data de Descarga', 'Nota Fiscal', 'Tonelada', 'ID do Lote', 'Data do Carregamento Ferroviário']
       : ['Emissão NF', 'NF', 'Fornecedor', 'Tipo de Material', 'Peso', 'Destino', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
@@ -5320,6 +5326,7 @@ function ReportsView({
       if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino, e.placa_veiculo];
       if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.cliente, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       if (reportType === 'estoque_minerio') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_descarga, e.placa_veiculo, e.destino];
+      if (reportType === 'faturamento_bobinas') return [e.data_descarga, e.nf_numero, e.tonelada, e.id_lote, e.data_final_carregamento];
       return [e.data_emissao_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.destino, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
     });
 
@@ -5386,6 +5393,7 @@ function ReportsView({
             <option value="saida_detalhada">Relatório de Saída Detalhado</option>
             <option value="faturamento_detalhado">Faturamento Detalhado</option>
             <option value="estoque_minerio">Estoque Minério</option>
+            <option value="faturamento_bobinas">Faturamento Bobinas</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -5548,6 +5556,15 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Destino</th>
                   </>
                 )}
+                {reportType === 'faturamento_bobinas' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Data de Descarga</th>
+                    <th className="px-6 py-3 data-grid-header">Nota Fiscal</th>
+                    <th className="px-6 py-3 data-grid-header">Tonelada</th>
+                    <th className="px-6 py-3 data-grid-header">ID do Lote</th>
+                    <th className="px-6 py-3 data-grid-header">Data do Carregamento Ferroviário</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -5662,6 +5679,15 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.placa_veiculo || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.destino || '-'}</td>
+                    </>
+                  )}
+                  {reportType === 'faturamento_bobinas' && (
+                    <>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
+                      <td className="px-6 py-4 text-sm mono-value">{e.tonelada || '0'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.id_lote || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.data_final_carregamento || '-'}</td>
                     </>
                   )}
                 </tr>
