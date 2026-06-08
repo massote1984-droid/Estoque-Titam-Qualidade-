@@ -2016,15 +2016,6 @@ export default function App() {
                   <h1 className="text-[#FFB800] font-black italic text-3xl tracking-tighter leading-none glow-text">MULTITEX</h1>
                   <p className="text-white text-[10px] font-bold uppercase tracking-[0.3em] mt-1">LOGÍSTICA Ltda.</p>
                 </div>
-                <div className="mt-4 flex items-center gap-2">
-                  <div className="relative flex items-center">
-                    <span className="text-[#FFB800] font-black text-4xl leading-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">35</span>
-                    <div className="flex flex-col ml-1">
-                      <span className="text-[#FFB800] text-[8px] font-black leading-none">★</span>
-                      <span className="text-white/60 text-[8px] font-bold uppercase tracking-widest leading-none mt-1">ANOS</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           ) : (
