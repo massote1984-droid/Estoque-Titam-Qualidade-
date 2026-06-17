@@ -909,7 +909,7 @@ export default function App() {
 
   const supplierStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const filtered = filteredEntriesForDashboard.filter(e => e && e.status === 'Estoque' && e.data_descarga && selectedDates.includes(e.data_descarga));
     const supplierMap: Record<string, { total: number, tons: number, products: Record<string, { count: number, tons: number }> }> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
@@ -936,7 +936,7 @@ export default function App() {
 
   const productStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const filtered = filteredEntriesForDashboard.filter(e => e && e.status === 'Estoque' && e.data_descarga && selectedDates.includes(e.data_descarga));
     
     // Initialize with mandatory products to ensure they always show up
     const productMap: Record<string, { count: number, tons: number }> = {
