@@ -1145,7 +1145,13 @@ export default function App() {
       if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
       
       // Prioritize data_faturamento_vli for exits
-      const exitDate = e.data_faturamento_vli || e.data_posicionamento || e.data_descarga;
+      let exitDate = e.data_faturamento_vli || e.data_posicionamento || e.data_descarga;
+      
+      // Na filial da Titam no relatorio Acumulado de Saídas por Mês (Destino e Material) quando for Bobina considerar o faturamento no mês que ocorreu a Data Carregamento Rodoviário.
+      if (isTitam && e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'))) {
+        exitDate = e.data_carregamento_rodoviario || exitDate;
+      }
+      
       if (!exitDate) return;
       
       // Handle both YYYY-MM-DD and DD/MM/YYYY formats
@@ -1183,7 +1189,7 @@ export default function App() {
     });
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
-  }, [entries]);
+  }, [entries, isTitam]);
 
   const getMonthName = (dateStr?: string) => {
     if (!dateStr) return '';
