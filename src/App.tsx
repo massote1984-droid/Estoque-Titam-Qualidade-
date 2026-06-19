@@ -201,6 +201,21 @@ export default function App() {
     return ['Embarcado', 'Devolvido'].includes(e.status);
   }, [isTitam]);
 
+  const getExitDate = React.useCallback((e: Entry | Partial<Entry> | null | undefined, includeDescargaFallback = false) => {
+    if (!e) return '';
+    const isBobina = e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'));
+    let date = '';
+    if (isTitam && isBobina) {
+      date = e.data_carregamento_rodoviario || e.data_posicionamento || e.data_faturamento_vli || '';
+    } else {
+      date = e.data_faturamento_vli || e.data_posicionamento || '';
+    }
+    if (!date && includeDescargaFallback) {
+      date = e.data_descarga || '';
+    }
+    return date;
+  }, [isTitam]);
+
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -983,7 +998,7 @@ export default function App() {
     const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const exits = filteredEntriesForDashboard.filter(e => {
       if (!e || !isExitEntry(e)) return false;
-      const exitDate = e.data_faturamento_vli || e.data_posicionamento;
+      const exitDate = getExitDate(e);
       return exitDate && selectedDates.includes(exitDate);
     });
 
@@ -1018,7 +1033,7 @@ export default function App() {
       queue_external_exceeded,
       queue_internal_exceeded
     };
-  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
 
   const monthlyExitTotal = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return 0;
@@ -1030,8 +1045,8 @@ export default function App() {
       .filter(e => {
         if (!e || !isExitEntry(e)) return false;
         
-        // Prioritize data_posicionamento for exits
-        const exitDate = e.data_posicionamento || e.data_faturamento_vli || e.data_descarga;
+        // Prioritize appropriate exit dates dynamically
+        const exitDate = getExitDate(e, true);
         if (!exitDate) return false;
         
         let y, m;
@@ -1051,7 +1066,7 @@ export default function App() {
         
         return y === currentYear && m === currentMonth;
       }).length;
-  }, [filteredEntriesForDashboard, isExitEntry]);
+  }, [filteredEntriesForDashboard, isExitEntry, getExitDate]);
 
   const exitChartData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -1063,7 +1078,7 @@ export default function App() {
       if (!isExited) return false;
       
       const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
-      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento;
+      const exitDate = getExitDate(entry);
       const exitedOnSelected = exitDate && selectedDates.includes(exitDate);
       
       return arrivedOnSelected || exitedOnSelected;
@@ -1071,8 +1086,8 @@ export default function App() {
 
     const chartDates = new Set<string>(selectedDates);
     exitedEntries.forEach(entry => {
-      // Prioritize data_faturamento_vli for exits
-      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento || entry.data_descarga;
+      // Prioritize appropriate exit dates dynamically
+      const exitDate = getExitDate(entry, true);
       if (exitDate) chartDates.add(exitDate);
     });
 
@@ -1083,8 +1098,8 @@ export default function App() {
     });
 
     exitedEntries.forEach(entry => {
-      // Prioritize data_faturamento_vli for exits
-      const exitDate = entry.data_faturamento_vli || entry.data_posicionamento || entry.data_descarga;
+      // Prioritize appropriate exit dates dynamically
+      const exitDate = getExitDate(entry, true);
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
         if (!dailyMap[exitDate][key]) {
@@ -1097,7 +1112,7 @@ export default function App() {
     });
 
     return Object.values(dailyMap);
-  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
 
   const exitChartKeys = React.useMemo(() => {
     const keys = new Set<string>();
@@ -1119,7 +1134,7 @@ export default function App() {
 
     filteredEntriesForDashboard.forEach(e => {
       if (!e || !isExitEntry(e)) return;
-      const exitDate = e.data_faturamento_vli || e.data_posicionamento;
+      const exitDate = getExitDate(e);
       if (!exitDate || !selectedDates.includes(exitDate)) return;
       
       const dest = e.destino || 'Não especificado';
@@ -1137,7 +1152,7 @@ export default function App() {
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
-  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
 
   const monthlyAccumulatedExits = React.useMemo(() => {
     if (!Array.isArray(entries)) return [];
@@ -1152,13 +1167,7 @@ export default function App() {
     entries.forEach(e => {
       if (!e || !isExitEntry(e)) return;
       
-      // Prioritize data_faturamento_vli for exits
-      let exitDate = e.data_faturamento_vli || e.data_posicionamento || e.data_descarga;
-      
-      // Na filial da Titam no relatorio Acumulado de Saídas por Mês (Destino e Material) quando for Bobina considerar o faturamento no mês que ocorreu a Data Carregamento Rodoviário.
-      if (isTitam && e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'))) {
-        exitDate = e.data_carregamento_rodoviario || exitDate;
-      }
+      const exitDate = getExitDate(e, true);
       
       if (!exitDate) return;
       
@@ -1197,7 +1206,7 @@ export default function App() {
     });
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
-  }, [entries, isTitam, isExitEntry]);
+  }, [entries, isTitam, isExitEntry, getExitDate]);
 
   const getMonthName = (dateStr?: string) => {
     if (!dateStr) return '';
