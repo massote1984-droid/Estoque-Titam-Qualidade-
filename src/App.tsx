@@ -193,6 +193,14 @@ export default function App() {
   const brandPrimaryColor = '#B6D932';
   const brandDeepColor = '#1E3932';
 
+  const isExitEntry = React.useCallback((e: Entry | Partial<Entry> | null | undefined) => {
+    if (!e || !e.status) return false;
+    if (isTitam && e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'))) {
+      return e.status === 'Embarcado';
+    }
+    return ['Embarcado', 'Devolvido'].includes(e.status);
+  }, [isTitam]);
+
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const now = new Date();
     const year = now.getFullYear();
@@ -974,7 +982,7 @@ export default function App() {
     
     const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
     const exits = filteredEntriesForDashboard.filter(e => {
-      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
+      if (!e || !isExitEntry(e)) return false;
       const exitDate = e.data_faturamento_vli || e.data_posicionamento;
       return exitDate && selectedDates.includes(exitDate);
     });
@@ -1010,7 +1018,7 @@ export default function App() {
       queue_external_exceeded,
       queue_internal_exceeded
     };
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
 
   const monthlyExitTotal = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return 0;
@@ -1020,7 +1028,7 @@ export default function App() {
     
     return filteredEntriesForDashboard
       .filter(e => {
-        if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return false;
+        if (!e || !isExitEntry(e)) return false;
         
         // Prioritize data_posicionamento for exits
         const exitDate = e.data_posicionamento || e.data_faturamento_vli || e.data_descarga;
@@ -1043,7 +1051,7 @@ export default function App() {
         
         return y === currentYear && m === currentMonth;
       }).length;
-  }, [filteredEntriesForDashboard]);
+  }, [filteredEntriesForDashboard, isExitEntry]);
 
   const exitChartData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -1051,7 +1059,7 @@ export default function App() {
     
     const exitedEntries = filteredEntriesForDashboard.filter(entry => {
       if (!entry) return false;
-      const isExited = ['Embarcado', 'Devolvido'].includes(entry.status);
+      const isExited = isExitEntry(entry);
       if (!isExited) return false;
       
       const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
@@ -1089,17 +1097,17 @@ export default function App() {
     });
 
     return Object.values(dailyMap);
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
 
   const exitChartKeys = React.useMemo(() => {
     const keys = new Set<string>();
     filteredEntriesForDashboard.forEach(entry => {
-      if (['Embarcado', 'Devolvido'].includes(entry.status)) {
+      if (isExitEntry(entry)) {
         keys.add(`${entry.descricao_produto} - ${entry.destino}`);
       }
     });
     return Array.from(keys);
-  }, [filteredEntriesForDashboard]);
+  }, [filteredEntriesForDashboard, isExitEntry]);
 
   const selectedPeriodExitsSummary = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -1110,7 +1118,7 @@ export default function App() {
     }> = {};
 
     filteredEntriesForDashboard.forEach(e => {
-      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      if (!e || !isExitEntry(e)) return;
       const exitDate = e.data_faturamento_vli || e.data_posicionamento;
       if (!exitDate || !selectedDates.includes(exitDate)) return;
       
@@ -1129,7 +1137,7 @@ export default function App() {
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry]);
 
   const monthlyAccumulatedExits = React.useMemo(() => {
     if (!Array.isArray(entries)) return [];
@@ -1142,7 +1150,7 @@ export default function App() {
     }> = {};
 
     entries.forEach(e => {
-      if (!e || !['Embarcado', 'Devolvido'].includes(e.status)) return;
+      if (!e || !isExitEntry(e)) return;
       
       // Prioritize data_faturamento_vli for exits
       let exitDate = e.data_faturamento_vli || e.data_posicionamento || e.data_descarga;
@@ -1189,7 +1197,7 @@ export default function App() {
     });
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
-  }, [entries, isTitam]);
+  }, [entries, isTitam, isExitEntry]);
 
   const getMonthName = (dateStr?: string) => {
     if (!dateStr) return '';
