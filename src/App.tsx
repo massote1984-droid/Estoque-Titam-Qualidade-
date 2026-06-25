@@ -360,7 +360,12 @@ export default function App() {
   }, [entries, activeTab, branches, isTitam, selectedBranchId]);
 
   const triggerTestAlert = () => {
-    const alerts = [
+    const alerts = isVoltaRedonda ? [
+      { msg: "ALERTA CRÍTICO: Estoque (Cheio Terminal) de Cal Calcítico em Volta Redonda está abaixo do esperado!", type: 'critical' },
+      { msg: "AVISO: Caminhões aguardando descarga na Arcelor.", type: 'warning' },
+      { msg: "NOTIFICAÇÃO: Sincronização de Volta Redonda concluída com sucesso.", type: 'info' },
+      { msg: "ERRO: Falha na sincronização de dados de Volta Redonda.", type: 'error' }
+    ] : [
       { msg: "ALERTA CRÍTICO: Estoque de Cal Dolomítico (Serra-ES) está abaixo do limite mínimo (150t)!", type: 'critical' },
       { msg: "AVISO: 3 novos caminhões aguardando na portaria.", type: 'warning' },
       { msg: "NOTIFICAÇÃO: Sincronização concluída com sucesso.", type: 'info' },
@@ -887,10 +892,10 @@ export default function App() {
       
       return {
         fornecedor: s,
-        estoque: Math.round(supplierEntries.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        estoque: Math.round(supplierEntries.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(supplierEntries.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        transito_vazio: Math.round(supplierEntries.filter(e => e && e.status === 'Transito vazio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(supplierEntries.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_vazio: Math.round(supplierEntries.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(supplierEntries.filter(e => e && (e.status === 'Em descarga' || e.status === 'Em Descarga Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(supplierEntries.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -917,10 +922,10 @@ export default function App() {
       return {
         descricao_produto: prod,
         destino: dest,
-        estoque: Math.round(filtered.filter(e => e && e.status === 'Estoque').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        estoque: Math.round(filtered.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(filtered.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        transito_vazio: Math.round(filtered.filter(e => e && e.status === 'Transito vazio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(filtered.filter(e => e && e.status === 'Em descarga').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        transito_vazio: Math.round(filtered.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(filtered.filter(e => e && (e.status === 'Em descarga' || e.status === 'Em Descarga Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(filtered.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -932,7 +937,7 @@ export default function App() {
 
   const supplierStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && e.status === 'Estoque' && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const filtered = filteredEntriesForDashboard.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)') && e.data_descarga && selectedDates.includes(e.data_descarga));
     const supplierMap: Record<string, { total: number, tons: number, products: Record<string, { count: number, tons: number }> }> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
@@ -959,7 +964,7 @@ export default function App() {
 
   const productStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && e.status === 'Estoque' && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const filtered = filteredEntriesForDashboard.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)') && e.data_descarga && selectedDates.includes(e.data_descarga));
     
     // Initialize with mandatory products to ensure they always show up
     const productMap: Record<string, { count: number, tons: number }> = {
@@ -1023,7 +1028,7 @@ export default function App() {
     return {
       arrival_count: arrivals.length,
       arrival_tons: arrivals.reduce((acc, e) => acc + (e.tonelada || 0), 0),
-      in_stock: arrivals.filter(e => e && ['Estoque', 'Rejeitado'].includes(e.status)).length,
+      in_stock: arrivals.filter(e => e && ['Estoque', 'Estoque (Cheio Terminal)', 'Rejeitado'].includes(e.status)).length,
       exited: exits.length,
       suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length,
       exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0),
@@ -2186,7 +2191,16 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-auto p-8 transition-all duration-700">
         <AnimatePresence>
-          {notifications.filter(n => n.type === 'critical').map(n => (
+          {notifications
+            .filter(n => n.type === 'critical')
+            .filter(n => {
+              if (isVoltaRedonda) {
+                const text = (n.message || '').toLowerCase();
+                return !text.includes('titam') && !text.includes('serra-es') && !text.includes('cal dolomítico') && !n.id.startsWith('impact-');
+              }
+              return true;
+            })
+            .map(n => (
             <motion.div
               key={n.id}
               initial={{ height: 0, opacity: 0 }}
@@ -3336,6 +3350,7 @@ export default function App() {
               onImportBackup={importBackup} 
               onUndoLastImport={undoLastImport}
               isProcessing={isProcessing}
+              isTitam={isTitam}
             />
           )}
 
@@ -4701,15 +4716,13 @@ export default function App() {
                     <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                      <select name="status" defaultValue={formData.status || "Estoque"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="Estoque">Estoque</option>
-                        <option value="Em descarga">Em descarga</option>
+                      <select name="status" defaultValue={formData.status || "Trânsito Cheio"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                         <option value="Trânsito Cheio">Trânsito Cheio</option>
-                        <option value="Rejeitado">Rejeitado</option>
-                        <option value="Embarcado">Embarcado</option>
-                        <option value="Devolvido">Devolvido</option>
+                        <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                        <option value="Em Descarga Arcelor">Em Descarga Arcelor</option>
                         <option value="Vazio Terminal">Vazio Terminal</option>
-                        <option value="Transito vazio">Transito vazio</option>
+                        <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                        <option value="Rejeitado">Rejeitado</option>
                       </select>
                     </div>
                     <div className="flex flex-col gap-1">
@@ -5166,27 +5179,34 @@ export default function App() {
                       />
                     )}
 
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
-                      <select 
-                        value={editFormData.status || ''}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                      >
-                        <option value="Estoque">Estoque</option>
-                        <option value="Em descarga">Em descarga</option>
-                        <option value="Trânsito Cheio">Trânsito Cheio</option>
-                        <option value="Rejeitado">Rejeitado</option>
-                        <option value="Embarcado">Embarcado</option>
-                        <option value="Devolvido">Devolvido</option>
-                        {isVREdit && (
-                          <>
-                            <option value="Vazio Terminal">Vazio Terminal</option>
-                            <option value="Transito vazio">Transito vazio</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
+                     <div className="flex flex-col gap-1">
+                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
+                       <select 
+                         value={editFormData.status || ''}
+                         onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                         className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+                       >
+                         {isVREdit ? (
+                           <>
+                             <option value="Trânsito Cheio">Trânsito Cheio</option>
+                             <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                             <option value="Em Descarga Arcelor">Em Descarga Arcelor</option>
+                             <option value="Vazio Terminal">Vazio Terminal</option>
+                             <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                             <option value="Rejeitado">Rejeitado</option>
+                           </>
+                         ) : (
+                           <>
+                             <option value="Estoque">Estoque</option>
+                             <option value="Em descarga">Em descarga</option>
+                             <option value="Trânsito Cheio">Trânsito Cheio</option>
+                             <option value="Rejeitado">Rejeitado</option>
+                             <option value="Embarcado">Embarcado</option>
+                             <option value="Devolvido">Devolvido</option>
+                           </>
+                         )}
+                       </select>
+                     </div>
                   </div>
                 </section>
 
@@ -5287,13 +5307,15 @@ function ReportsView({
   onExportBackup, 
   onImportBackup,
   onUndoLastImport,
-  isProcessing
+  isProcessing,
+  isTitam
 }: { 
   entries: Entry[], 
   onExportBackup: () => void, 
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
   onUndoLastImport: () => void,
-  isProcessing: boolean
+  isProcessing: boolean,
+  isTitam?: boolean
 }) {
   const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas'>('estoque');
   const [startDate, setStartDate] = useState('');
@@ -5304,7 +5326,7 @@ function ReportsView({
     const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
     const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
-    const matchesStatus = (reportType === 'estoque' || reportType === 'estoque_minerio') ? entry.status === 'Estoque' : true;
+    const matchesStatus = (reportType === 'estoque' || reportType === 'estoque_minerio') ? (entry.status === 'Estoque' || entry.status === 'Estoque (Cheio Terminal)') : true;
     const matchesProduct = reportType === 'estoque_minerio' 
       ? entry.descricao_produto === 'Minério de Ferro' 
       : reportType === 'faturamento_bobinas'
@@ -5315,7 +5337,9 @@ function ReportsView({
 
   const exportToCSV = () => {
     const headers = reportType === 'estoque' 
-      ? ['Data NF', 'NF', 'Container', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Número do Vagão']
+      ? (isTitam 
+         ? ['Data NF', 'Data de Descarga', 'NF', 'Container', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Número do Vagão']
+         : ['Data NF', 'NF', 'Container', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Número do Vagão'])
       : reportType === 'faturamento'
       ? ['NF', 'Valor', 'Data Emissão', 'CTE Intertex', 'CTE Transportador']
       : reportType === 'performance'
@@ -5325,7 +5349,7 @@ function ReportsView({
       : reportType === 'transporte_municipal'
       ? ['Mês', 'Data NF', 'NF', 'Fornecedor', 'Tonelada', 'Produto', 'Destino', 'Placa']
       : reportType === 'saida_detalhada'
-      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Cliente', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
+      ? ['Data Posicionamento', 'Horário Posicionamento', 'Data NF', 'Fornecedor', 'Data Descarga', 'NF', 'ID Lote', 'Produto', 'Volume (Ton)', 'Placa', 'Transportador', 'Cliente', 'Data Carregamento Rod.', 'Placa Saída', 'Container', 'Vagão', 'Fat. VLI', 'Horário Faturamento', 'Destino', 'Fornecedor', 'Status']
       : reportType === 'estoque_minerio'
       ? ['Data NF', 'NF', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Data do Recebimento', 'Placa do Veículo', 'Destino']
       : reportType === 'faturamento_bobinas'
@@ -5333,12 +5357,16 @@ function ReportsView({
       : ['Emissão NF', 'NF', 'Fornecedor', 'Tipo de Material', 'Peso', 'Destino', 'Emissão CTE Intertex', 'CTE Intertex', 'Emissão CTE Transp.', 'CTE Transportador', 'Data TITAM', 'Faturamento Titam'];
 
     const rows = filteredEntries.map(e => {
-      if (reportType === 'estoque') return [e.data_nf, e.nf_numero, e.container, e.fornecedor, e.descricao_produto, e.tonelada, e.status, ''];
+      if (reportType === 'estoque') {
+        return isTitam 
+          ? [e.data_nf, e.data_descarga || '-', e.nf_numero, e.container, e.fornecedor, e.descricao_produto, e.tonelada, e.status, '']
+          : [e.data_nf, e.nf_numero, e.container, e.fornecedor, e.descricao_produto, e.tonelada, e.status, ''];
+      }
       if (reportType === 'faturamento') return [e.nf_numero, e.valor, e.data_emissao_nf, e.cte_intertex, e.cte_transportador];
       if (reportType === 'performance') return [e.nf_numero, e.data_descarga || '-', e.fornecedor, e.descricao_produto, e.placa_veiculo, e.hora_chegada, e.hora_entrada, e.hora_saida, calculateTimeDiff(e.hora_entrada, e.hora_saida), calculateTimeDiff(e.hora_chegada, e.hora_saida)];
       if (reportType === 'logistica_vli') return [e.nf_numero, e.descricao_produto, e.container, e.numero_vagao, e.data_faturamento_vli, e.destino, e.fornecedor];
       if (reportType === 'transporte_municipal') return [e.mes, e.data_nf, e.nf_numero, e.fornecedor, e.tonelada, e.descricao_produto, e.destino, e.placa_veiculo];
-      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.cliente, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
+      if (reportType === 'saida_detalhada') return [e.data_posicionamento, e.horario_posicionamento, e.data_nf, e.fornecedor, e.data_descarga, e.nf_numero, e.id_lote, e.descricao_produto, e.tonelada, e.placa_veiculo, e.transportador, e.cliente, e.data_carregamento_rodoviario, e.placa_saida, e.container, e.numero_vagao, e.data_faturamento_vli, e.horario_faturamento, e.destino, e.fornecedor, e.status];
       if (reportType === 'estoque_minerio') return [e.data_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.status, e.data_descarga, e.placa_veiculo, e.destino];
       if (reportType === 'faturamento_bobinas') return [e.data_descarga, e.nf_numero, e.tonelada, e.id_lote, e.data_carregamento_rodoviario];
       return [e.data_emissao_nf, e.nf_numero, e.fornecedor, e.descricao_produto, e.tonelada, e.destino, e.data_emissao_cte, e.cte_intertex, e.data_emissao_cte_transp, e.cte_transportador, e.data_titam, e.faturamento_titam];
@@ -5462,6 +5490,7 @@ function ReportsView({
                 {reportType === 'estoque' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    {isTitam && <th className="px-6 py-3 data-grid-header">Data de Descarga</th>}
                     <th className="px-6 py-3 data-grid-header">NF</th>
                     <th className="px-6 py-3 data-grid-header">Container</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedor</th>
@@ -5522,6 +5551,7 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Data Posicionamento</th>
                     <th className="px-6 py-3 data-grid-header">Horário Posicionamento</th>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedor</th>
                     <th className="px-6 py-3 data-grid-header">Data Descarga</th>
                     <th className="px-6 py-3 data-grid-header">NF</th>
                     <th className="px-6 py-3 data-grid-header">ID Lote</th>
@@ -5587,6 +5617,7 @@ function ReportsView({
                   {reportType === 'estoque' && (
                     <>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      {isTitam && <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga || '-'}</td>}
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.container}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
@@ -5647,6 +5678,7 @@ function ReportsView({
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_posicionamento || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.horario_posicionamento || '-'}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{e.fornecedor}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.nf_numero}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.id_lote || '-'}</td>
