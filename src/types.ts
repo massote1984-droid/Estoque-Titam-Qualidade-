@@ -8,7 +8,7 @@ export interface Entry {
   descricao_produto: string;
   data_nf: string;
   data_descarga: string;
-  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito Cheio' | 'Em descarga' | 'Vazio Terminal' | 'Transito vazio' | 'Estoque (Cheio Terminal)' | 'Em Descarga Arcelor' | 'Trânsito Vazio (Arcos)';
+  status: 'Estoque' | 'Rejeitado' | 'Embarcado' | 'Devolvido' | 'Trânsito Cheio' | 'Em descarga' | 'Vazio Terminal' | 'Transito vazio' | 'Estoque (Cheio Terminal)' | 'Em descarga na Arcelor' | 'Trânsito Vazio (Arcos)';
   fornecedor: string;
   placa_veiculo: string;
   container: string;

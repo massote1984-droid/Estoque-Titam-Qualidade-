@@ -127,6 +127,36 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 };
 
+const getStatusBadgeStyle = (status: string | undefined): string => {
+  if (!status) return 'bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white';
+  const val = status.toLowerCase().trim();
+  if (val.includes('estoque (cheio') || val === 'estoque') {
+    return 'bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-500 group-hover:text-white group-hover:border-emerald-500';
+  }
+  if (val.includes('descarga arcelor') || val.includes('descarga na arcelor') || val === 'em descarga') {
+    return 'bg-amber-50 text-amber-700 border border-amber-200 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500';
+  }
+  if (val.includes('trânsito cheio') || val.includes('transito cheio')) {
+    return 'bg-blue-50 text-blue-700 border border-blue-200 group-hover:bg-blue-500 group-hover:text-white group-hover:border-blue-500';
+  }
+  if (val.includes('vazio terminal')) {
+    return 'bg-purple-50 text-purple-700 border border-purple-200 group-hover:bg-purple-500 group-hover:text-white group-hover:border-purple-500';
+  }
+  if (val.includes('trânsito vazio') || val.includes('transito vazio')) {
+    return 'bg-indigo-50 text-indigo-700 border border-indigo-200 group-hover:bg-indigo-500 group-hover:text-white group-hover:border-indigo-500';
+  }
+  if (val.includes('rejeitado')) {
+    return 'bg-red-50 text-red-700 border border-red-200 group-hover:bg-red-500 group-hover:text-white group-hover:border-red-500';
+  }
+  if (val.includes('embarcado')) {
+    return 'bg-sky-50 text-sky-700 border border-sky-200 group-hover:bg-sky-500 group-hover:text-white group-hover:border-sky-500';
+  }
+  if (val.includes('devolvido')) {
+    return 'bg-orange-50 text-orange-700 border border-orange-200 group-hover:bg-orange-500 group-hover:text-white group-hover:border-orange-500';
+  }
+  return 'bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white';
+};
+
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros';
 
 export default function App() {
@@ -195,11 +225,15 @@ export default function App() {
 
   const isExitEntry = React.useCallback((e: Entry | Partial<Entry> | null | undefined) => {
     if (!e || !e.status) return false;
+    const isEntryVR = e.branchId ? branches.find(b => b.id === e.branchId)?.name?.toLowerCase().includes('volta redonda') : isVoltaRedonda;
+    if (isEntryVR && (e.status === 'Em descarga na Arcelor' || (e.status as any) === 'Em Descarga Arcelor')) {
+      return true;
+    }
     if (isTitam && e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'))) {
       return e.status === 'Embarcado';
     }
     return ['Embarcado', 'Devolvido'].includes(e.status);
-  }, [isTitam]);
+  }, [isTitam, branches, isVoltaRedonda]);
 
   const getExitDate = React.useCallback((e: Entry | Partial<Entry> | null | undefined, includeDescargaFallback = false) => {
     if (!e) return '';
@@ -210,11 +244,15 @@ export default function App() {
     } else {
       date = e.data_faturamento_vli || e.data_posicionamento || '';
     }
+    const isVR = e.branchId ? branches.find(b => b.id === e.branchId)?.name?.toLowerCase().includes('volta redonda') : isVoltaRedonda;
+    if (isVR && (e.status === 'Em descarga na Arcelor' || (e.status as any) === 'Em Descarga Arcelor')) {
+      date = date || e.data_descarga || '';
+    }
     if (!date && includeDescargaFallback) {
       date = e.data_descarga || '';
     }
     return date;
-  }, [isTitam]);
+  }, [isTitam, branches, isVoltaRedonda]);
 
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const now = new Date();
@@ -252,8 +290,15 @@ export default function App() {
   useEffect(() => {
     if (selectedEntry) {
       const isVR = branches.find(b => b.id === selectedEntry.branchId)?.name?.toLowerCase().includes('volta redonda') || false;
+      let status: any = selectedEntry.status;
+      if (isVR && status) {
+        if (status === 'Em descarga') status = 'Em descarga na Arcelor';
+        if (status === 'Estoque') status = 'Estoque (Cheio Terminal)';
+        if (status === 'Transito vazio' || status === 'Trânsito Vazio') status = 'Trânsito Vazio (Arcos)';
+      }
       setEditFormData({
         ...selectedEntry,
+        status,
         modal: selectedEntry.modal || (isVR ? 'Rodoviário' : undefined)
       });
     } else {
@@ -558,10 +603,18 @@ export default function App() {
 
           if (user) {
             addNotification(`${entriesToImport.length} registros importados. Sincronizando com Firestore...`, "info");
+            const activeBranchIsVR = branches.find(b => b.id === selectedBranchId)?.name?.toLowerCase().includes('volta redonda') || false;
             Promise.all(entriesToImport.map(ent => {
               const { id, isPending, ...data } = ent;
+              let finalStatus = data.status || 'Estoque';
+              if (activeBranchIsVR) {
+                if (finalStatus === 'Em descarga') finalStatus = 'Em descarga na Arcelor';
+                if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
+                if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
+              }
               return addDoc(collection(db, 'entries'), {
                 ...data,
+                status: finalStatus,
                 branchId: data.branchId || (selectedBranchId !== 'all' ? selectedBranchId : null),
                 import_batch: batchId,
                 uid: user.uid,
@@ -895,7 +948,7 @@ export default function App() {
         estoque: Math.round(supplierEntries.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(supplierEntries.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_vazio: Math.round(supplierEntries.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(supplierEntries.filter(e => e && (e.status === 'Em descarga' || e.status === 'Em Descarga Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(supplierEntries.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(supplierEntries.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -925,7 +978,7 @@ export default function App() {
         estoque: Math.round(filtered.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(filtered.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_vazio: Math.round(filtered.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(filtered.filter(e => e && (e.status === 'Em descarga' || e.status === 'Em Descarga Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(filtered.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(filtered.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -1272,8 +1325,16 @@ export default function App() {
       return parseFloat(sanitized) || 0;
     };
 
+    let finalStatus = rawData.status?.toString() || '';
+    if (isVoltaRedonda && finalStatus) {
+      if (finalStatus === 'Em descarga') finalStatus = 'Em descarga na Arcelor';
+      if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
+      if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
+    }
+
     const data: any = {
       ...rawData,
+      status: finalStatus || (isVoltaRedonda ? 'Trânsito Cheio' : 'Estoque'),
       valor: sanitizeNumeric(rawData.valor),
       tonelada: sanitizeNumeric(rawData.tonelada),
       branchId: selectedBranchId,
@@ -1432,10 +1493,20 @@ export default function App() {
       const sanitizedUpdates: any = {};
       const ignoreFields = ['id', 'isPending', 'created_at', 'uid', 'import_batch'];
       
+      const currentEntry = entries.find(e => String(e.id) === String(docId));
+      const branchId = updates.branchId || currentEntry?.branchId;
+      const isVR = branches.find(b => b.id === branchId)?.name?.toLowerCase().includes('volta redonda') || false;
+
       Object.entries(updates).forEach(([key, value]) => {
         if (!ignoreFields.includes(key) && value !== undefined && value !== null) {
           if (key === 'valor' || key === 'tonelada') {
             sanitizedUpdates[key] = sanitizeNumeric(value);
+          } else if (key === 'status' && isVR && value) {
+            let finalVal = value.toString();
+            if (finalVal === 'Em descarga') finalVal = 'Em descarga na Arcelor';
+            if (finalVal === 'Estoque') finalVal = 'Estoque (Cheio Terminal)';
+            if (finalVal === 'Transito vazio' || finalVal === 'Trânsito Vazio') finalVal = 'Trânsito Vazio (Arcos)';
+            sanitizedUpdates[key] = finalVal;
           } else {
             sanitizedUpdates[key] = value;
           }
@@ -4716,10 +4787,10 @@ export default function App() {
                     <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                      <select name="status" defaultValue={formData.status || "Trânsito Cheio"} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
+                      <select name="status" defaultValue={(formData.status as any) === 'Em descarga' ? 'Em descarga na Arcelor' : ((formData.status as any) === 'Estoque' ? 'Estoque (Cheio Terminal)' : ((formData.status as any) === 'Transito vazio' || (formData.status as any) === 'Trânsito Vazio' ? 'Trânsito Vazio (Arcos)' : (formData.status || "Trânsito Cheio")))} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                         <option value="Trânsito Cheio">Trânsito Cheio</option>
                         <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
-                        <option value="Em Descarga Arcelor">Em Descarga Arcelor</option>
+                        <option value="Em descarga na Arcelor">Em descarga na Arcelor</option>
                         <option value="Vazio Terminal">Vazio Terminal</option>
                         <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
                         <option value="Rejeitado">Rejeitado</option>
@@ -5190,7 +5261,7 @@ export default function App() {
                            <>
                              <option value="Trânsito Cheio">Trânsito Cheio</option>
                              <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
-                             <option value="Em Descarga Arcelor">Em Descarga Arcelor</option>
+                             <option value="Em descarga na Arcelor">Em descarga na Arcelor</option>
                              <option value="Vazio Terminal">Vazio Terminal</option>
                              <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
                              <option value="Rejeitado">Rejeitado</option>
@@ -5975,7 +6046,7 @@ function DataView({ title, entries, columns, onEdit, onDelete, onBulkDelete, rea
                     <td key={col.key as string} className="px-6 py-5 text-[11px] font-medium transition-colors">
                       <div className="flex items-center gap-2">
                         <span className={`
-                          ${col.key === 'status' ? `px-2 py-1 rounded-md bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white text-[9px] font-black uppercase tracking-widest transition-all` : ''}
+                          ${col.key === 'status' ? `px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${getStatusBadgeStyle(entry.status)}` : ''}
                           ${(col.key === 'valor' || col.key === 'tonelada' || col.key === 'nf_numero' || (col.key as unknown as string) === 'total_time' || (col.key as unknown as string) === 'descarga_time') ? 'font-mono tracking-tighter' : ''}
                         `}>
                           {(col.key as unknown as string) === 'total_time' ? calculateTimeDiff(entry.hora_chegada, entry.hora_saida) :
