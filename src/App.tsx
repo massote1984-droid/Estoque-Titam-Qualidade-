@@ -246,7 +246,7 @@ export default function App() {
     }
     const isVR = e.branchId ? branches.find(b => b.id === e.branchId)?.name?.toLowerCase().includes('volta redonda') : isVoltaRedonda;
     if (isVR && (e.status === 'Em descarga na Arcelor' || (e.status as any) === 'Em Descarga Arcelor')) {
-      date = date || e.data_descarga || '';
+      date = e.data_carregamento_rodoviario || '';
     }
     if (!date && includeDescargaFallback) {
       date = e.data_descarga || '';
@@ -4747,18 +4747,16 @@ export default function App() {
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
                       <input 
                         name="mes" 
-                        required 
                         defaultValue={formData.mes || getMonthName(formData.data_nf || new Date().toISOString().split('T')[0])} 
                         className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                       />
                     </div>
-                    <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
-                    <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
+                    <Input label="Chave de Acesso NF" name="chave_acesso" defaultValue={formData.chave_acesso} />
+                    <Input label="N.F" name="nf_numero" defaultValue={formData.nf_numero} />
                     <Input 
                       label="Tonelada" 
                       name="tonelada" 
                       type="text" 
-                      required 
                       defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                       placeholder="0,00" 
                     />
@@ -4767,7 +4765,6 @@ export default function App() {
                       name="valor" 
                       type="text" 
                       maxLength={12} 
-                      required 
                       defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
                       placeholder="0,00" 
                     />
@@ -4783,8 +4780,8 @@ export default function App() {
                       </select>
                     </div>
                     <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
-                    <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
-                    <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
+                    <Input label="Data N.F" name="data_nf" type="date" defaultValue={formData.data_nf} />
+                    <Input label="Data Descarga" name="data_descarga" type="date" defaultValue={formData.data_descarga} />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
                       <select name="status" defaultValue={(formData.status as any) === 'Em descarga' ? 'Em descarga na Arcelor' : ((formData.status as any) === 'Estoque' ? 'Estoque (Cheio Terminal)' : ((formData.status as any) === 'Transito vazio' || (formData.status as any) === 'Trânsito Vazio' ? 'Trânsito Vazio (Arcos)' : (formData.status || "Trânsito Cheio")))} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
