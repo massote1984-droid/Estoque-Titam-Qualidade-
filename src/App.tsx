@@ -235,6 +235,237 @@ export default function App() {
     return ['Embarcado', 'Devolvido'].includes(e.status);
   }, [isTitam, branches, isVoltaRedonda]);
 
+  const branchUsersSummary = React.useMemo(() => {
+    if (!Array.isArray(entries) || !Array.isArray(branches)) return {};
+
+    const summary: Record<string, { email: string; count: number; lastActivity: string }[]> = {};
+
+    branches.forEach(branch => {
+      const branchEntries = entries.filter(e => e.branchId === branch.id);
+      const userMap: Record<string, { count: number; lastActivity: string }> = {};
+
+      branchEntries.forEach(e => {
+        const email = e.created_by_email || (e as any).email || 'Não especificado';
+        let date = '';
+        if (e.created_at) {
+          date = typeof e.created_at === 'string' ? e.created_at : '';
+        }
+        
+        if (!userMap[email]) {
+          userMap[email] = { count: 1, lastActivity: date };
+        } else {
+          userMap[email].count += 1;
+          if (date && date > userMap[email].lastActivity) {
+            userMap[email].lastActivity = date;
+          }
+        }
+      });
+
+      summary[branch.id] = Object.entries(userMap).map(([email, info]) => ({
+        email,
+        count: info.count,
+        lastActivity: info.lastActivity
+      })).sort((a, b) => b.count - a.count);
+    });
+
+    return summary;
+  }, [entries, branches]);
+
+  const [nfAuditSearch, setNfAuditSearch] = useState('17745, 17743, 17741, 17727');
+
+  const nfAuditResults = React.useMemo(() => {
+    if (!Array.isArray(entries)) return [];
+
+    const terms = nfAuditSearch
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
+    if (terms.length === 0) return [];
+
+    return terms.map(term => {
+      const matches = entries.filter(e => e.nf_numero && e.nf_numero.toString().trim() === term);
+
+      if (matches.length === 0) {
+        return {
+          nf: term,
+          found: false,
+          currentStatus: 'Não encontrada',
+          updatedAt: '-',
+          updatedBy: '-',
+          changedToday: false,
+          branchName: '-'
+        };
+      }
+
+      const sortedMatches = [...matches].sort((a, b) => {
+        const getTs = (item: Entry) => {
+          if (item.updated_at) {
+            return typeof item.updated_at.toDate === 'function' ? item.updated_at.toDate().getTime() : new Date(item.updated_at).getTime();
+          }
+          if (item.created_at) {
+            return typeof item.created_at.toDate === 'function' ? item.created_at.toDate().getTime() : new Date(item.created_at).getTime();
+          }
+          return 0;
+        };
+        return getTs(b) - getTs(a);
+      });
+
+      const primary = sortedMatches[0];
+      const branch = branches.find(b => b.id === primary.branchId);
+      const branchName = branch ? branch.name : 'Não especificado';
+
+      let updatedAtStr = '-';
+      let updatedBy = primary.updated_by_email || primary.created_by_email || 'Não especificado';
+      let isUpdatedToday = false;
+
+      let lastDate: Date | null = null;
+      if (primary.updated_at) {
+        lastDate = typeof primary.updated_at.toDate === 'function' ? primary.updated_at.toDate() : new Date(primary.updated_at);
+      } else if (primary.created_at) {
+        lastDate = typeof primary.created_at.toDate === 'function' ? primary.created_at.toDate() : new Date(primary.created_at);
+      }
+
+      if (lastDate && !isNaN(lastDate.getTime())) {
+        updatedAtStr = lastDate.toLocaleString('pt-BR');
+
+        const lastDateISOString = new Date(lastDate.getTime() - lastDate.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const today = new Date();
+        const todayISOString = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+
+        if (lastDateISOString === todayISOString) {
+          isUpdatedToday = true;
+        }
+      }
+
+      return {
+        nf: term,
+        found: true,
+        currentStatus: primary.status,
+        updatedAt: updatedAtStr,
+        updatedBy,
+        changedToday: isUpdatedToday,
+        branchName,
+        details: primary
+      };
+    });
+  }, [entries, branches, nfAuditSearch]);
+
+  const [auditBranchId, setAuditBranchId] = useState('all');
+  const [auditDate, setAuditDate] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [auditStartTime, setAuditStartTime] = useState('11:30');
+  const [auditEndTime, setAuditEndTime] = useState('12:30');
+
+  const auditResults = React.useMemo(() => {
+    if (!Array.isArray(entries) || !Array.isArray(branches)) return [];
+
+    const results: {
+      email: string;
+      branchName: string;
+      createdAtUTC: string;
+      createdAtLocal: string;
+      action: string;
+      identifier: string;
+    }[] = [];
+
+    entries.forEach(e => {
+      if (auditBranchId !== 'all' && e.branchId !== auditBranchId) return;
+
+      const branch = branches.find(b => b.id === e.branchId);
+      const branchName = branch ? branch.name : 'Não especificado';
+
+      if (!e.created_at) return;
+      
+      let createdDate: Date;
+      if (e.created_at && typeof e.created_at.toDate === 'function') {
+        createdDate = e.created_at.toDate();
+      } else {
+        createdDate = new Date(e.created_at);
+      }
+
+      if (isNaN(createdDate.getTime())) return;
+
+      const localISO = new Date(createdDate.getTime() - createdDate.getTimezoneOffset() * 60000).toISOString();
+      const localDatePart = localISO.split('T')[0];
+
+      if (auditDate && localDatePart !== auditDate) return;
+
+      const localTimeStr = createdDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const [hours, minutes] = localTimeStr.split(':').map(Number);
+      const minutesSinceMidnight = hours * 60 + minutes;
+
+      const [startH, startM] = auditStartTime.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
+
+      const [endH, endM] = auditEndTime.split(':').map(Number);
+      const endMinutes = endH * 60 + endM;
+
+      if (minutesSinceMidnight < startMinutes || minutesSinceMidnight > endMinutes) return;
+
+      const email = e.created_by_email || (e as any).email || 'Não especificado';
+      
+      results.push({
+        email,
+        branchName,
+        createdAtUTC: createdDate.toISOString(),
+        createdAtLocal: createdDate.toLocaleString('pt-BR'),
+        action: `Lançamento de Registro (${e.status || 'Estoque'})`,
+        identifier: `NF: ${e.nf_numero || '-'} | Container: ${e.container || '-'}`
+      });
+    });
+
+    containers.forEach(c => {
+      if (auditBranchId !== 'all' && c.branchId !== auditBranchId) return;
+
+      const branch = branches.find(b => b.id === c.branchId);
+      const branchName = branch ? branch.name : 'Não especificado';
+
+      if (!c.updated_at) return;
+
+      let createdDate: Date;
+      if (c.updated_at && typeof c.updated_at.toDate === 'function') {
+        createdDate = c.updated_at.toDate();
+      } else {
+        createdDate = new Date(c.updated_at);
+      }
+
+      if (isNaN(createdDate.getTime())) return;
+
+      const localISO = new Date(createdDate.getTime() - createdDate.getTimezoneOffset() * 60000).toISOString();
+      const localDatePart = localISO.split('T')[0];
+
+      if (auditDate && localDatePart !== auditDate) return;
+
+      const localTimeStr = createdDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const [hours, minutes] = localTimeStr.split(':').map(Number);
+      const minutesSinceMidnight = hours * 60 + minutes;
+
+      const [startH, startM] = auditStartTime.split(':').map(Number);
+      const startMinutes = startH * 60 + startM;
+
+      const [endH, endM] = auditEndTime.split(':').map(Number);
+      const endMinutes = endH * 60 + endM;
+
+      if (minutesSinceMidnight < startMinutes || minutesSinceMidnight > endMinutes) return;
+
+      const email = c.updated_by_email || 'Não especificado';
+
+      results.push({
+        email,
+        branchName,
+        createdAtUTC: createdDate.toISOString(),
+        createdAtLocal: createdDate.toLocaleString('pt-BR'),
+        action: `Movimentação / Atualização de Container`,
+        identifier: `Container: ${c.numero}`
+      });
+    });
+
+    return results.sort((a, b) => b.createdAtUTC.localeCompare(a.createdAtUTC));
+  }, [entries, containers, branches, auditBranchId, auditDate, auditStartTime, auditEndTime]);
+
   const getExitDate = React.useCallback((e: Entry | Partial<Entry> | null | undefined, includeDescargaFallback = false) => {
     if (!e) return '';
     const isBobina = e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'));
@@ -2694,6 +2925,97 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Painel de Auditoria de Status de NF */}
+              <div className="bg-white border-gray-100 shadow-sm p-6 rounded-2xl border space-y-4 transition-all duration-700">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-50 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-titam-lime/15 text-titam-deep rounded-xl flex items-center justify-center border border-titam-lime/20">
+                      <AlertCircle size={18} className="text-titam-deep" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em]">Auditoria de Status de NF-e</h3>
+                      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Verifique se as NFs sofreram alterações de status hoje</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.15em] shrink-0">NFs para Consultar:</span>
+                    <input
+                      type="text"
+                      placeholder="Ex: 17745, 17743..."
+                      value={nfAuditSearch}
+                      onChange={(e) => setNfAuditSearch(e.target.value)}
+                      className="border border-gray-200 bg-gray-50/50 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wider focus:ring-2 focus:ring-titam-lime outline-none transition-all w-full sm:w-64"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {nfAuditResults.map((result, idx) => {
+                    const statusColors: Record<string, string> = {
+                      'Estoque': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                      'Estoque (Cheio Terminal)': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                      'Embarcado': 'bg-blue-50 text-blue-700 border-blue-100',
+                      'Devolvido': 'bg-amber-50 text-amber-700 border-amber-100',
+                      'Rejeitado': 'bg-red-50 text-red-700 border-red-100',
+                      'Em descarga': 'bg-purple-50 text-purple-700 border-purple-100',
+                      'Em descarga na Arcelor': 'bg-purple-50 text-purple-700 border-purple-100',
+                    };
+
+                    const badgeClass = statusColors[result.currentStatus] || 'bg-gray-50 text-gray-600 border-gray-100';
+
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`rounded-xl border p-4 space-y-3 transition-all ${
+                          result.changedToday 
+                            ? 'bg-emerald-50/15 border-emerald-500/20 shadow-sm shadow-emerald-500/5' 
+                            : 'bg-white border-gray-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-titam-deep tracking-wider">NF: {result.nf}</span>
+                          
+                          {result.changedToday ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                              Alterada Hoje
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest bg-gray-100 text-gray-400">
+                              Sem alteração hoje
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Status Atual:</span>
+                            <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
+                              {result.currentStatus}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Filial:</span>
+                            <span className="text-gray-700 font-bold uppercase tracking-wider">{result.branchName}</span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Último Usuário:</span>
+                            <span className="text-gray-600 font-bold font-mono truncate max-w-[120px]">{result.updatedBy}</span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Última Atualização:</span>
+                            <span className="text-gray-500 font-bold font-mono text-[10px]">{result.updatedAt}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <StatCard 
                   title="Estoque Selecionado" 
@@ -3914,6 +4236,7 @@ export default function App() {
                           <th className="px-6 py-4">Nome</th>
                           <th className="px-6 py-4">Código</th>
                           <th className="px-6 py-4">Localização</th>
+                          <th className="px-6 py-4">Usuários Ativos (Registros)</th>
                           {selectedBranchId === 'all' && (
                             <th className="px-6 py-4 text-right">Ações</th>
                           )}
@@ -3922,7 +4245,7 @@ export default function App() {
                       <tbody className="divide-y divide-gray-50">
                         {branches.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-6 py-12 text-center text-gray-400 text-xs italic">
+                            <td colSpan={5} className="px-6 py-12 text-center text-gray-400 text-xs italic">
                               Nenhuma filial cadastrada
                             </td>
                           </tr>
@@ -3937,6 +4260,24 @@ export default function App() {
                               </td>
                               <td className="px-6 py-4">
                                 <span className="text-[10px] text-gray-500 font-medium">{branch.location || '-'}</span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1.5 max-h-24 overflow-y-auto">
+                                  {branchUsersSummary[branch.id]?.length > 0 ? (
+                                    branchUsersSummary[branch.id].map((u, ui) => (
+                                      <div key={ui} className="flex items-center gap-2 text-[10px]">
+                                        <span className="font-mono text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 truncate max-w-[200px]" title={u.email}>
+                                          {u.email}
+                                        </span>
+                                        <span className="font-mono text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100/50">
+                                          {u.count} {u.count === 1 ? 'registro' : 'registros'}
+                                        </span>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <span className="text-[10px] text-gray-400 italic">Sem registros ativos</span>
+                                  )}
+                                </div>
                               </td>
                               {selectedBranchId === 'all' && (
                                 <td className="px-6 py-4 text-right">
@@ -4046,6 +4387,108 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Auditoria de Atividade por Horário */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
+                <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Auditoria de Lançamentos e Atividade por Horário</h3>
+                    <p className="text-gray-500 text-xs mt-1">Selecione a filial, data e horário para identificar quais usuários lançaram registros ou realizaram ações no sistema.</p>
+                  </div>
+                </div>
+                
+                {/* Filters */}
+                <div className="p-6 bg-gray-50/50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filial</label>
+                    <select
+                      value={auditBranchId}
+                      onChange={(e) => setAuditBranchId(e.target.value)}
+                      className="border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold uppercase tracking-wider focus:ring-2 focus:ring-titam-lime outline-none bg-white transition-all"
+                    >
+                      <option value="all">Todas as Filiais</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Data</label>
+                    <input
+                      type="date"
+                      value={auditDate}
+                      onChange={(e) => setAuditDate(e.target.value)}
+                      className="border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-titam-lime outline-none bg-white transition-all"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Horário Inicial</label>
+                    <input
+                      type="time"
+                      value={auditStartTime}
+                      onChange={(e) => setAuditStartTime(e.target.value)}
+                      className="border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-titam-lime outline-none bg-white transition-all"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Horário Final</label>
+                    <input
+                      type="time"
+                      value={auditEndTime}
+                      onChange={(e) => setAuditEndTime(e.target.value)}
+                      className="border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-titam-lime outline-none bg-white transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Audit Results */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                        <th className="px-6 py-4">Usuário</th>
+                        <th className="px-6 py-4">Filial</th>
+                        <th className="px-6 py-4">Data/Hora (UTC)</th>
+                        <th className="px-6 py-4">Data/Hora (Local)</th>
+                        <th className="px-6 py-4">Tipo de Ação / Registro</th>
+                        <th className="px-6 py-4">Identificador (NF/Container)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {auditResults.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center text-gray-400 text-xs italic">
+                            Nenhuma atividade encontrada para os filtros selecionados
+                          </td>
+                        </tr>
+                      ) : (
+                        auditResults.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4">
+                              <span className="font-mono text-xs font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">{item.email}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-xs font-bold text-titam-deep uppercase">{item.branchName}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="font-mono text-[10px] text-gray-400">{item.createdAtUTC}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="font-mono text-xs font-bold text-gray-600">{item.createdAtLocal}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-xs font-medium text-gray-500">{item.action}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="font-mono text-xs font-bold text-titam-deep bg-titam-lime/15 px-2 py-0.5 rounded border border-titam-lime/20">{item.identifier}</span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </motion.div>
