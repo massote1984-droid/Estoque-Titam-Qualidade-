@@ -266,7 +266,8 @@ export default function App() {
     return dates;
   });
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
-  const [editingRegistration, setEditingRegistration] = useState<{id: string, type: 'suppliers' | 'transporters' | 'customers' | 'products' | 'destinations', data: any} | null>(null);
+  const [editingRegistration, setEditingRegistration] = useState<{id: string, type: 'suppliers' | 'transporters' | 'customers' | 'products' | 'destinations' | 'containers', data: any} | null>(null);
+  const [containerRegMode, setContainerRegMode] = useState<'individual' | 'lote'>('individual');
   const [lastBatchId, setLastBatchId] = useState<string | null>(localStorage.getItem('last_import_batch'));
   const isSyncing = React.useRef(false);
   const [isSyncingState, setIsSyncingState] = useState(false);
@@ -1318,19 +1319,44 @@ export default function App() {
       }
     }
 
-    const sanitizeNumeric = (val: any) => {
-      if (val === undefined || val === null) return 0;
-      if (typeof val !== 'string') return val;
-      const sanitized = val.replace(/\./g, '').replace(',', '.');
-      return parseFloat(sanitized) || 0;
-    };
-
     let finalStatus = rawData.status?.toString() || '';
     if (isVoltaRedonda && finalStatus) {
       if (finalStatus === 'Em descarga') finalStatus = 'Em descarga na Arcelor';
       if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
       if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
     }
+
+    // Business rule: Titam branch cannot have duplicate containers in "Estoque" status for different NFs
+    const entryBranch = branches.find(b => b.id === selectedBranchId);
+    const isFromTitam = entryBranch?.name?.toLowerCase().includes('titam');
+    const targetStatus = finalStatus || 'Estoque';
+    const containerNum = rawData.container?.toString().trim().toUpperCase();
+
+    if (isFromTitam && targetStatus === 'Estoque' && containerNum) {
+      const hasDuplicateContainer = entries.some(entry => {
+        const eb = branches.find(b => b.id === entry.branchId);
+        const entryIsTitam = eb?.name?.toLowerCase().includes('titam');
+        return (
+          entryIsTitam &&
+          entry.status === 'Estoque' &&
+          entry.container?.toString().trim().toUpperCase() === containerNum &&
+          entry.nf_numero?.toString().trim().toUpperCase() !== nf?.toUpperCase()
+        );
+      });
+      
+      if (hasDuplicateContainer) {
+        addNotification("O container já foi usado.", "error");
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    const sanitizeNumeric = (val: any) => {
+      if (val === undefined || val === null) return 0;
+      if (typeof val !== 'string') return val;
+      const sanitized = val.replace(/\./g, '').replace(',', '.');
+      return parseFloat(sanitized) || 0;
+    };
 
     const data: any = {
       ...rawData,
@@ -1497,6 +1523,33 @@ export default function App() {
       const branchId = updates.branchId || currentEntry?.branchId;
       const isVR = branches.find(b => b.id === branchId)?.name?.toLowerCase().includes('volta redonda') || false;
 
+      // Business rule: Titam branch cannot have duplicate containers in "Estoque" status for different NFs
+      const entryBranch = branches.find(b => b.id === branchId);
+      const isFromTitam = entryBranch?.name?.toLowerCase().includes('titam');
+      const targetStatus = updates.status !== undefined ? updates.status : currentEntry?.status;
+      const targetContainer = (updates.container !== undefined ? updates.container : currentEntry?.container)?.toString().trim().toUpperCase();
+      const targetNf = (updates.nf_numero !== undefined ? updates.nf_numero : currentEntry?.nf_numero)?.toString().trim().toUpperCase();
+
+      if (isFromTitam && targetStatus === 'Estoque' && targetContainer) {
+        const hasDuplicateContainer = entries.some(entry => {
+          if (String(entry.id) === String(docId)) return false; // skip self
+          const eb = branches.find(b => b.id === entry.branchId);
+          const entryIsTitam = eb?.name?.toLowerCase().includes('titam');
+          return (
+            entryIsTitam &&
+            entry.status === 'Estoque' &&
+            entry.container?.toString().trim().toUpperCase() === targetContainer &&
+            entry.nf_numero?.toString().trim().toUpperCase() !== targetNf
+          );
+        });
+        
+        if (hasDuplicateContainer) {
+          addNotification("O container já foi usado.", "error");
+          setIsUpdating(false);
+          return false;
+        }
+      }
+
       Object.entries(updates).forEach(([key, value]) => {
         if (!ignoreFields.includes(key) && value !== undefined && value !== null) {
           if (key === 'valor' || key === 'tonelada') {
@@ -1587,26 +1640,145 @@ export default function App() {
     }
   };
 
-  const handleCreateContainer = async (numero: string, status: Container['status'], observacao?: string) => {
+  const handleCreateContainer = async (numero: string, status: Container['status'], observacao?: string, branchId?: string) => {
     if (!user || !numero) return;
-    if (!selectedBranchId || selectedBranchId === 'all') {
+    const targetBranchId = branchId || selectedBranchId;
+    if (!targetBranchId || targetBranchId === 'all') {
       addNotification("Selecione uma filial ativa antes de cadastrar containers.", "warning");
       return;
     }
+    
+    // Check for duplicates (case-insensitive, global across all branches)
+    const upperNumero = numero.trim().toUpperCase();
+    const existing = containers.find(c => c.numero.trim().toUpperCase() === upperNumero);
+    if (existing) {
+      const branchName = branches.find(b => b.id === existing.branchId)?.name || 'outra filial';
+      addNotification(`Erro: O container ${upperNumero} já está cadastrado na filial ${branchName}.`, "error");
+      return;
+    }
+
     try {
       await addDoc(collection(db, 'containers'), {
-        numero,
+        numero: upperNumero,
         status,
         observacao: observacao || '',
-        branchId: selectedBranchId,
+        branchId: targetBranchId,
         uid: user.uid,
         updated_at: serverTimestamp(),
         updated_by_email: user.email
       });
-      addNotification(`Container ${numero} adicionado!`, "info");
+      addNotification(`Container ${upperNumero} adicionado!`, "info");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'containers', user);
       addNotification("Erro ao adicionar container.", "error");
+    }
+  };
+
+  const handleBulkCreateContainers = async (text: string, status: Container['status'], branchId: string) => {
+    if (!user || !text || !branchId) return;
+    setIsProcessing(true);
+    try {
+      const codes = text
+        .split(/[\n,;]+/)
+        .map(code => code.trim().toUpperCase())
+        .filter(code => code.length > 0);
+
+      if (codes.length === 0) {
+        addNotification("Nenhum número de container válido encontrado.", "warning");
+        setIsProcessing(false);
+        return;
+      }
+
+      // Filter out duplicates within the user input list itself
+      const uniqueInputCodes = Array.from(new Set(codes));
+
+      // Filter out codes that already exist in our loaded containers state (globally)
+      const existingNumbers = new Set(containers.map(c => c.numero.trim().toUpperCase()));
+      const codesToAdd = uniqueInputCodes.filter(code => !existingNumbers.has(code));
+      const duplicatesCount = uniqueInputCodes.length - codesToAdd.length;
+
+      if (codesToAdd.length === 0) {
+        addNotification("Todos os containers informados já estão cadastrados.", "warning");
+        setIsProcessing(false);
+        return;
+      }
+
+      let successCount = 0;
+      await Promise.all(
+        codesToAdd.map(async (numero) => {
+          await addDoc(collection(db, 'containers'), {
+            numero,
+            status,
+            observacao: '',
+            branchId,
+            uid: user.uid,
+            updated_at: serverTimestamp(),
+            updated_by_email: user.email
+          });
+          successCount++;
+        })
+      );
+
+      if (duplicatesCount > 0) {
+        addNotification(`${successCount} containers cadastrados. ${duplicatesCount} já existentes foram ignorados.`, "info");
+      } else {
+        addNotification(`${successCount} containers cadastrados com sucesso!`, "info");
+      }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'containers_bulk', user);
+      addNotification(`Erro ao cadastrar containers em lote: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCleanDuplicateContainers = async () => {
+    if (!user) return;
+    setIsProcessing(true);
+    try {
+      // Group containers by uppercase number
+      const groups: Record<string, Container[]> = {};
+      containers.forEach(c => {
+        const key = c.numero.trim().toUpperCase();
+        if (!groups[key]) {
+          groups[key] = [];
+        }
+        groups[key].push(c);
+      });
+
+      const toDelete: Container[] = [];
+      const duplicateDetails: string[] = [];
+
+      Object.entries(groups).forEach(([numero, list]) => {
+        if (list.length > 1) {
+          // Keep the first registered container, delete the duplicate copies
+          for (let i = 1; i < list.length; i++) {
+            toDelete.push(list[i]);
+          }
+          duplicateDetails.push(numero);
+        }
+      });
+
+      if (toDelete.length === 0) {
+        addNotification("Nenhum container duplicado encontrado no cadastro.", "info");
+        setIsProcessing(false);
+        return;
+      }
+
+      let deletedCount = 0;
+      await Promise.all(
+        toDelete.map(async (c) => {
+          await deleteDoc(doc(db, 'containers', c.id));
+          deletedCount++;
+        })
+      );
+
+      addNotification(`${deletedCount} duplicados eliminados (${duplicateDetails.slice(0, 5).join(', ')}${duplicateDetails.length > 5 ? '...' : ''}).`, "info");
+    } catch (error: any) {
+      handleFirestoreError(error, OperationType.DELETE, 'containers_cleanup', user);
+      addNotification("Erro ao eliminar containers duplicados.", "error");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -1968,6 +2140,7 @@ export default function App() {
         updated_by_email: user.email
       });
       addNotification("Container atualizado!", "info");
+      setEditingRegistration(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `containers/${id}`, user);
       addNotification("Erro ao atualizar container.", "error");
@@ -3889,13 +4062,14 @@ export default function App() {
               </div>
               
               {/* Quick Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[
                   { label: 'Fornecedores', count: suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length, icon: <Building2 className="text-blue-600" />, color: 'blue' },
                   { label: 'Transportadores', count: transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length, icon: <Truck className="text-emerald-600" />, color: 'emerald' },
                   { label: 'Clientes', count: customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Users className="text-indigo-600" />, color: 'indigo' },
                   { label: 'Produtos', count: products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).length, icon: <Boxes className="text-titam-deep" />, color: 'lime' },
                   { label: 'Destinos', count: destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).length, icon: <MapPin className="text-amber-600" />, color: 'amber' },
+                  { label: 'Containers', count: containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Truck className="text-rose-600" />, color: 'rose' },
                 ].map((stat, i) => (
                   <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm transition-all duration-700">
                     <div className="flex items-center justify-between mb-2">
@@ -4453,11 +4627,228 @@ export default function App() {
                           key={`dest-name-${editingRegistration?.id || 'new'}`}
                           className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
                         />
-                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
-                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'destinations' ? <Check size={14} /> : <Plus size={14} />)} 
-                          {editingRegistration?.type === 'destinations' ? 'Salvar Alterações' : 'Adicionar Destino'}
-                        </button>
                       </form>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Containers */}
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] transition-all duration-700">
+                    <div className="bg-gray-50/50 p-5 border-b border-gray-200 flex items-center justify-between transition-all duration-700">
+                      <div className="flex items-center gap-3">
+                        <Truck size={18} className="text-titam-lime" />
+                        <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Containers</h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleCleanDuplicateContainers}
+                          disabled={isProcessing}
+                          title="Eliminar containers com números duplicados"
+                          className="text-[9px] bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 px-2.5 py-1 rounded-lg font-black uppercase tracking-wider transition-all flex items-center gap-1 border border-red-100 hover:border-red-200"
+                        >
+                          <Trash2 size={10} />
+                          Eliminar Duplicados
+                        </button>
+                        <span className="text-[10px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                          {containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Truck size={32} className="mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum container</p>
+                        </div>
+                      ) : (
+                        containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).map(container => (
+                          <div key={container.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-titam-deep uppercase truncate">{container.numero}</p>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
+                                  container.status === 'Disponível' ? 'bg-emerald-50 text-emerald-600' :
+                                  container.status === 'Em Manutenção' ? 'bg-amber-50 text-amber-600' :
+                                  'bg-blue-50 text-blue-600'
+                                }`}>
+                                  {container.status}
+                                </span>
+                                {selectedBranchId === 'all' && (
+                                  <span className="text-[8px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
+                                    {branches.find(b => b.id === container.branchId)?.name || 'N/A'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                              <button 
+                                onClick={() => {
+                                  setEditingRegistration({ id: container.id, type: 'containers', data: container });
+                                  const form = document.getElementById('form-containers');
+                                  form?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-titam-deep hover:bg-white rounded-lg transition-all"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteContainer(container.id)}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div id="form-containers" className="p-5 border-t border-gray-100 bg-gray-50/30">
+                      {/* Tabs for registration type: only show if not editing */}
+                      {!editingRegistration || editingRegistration.type !== 'containers' ? (
+                        <div className="flex bg-gray-100 p-1 rounded-lg mb-3">
+                          <button 
+                            type="button" 
+                            onClick={() => setContainerRegMode('individual')}
+                            className={`flex-1 text-[9px] font-black uppercase py-1.5 rounded-md transition-all ${
+                              containerRegMode === 'individual' ? 'bg-white text-titam-deep shadow-sm' : 'text-gray-500 hover:text-gray-900'
+                            }`}
+                          >
+                            Individual
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setContainerRegMode('lote')}
+                            className={`flex-1 text-[9px] font-black uppercase py-1.5 rounded-md transition-all ${
+                              containerRegMode === 'lote' ? 'bg-white text-titam-deep shadow-sm' : 'text-gray-500 hover:text-gray-900'
+                            }`}
+                          >
+                            Em Lote (Lista)
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {editingRegistration?.type === 'containers' || containerRegMode === 'individual' ? (
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const form = e.target as HTMLFormElement;
+                          const numero = (form.elements.namedItem('numero') as HTMLInputElement).value;
+                          const status = (form.elements.namedItem('status') as HTMLSelectElement).value as any;
+                          const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                          const obs = (form.elements.namedItem('observacao') as HTMLInputElement).value;
+                          
+                          if (editingRegistration?.type === 'containers' && editingRegistration?.id) {
+                            handleUpdateContainer(editingRegistration.id, { numero, status, branchId, observacao: obs });
+                          } else {
+                            handleCreateContainer(numero, status, obs, branchId);
+                          }
+                          form.reset();
+                        }} className="space-y-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                              {editingRegistration?.type === 'containers' ? 'Editar Container' : 'Novo Container'}
+                            </span>
+                            {editingRegistration?.type === 'containers' && (
+                              <button 
+                                type="button"
+                                onClick={() => setEditingRegistration(null)}
+                                className="text-[10px] font-bold text-red-500 uppercase hover:underline"
+                              >
+                                Cancelar
+                              </button>
+                            )}
+                          </div>
+                          <select 
+                            name="branchId" 
+                            required 
+                            defaultValue={editingRegistration?.type === 'containers' ? editingRegistration.data.branchId : (selectedBranchId !== 'all' ? selectedBranchId : "")}
+                            key={`cont-branch-${editingRegistration?.id || 'new'}`}
+                            className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                          >
+                            <option value="" disabled>Selecionar Filial</option>
+                            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                          <input 
+                            name="numero" 
+                            required 
+                            placeholder="Número do Container" 
+                            defaultValue={editingRegistration?.type === 'containers' ? editingRegistration.data.numero : ""}
+                            key={`cont-numero-${editingRegistration?.id || 'new'}`}
+                            className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                          />
+                          <select 
+                            name="status"
+                            required
+                            defaultValue={editingRegistration?.type === 'containers' ? editingRegistration.data.status : "Disponível"}
+                            key={`cont-status-${editingRegistration?.id || 'new'}`}
+                            className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                          >
+                            <option value="Disponível">Disponível</option>
+                            <option value="Em Manutenção">Em Manutenção</option>
+                            <option value="Em Uso">Em Uso</option>
+                          </select>
+                          <input 
+                            name="observacao" 
+                            placeholder="Observação (Opcional)" 
+                            defaultValue={editingRegistration?.type === 'containers' ? editingRegistration.data.observacao : ""}
+                            key={`cont-obs-${editingRegistration?.id || 'new'}`}
+                            className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
+                          />
+                          <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                            {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'containers' ? <Check size={14} /> : <Plus size={14} />)} 
+                            {editingRegistration?.type === 'containers' ? 'Salvar Alterações' : 'Adicionar Container'}
+                          </button>
+                        </form>
+                      ) : (
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          const form = e.target as HTMLFormElement;
+                          const lista = (form.elements.namedItem('lista') as HTMLTextAreaElement).value;
+                          const status = (form.elements.namedItem('status') as HTMLSelectElement).value as any;
+                          const branchId = (form.elements.namedItem('branchId') as HTMLSelectElement).value;
+                          
+                          handleBulkCreateContainers(lista, status, branchId);
+                          form.reset();
+                        }} className="space-y-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-black text-titam-deep uppercase tracking-widest">
+                              Cadastrar em Lote
+                            </span>
+                          </div>
+                          <select 
+                            name="branchId" 
+                            required 
+                            defaultValue={selectedBranchId !== 'all' ? selectedBranchId : ""}
+                            className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                          >
+                            <option value="" disabled>Selecionar Filial</option>
+                            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                          <select 
+                            name="status"
+                            required
+                            defaultValue="Disponível"
+                            className="w-full px-4 py-2 text-[10px] font-black border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase bg-white"
+                          >
+                            <option value="Disponível">Disponível</option>
+                            <option value="Em Manutenção">Em Manutenção</option>
+                            <option value="Em Uso">Em Uso</option>
+                          </select>
+                          <textarea 
+                            name="lista" 
+                            required 
+                            rows={3}
+                            placeholder="INSIRA OS NÚMEROS DE CONTAINER SEPARADOS POR LINHA, VÍRGULA OU PONTO-E-VÍRGULA..." 
+                            className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase resize-none" 
+                          />
+                          <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2">
+                            {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={14} />} 
+                            Adicionar Lista
+                          </button>
+                        </form>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -4727,7 +5118,14 @@ export default function App() {
                       </select>
                     </div>
                     <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
-                    <Input label="Container" name="container" defaultValue={formData.container} />
+                    <ContainerSearchField 
+                      label="Container" 
+                      name="container" 
+                      defaultValue={formData.container} 
+                      branchId={selectedBranchId || ''}
+                      containers={containers}
+                      branches={branches}
+                    />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
                       <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
@@ -4808,7 +5206,14 @@ export default function App() {
                         {destinations.filter(d => d.branchId === selectedBranchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                       </select>
                     </div>
-                    <Input label="Container" name="container" defaultValue={formData.container} />
+                    <ContainerSearchField 
+                      label="Container" 
+                      name="container" 
+                      defaultValue={formData.container} 
+                      branchId={selectedBranchId || ''}
+                      containers={containers}
+                      branches={branches}
+                    />
                   </div>
                 )}
 
@@ -5078,10 +5483,14 @@ export default function App() {
                         )}
                       </select>
                     </div>
-                    <Input 
+                    <ContainerSearchField 
                       label="Container" 
+                      name="container" 
                       value={editFormData.container || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
+                      onChange={(val) => setEditFormData(prev => ({ ...prev, container: val }))}
+                      branchId={editFormData.branchId || ''}
+                      containers={containers}
+                      branches={branches}
                     />
                     <Input 
                       label="Tonelada" 
@@ -5883,6 +6292,123 @@ function Input({ label, ...props }: { label: string } & React.InputHTMLAttribute
         className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all"
         {...props}
       />
+    </div>
+  );
+}
+
+function ContainerSearchField({
+  label,
+  name,
+  defaultValue,
+  value,
+  onChange,
+  branchId,
+  containers,
+  branches
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  value?: string;
+  onChange?: (val: string) => void;
+  branchId: string;
+  containers: any[];
+  branches: any[];
+}) {
+  const [inputValue, setInputValue] = useState(defaultValue || value || '');
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (value !== undefined) {
+      setInputValue(value);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    if (defaultValue !== undefined && value === undefined) {
+      setInputValue(defaultValue);
+    }
+  }, [defaultValue, value]);
+
+  // Filter containers of this branch
+  const filteredContainers = React.useMemo(() => {
+    const activeBranchContainers = containers.filter(c => !branchId || branchId === 'all' ? true : c.branchId === branchId);
+    if (!inputValue) return activeBranchContainers;
+    return activeBranchContainers.filter(c => 
+      c.numero.toLowerCase().includes(inputValue.toLowerCase())
+    );
+  }, [containers, branchId, inputValue]);
+
+  return (
+    <div className="flex flex-col gap-1.5 relative">
+      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">{label}</label>
+      <div className="relative flex items-center">
+        <input 
+          name={name}
+          value={inputValue}
+          onChange={(e) => {
+            const val = e.target.value.toUpperCase();
+            setInputValue(val);
+            if (onChange) {
+              onChange(val);
+            }
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          placeholder="Digite ou pesquise o container..."
+          className="w-full border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl pl-4 pr-10 py-2.5 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-semibold uppercase animate-none"
+        />
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="absolute right-3 text-gray-400 hover:text-titam-deep p-1 rounded-full hover:bg-gray-100 transition-all cursor-pointer"
+          title="Ver todos os containers cadastrados"
+        >
+          <Search size={16} />
+        </button>
+      </div>
+
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 flex flex-col overflow-hidden">
+            <div className="overflow-y-auto flex-1">
+              {filteredContainers.length === 0 ? (
+                <div className="p-3 text-center text-xs text-gray-400 font-bold uppercase tracking-wider">
+                  Nenhum container encontrado
+                </div>
+              ) : (
+                filteredContainers.map((container) => (
+                  <button
+                    key={container.id}
+                    type="button"
+                    onClick={() => {
+                      setInputValue(container.numero);
+                      if (onChange) onChange(container.numero);
+                      setIsOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-xs hover:bg-gray-50 flex items-center justify-between border-b border-gray-100/50 cursor-pointer"
+                  >
+                    <div>
+                      <span className="font-black text-titam-deep">{container.numero}</span>
+                      <span className="ml-2 text-[9px] text-gray-400 font-bold uppercase">
+                        ({branches.find(b => b.id === container.branchId)?.name || 'N/A'})
+                      </span>
+                    </div>
+                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
+                      container.status === 'Disponível' ? 'bg-emerald-50 text-emerald-600' :
+                      container.status === 'Em Manutenção' ? 'bg-amber-50 text-amber-600' :
+                      'bg-blue-50 text-blue-600'
+                    }`}>
+                      {container.status}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
