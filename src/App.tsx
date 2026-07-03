@@ -3595,6 +3595,9 @@ export default function App() {
               onUndoLastImport={undoLastImport}
               isProcessing={isProcessing}
               isTitam={isTitam}
+              isExitEntry={isExitEntry}
+              getExitDate={getExitDate}
+              branches={branches}
             />
           )}
 
@@ -5785,21 +5788,43 @@ function ReportsView({
   onImportBackup,
   onUndoLastImport,
   isProcessing,
-  isTitam
+  isTitam,
+  isExitEntry,
+  getExitDate,
+  branches
 }: { 
   entries: Entry[], 
   onExportBackup: () => void, 
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void,
   onUndoLastImport: () => void,
   isProcessing: boolean,
-  isTitam?: boolean
+  isTitam?: boolean,
+  isExitEntry?: (e: Entry | Partial<Entry> | null | undefined) => boolean,
+  getExitDate?: (e: Entry | Partial<Entry> | null | undefined, includeDescargaFallback?: boolean) => string,
+  branches?: any[]
 }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas' | 'acumulado_saidas' | 'acumulado_estoque'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
 
   const filteredEntries = entries.filter(entry => {
+    if (reportType === 'acumulado_saidas') {
+      if (!isExitEntry || !isExitEntry(entry)) return false;
+      const exitDate = getExitDate ? getExitDate(entry, true) : '';
+      if (!exitDate) return false;
+      const matchesDate = (!startDate || exitDate >= startDate) && (!endDate || exitDate <= endDate);
+      const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
+      return matchesDate && matchesFornecedor;
+    }
+    if (reportType === 'acumulado_estoque') {
+      const isCurrentlyInStock = entry.status === 'Estoque' || entry.status === 'Estoque (Cheio Terminal)';
+      if (!isCurrentlyInStock) return false;
+      const date = entry.data_nf;
+      const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
+      const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
+      return matchesDate && matchesFornecedor;
+    }
     const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
     const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
@@ -5812,7 +5837,207 @@ function ReportsView({
     return matchesDate && matchesFornecedor && matchesStatus && matchesProduct;
   });
 
+  const getMonthName = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      let date;
+      if (dateStr.includes('-')) {
+        date = new Date(dateStr + 'T12:00:00');
+      } else if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          date = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]), 12, 0, 0);
+        }
+      }
+      
+      if (!date || isNaN(date.getTime())) return '';
+      
+      return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        .replace(/^\w/, (c) => c.toUpperCase());
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const acumuladoSaidasData = React.useMemo(() => {
+    if (reportType !== 'acumulado_saidas') return [];
+
+    const groups: Record<string, {
+      monthKey: string;
+      destination: string;
+      material: string;
+      totalWeight: number;
+      supplierMap: Record<string, number>;
+    }> = {};
+
+    filteredEntries.forEach(e => {
+      const exitDate = getExitDate ? getExitDate(e, true) : '';
+      if (!exitDate) return;
+
+      let year = '';
+      let month = '';
+      if (exitDate.includes('-')) {
+        const parts = exitDate.split('-');
+        year = parts[0];
+        month = parts[1];
+      } else if (exitDate.includes('/')) {
+        const parts = exitDate.split('/');
+        if (parts.length === 3) {
+          year = parts[2];
+          month = parts[1];
+        }
+      }
+
+      if (!year || !month) return;
+      const monthKey = `${year}-${month.padStart(2, '0')}`;
+      const destination = e.destino || 'Não especificado';
+      const material = e.descricao_produto || 'Não especificado';
+      const supplier = e.fornecedor || 'Não especificado';
+      const weight = e.tonelada || 0;
+
+      const groupKey = `${monthKey}|${destination}|${material}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          monthKey,
+          destination,
+          material,
+          totalWeight: 0,
+          supplierMap: {}
+        };
+      }
+
+      groups[groupKey].totalWeight += weight;
+      if (!groups[groupKey].supplierMap[supplier]) {
+        groups[groupKey].supplierMap[supplier] = 0;
+      }
+      groups[groupKey].supplierMap[supplier] += weight;
+    });
+
+    return Object.values(groups).map(g => {
+      const suppliers = Object.entries(g.supplierMap).map(([name, weight]) => {
+        const percentage = g.totalWeight > 0 ? (weight / g.totalWeight) * 100 : 0;
+        return { name, weight, percentage };
+      }).sort((a, b) => b.weight - a.weight);
+
+      return {
+        ...g,
+        suppliers
+      };
+    }).sort((a, b) => {
+      if (b.monthKey !== a.monthKey) return b.monthKey.localeCompare(a.monthKey);
+      if (a.destination !== b.destination) return a.destination.localeCompare(b.destination);
+      return a.material.localeCompare(b.material);
+    });
+  }, [filteredEntries, reportType, getExitDate]);
+
+  const acumuladoEstoqueData = React.useMemo(() => {
+    if (reportType !== 'acumulado_estoque') return [];
+
+    const groups: Record<string, {
+      branchName: string;
+      material: string;
+      totalWeight: number;
+      supplierMap: Record<string, number>;
+    }> = {};
+
+    filteredEntries.forEach(e => {
+      const eb = branches?.find(b => b.id === e.branchId);
+      const branchName = eb?.name || 'Não especificado';
+      const material = e.descricao_produto || 'Não especificado';
+      const supplier = e.fornecedor || 'Não especificado';
+      const weight = e.tonelada || 0;
+
+      const groupKey = `${branchName}|${material}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          branchName,
+          material,
+          totalWeight: 0,
+          supplierMap: {}
+        };
+      }
+
+      groups[groupKey].totalWeight += weight;
+      if (!groups[groupKey].supplierMap[supplier]) {
+        groups[groupKey].supplierMap[supplier] = 0;
+      }
+      groups[groupKey].supplierMap[supplier] += weight;
+    });
+
+    return Object.values(groups).map(g => {
+      const suppliers = Object.entries(g.supplierMap).map(([name, weight]) => {
+        const percentage = g.totalWeight > 0 ? (weight / g.totalWeight) * 100 : 0;
+        return { name, weight, percentage };
+      }).sort((a, b) => b.weight - a.weight);
+
+      return {
+        ...g,
+        suppliers
+      };
+    }).sort((a, b) => {
+      if (a.branchName !== b.branchName) return a.branchName.localeCompare(b.branchName);
+      return a.material.localeCompare(b.material);
+    });
+  }, [filteredEntries, reportType, branches]);
+
   const exportToCSV = () => {
+    if (reportType === 'acumulado_saidas') {
+      const headers = ['Mês', 'Destino', 'Material', 'Peso Total (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
+      const rows: any[] = [];
+      acumuladoSaidasData.forEach(row => {
+        row.suppliers.forEach(s => {
+          rows.push([
+            getMonthName(row.monthKey + "-01"),
+            row.destination,
+            row.material,
+            row.totalWeight.toString().replace('.', ','),
+            s.name,
+            s.weight.toString().replace('.', ','),
+            s.percentage.toFixed(2).replace('.', ',')
+          ]);
+        });
+      });
+      const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `relatorio_acumulado_saidas_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+    if (reportType === 'acumulado_estoque') {
+      const headers = ['Filial', 'Material', 'Peso Total em Estoque (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
+      const rows: any[] = [];
+      acumuladoEstoqueData.forEach(row => {
+        row.suppliers.forEach(s => {
+          rows.push([
+            row.branchName,
+            row.material,
+            row.totalWeight.toString().replace('.', ','),
+            s.name,
+            s.weight.toString().replace('.', ','),
+            s.percentage.toFixed(2).replace('.', ',')
+          ]);
+        });
+      });
+      const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `relatorio_acumulado_estoque_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
     const headers = reportType === 'estoque' 
       ? (isTitam 
          ? ['Data NF', 'Data de Descarga', 'NF', 'Container', 'Fornecedor', 'Produto', 'Tonelada', 'Status', 'Número do Vagão']
@@ -5913,6 +6138,8 @@ function ReportsView({
             <option value="faturamento_detalhado">Faturamento Detalhado</option>
             <option value="estoque_minerio">Estoque Minério</option>
             <option value="faturamento_bobinas">Faturamento Bobinas</option>
+            <option value="acumulado_saidas">Acumulado de Saídas por Mês (Destino/Material)</option>
+            <option value="acumulado_estoque">Acumulado de Estoque por Fornecedor (Filial/Material)</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -5958,12 +6185,31 @@ function ReportsView({
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
         <div className="p-6 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900 capitalize">Prévia: {reportType}</h2>
+          <h2 className="font-semibold text-gray-900 capitalize">
+            Prévia: {reportType === 'acumulado_saidas' ? 'Acumulado de Saídas por Mês' : reportType === 'acumulado_estoque' ? 'Acumulado de Estoque por Fornecedor' : reportType}
+          </h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 transition-all duration-700">
+                {reportType === 'acumulado_saidas' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Mês</th>
+                    <th className="px-6 py-3 data-grid-header">Destino</th>
+                    <th className="px-6 py-3 data-grid-header">Material</th>
+                    <th className="px-6 py-3 data-grid-header">Peso Total</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedores (Peso / Part. %)</th>
+                  </>
+                )}
+                {reportType === 'acumulado_estoque' && (
+                  <>
+                    <th className="px-6 py-3 data-grid-header">Filial</th>
+                    <th className="px-6 py-3 data-grid-header">Material</th>
+                    <th className="px-6 py-3 data-grid-header">Peso Total em Estoque</th>
+                    <th className="px-6 py-3 data-grid-header">Fornecedores em Estoque (Peso / Part. %)</th>
+                  </>
+                )}
                 {reportType === 'estoque' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Data NF</th>
@@ -6089,9 +6335,65 @@ function ReportsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredEntries.map((e) => (
-                <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                  {reportType === 'estoque' && (
+              {reportType === 'acumulado_saidas' ? (
+                acumuladoSaidasData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                    <td className="px-6 py-4 text-sm font-bold text-gray-700">{getMonthName(row.monthKey + "-01")}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.destination}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.material}</td>
+                    <td className="px-6 py-4 text-sm font-black text-titam-deep mono-value">
+                      {row.totalWeight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      <div className="space-y-1.5 py-1">
+                        {row.suppliers.map((s, sIdx) => (
+                          <div key={sIdx} className="flex items-center justify-between gap-4 text-xs">
+                            <span className="font-bold text-gray-500 uppercase">{s.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-gray-700 font-bold bg-gray-100 px-2 py-0.5 rounded">
+                                {s.weight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                              </span>
+                              <span className="font-mono text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                {s.percentage.toFixed(2)}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : reportType === 'acumulado_estoque' ? (
+                acumuladoEstoqueData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                    <td className="px-6 py-4 text-sm font-bold text-gray-700">{row.branchName}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.material}</td>
+                    <td className="px-6 py-4 text-sm font-black text-titam-deep mono-value">
+                      {row.totalWeight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      <div className="space-y-1.5 py-1">
+                        {row.suppliers.map((s, sIdx) => (
+                          <div key={sIdx} className="flex items-center justify-between gap-4 text-xs">
+                            <span className="font-bold text-gray-500 uppercase">{s.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-gray-700 font-bold bg-gray-100 px-2 py-0.5 rounded">
+                                {s.weight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                              </span>
+                              <span className="font-mono text-emerald-600 font-extrabold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                                {s.percentage.toFixed(2)}%
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                filteredEntries.map((e) => (
+                  <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                    {reportType === 'estoque' && (
                     <>
                       <td className="px-6 py-4 text-sm text-gray-600">{e.data_nf}</td>
                       {isTitam && <td className="px-6 py-4 text-sm text-gray-600">{e.data_descarga || '-'}</td>}
@@ -6214,7 +6516,7 @@ function ReportsView({
                     </>
                   )}
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>
