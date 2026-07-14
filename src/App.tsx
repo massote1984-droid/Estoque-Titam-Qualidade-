@@ -36,7 +36,8 @@ import {
   MapPin,
   Boxes,
   Edit2,
-  Check
+  Check,
+  Award
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -58,6 +59,7 @@ import {
 } from 'recharts';
 import { Entry, StockSummary, Container, Branch } from './types';
 import { useAuth } from './components/FirebaseProvider';
+import TitamPresentationView from './components/TitamPresentationView';
 import { 
   collection, 
   onSnapshot, 
@@ -157,7 +159,7 @@ const getStatusBadgeStyle = (status: string | undefined): string => {
   return 'bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white';
 };
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
@@ -2625,6 +2627,7 @@ export default function App() {
             active={activeTab === 'containers'} 
             onClick={() => setActiveTab('containers')} 
           />
+
           {isAdmin && (
             <>
               <NavItem 
@@ -2925,96 +2928,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Painel de Auditoria de Status de NF */}
-              <div className="bg-white border-gray-100 shadow-sm p-6 rounded-2xl border space-y-4 transition-all duration-700">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-50 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-titam-lime/15 text-titam-deep rounded-xl flex items-center justify-center border border-titam-lime/20">
-                      <AlertCircle size={18} className="text-titam-deep" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em]">Auditoria de Status de NF-e</h3>
-                      <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Verifique se as NFs sofreram alterações de status hoje</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.15em] shrink-0">NFs para Consultar:</span>
-                    <input
-                      type="text"
-                      placeholder="Ex: 17745, 17743..."
-                      value={nfAuditSearch}
-                      onChange={(e) => setNfAuditSearch(e.target.value)}
-                      className="border border-gray-200 bg-gray-50/50 rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wider focus:ring-2 focus:ring-titam-lime outline-none transition-all w-full sm:w-64"
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {nfAuditResults.map((result, idx) => {
-                    const statusColors: Record<string, string> = {
-                      'Estoque': 'bg-emerald-50 text-emerald-700 border-emerald-100',
-                      'Estoque (Cheio Terminal)': 'bg-emerald-50 text-emerald-700 border-emerald-100',
-                      'Embarcado': 'bg-blue-50 text-blue-700 border-blue-100',
-                      'Devolvido': 'bg-amber-50 text-amber-700 border-amber-100',
-                      'Rejeitado': 'bg-red-50 text-red-700 border-red-100',
-                      'Em descarga': 'bg-purple-50 text-purple-700 border-purple-100',
-                      'Em descarga na Arcelor': 'bg-purple-50 text-purple-700 border-purple-100',
-                    };
-
-                    const badgeClass = statusColors[result.currentStatus] || 'bg-gray-50 text-gray-600 border-gray-100';
-
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`rounded-xl border p-4 space-y-3 transition-all ${
-                          result.changedToday 
-                            ? 'bg-emerald-50/15 border-emerald-500/20 shadow-sm shadow-emerald-500/5' 
-                            : 'bg-white border-gray-100'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-titam-deep tracking-wider">NF: {result.nf}</span>
-                          
-                          {result.changedToday ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white animate-pulse">
-                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                              Alterada Hoje
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest bg-gray-100 text-gray-400">
-                              Sem alteração hoje
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-gray-400 font-medium uppercase tracking-wider">Status Atual:</span>
-                            <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                              {result.currentStatus}
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-gray-400 font-medium uppercase tracking-wider">Filial:</span>
-                            <span className="text-gray-700 font-bold uppercase tracking-wider">{result.branchName}</span>
-                          </div>
-
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-gray-400 font-medium uppercase tracking-wider">Último Usuário:</span>
-                            <span className="text-gray-600 font-bold font-mono truncate max-w-[120px]">{result.updatedBy}</span>
-                          </div>
-
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-gray-400 font-medium uppercase tracking-wider">Última Atualização:</span>
-                            <span className="text-gray-500 font-bold font-mono text-[10px]">{result.updatedAt}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <StatCard 
@@ -4208,6 +4122,28 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === 'apresentacao' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Apresentação Institucional</h2>
+                  <p className="text-gray-500 text-sm">Visão estratégica e de engenharia de processos da filial Titam</p>
+                </div>
+              </div>
+
+              <TitamPresentationView 
+                entries={entries} 
+                containers={containers} 
+                branches={branches} 
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'filiais' && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -4387,6 +4323,97 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Painel de Auditoria de Status de NF */}
+              <div className="bg-white border-gray-200 shadow-sm p-6 rounded-xl border space-y-4 transition-all duration-700">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-50 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-titam-lime/15 text-titam-deep rounded-xl flex items-center justify-center border border-titam-lime/20">
+                      <AlertCircle size={18} className="text-titam-deep" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm uppercase tracking-wider text-titam-deep">Auditoria de Status de NF-e</h3>
+                      <p className="text-gray-500 text-xs mt-1">Verifique se as NFs sofreram alterações de status hoje</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest shrink-0">NFs para Consultar:</span>
+                    <input
+                      type="text"
+                      placeholder="Ex: 17745, 17743..."
+                      value={nfAuditSearch}
+                      onChange={(e) => setNfAuditSearch(e.target.value)}
+                      className="border border-gray-200 bg-gray-50/50 rounded-xl px-3 py-1.5 text-xs font-bold uppercase tracking-wider focus:ring-2 focus:ring-titam-lime outline-none transition-all w-full sm:w-64"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {nfAuditResults.map((result, idx) => {
+                    const statusColors: Record<string, string> = {
+                      'Estoque': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                      'Estoque (Cheio Terminal)': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                      'Embarcado': 'bg-blue-50 text-blue-700 border-blue-100',
+                      'Devolvido': 'bg-amber-50 text-amber-700 border-amber-100',
+                      'Rejeitado': 'bg-red-50 text-red-700 border-red-100',
+                      'Em descarga': 'bg-purple-50 text-purple-700 border-purple-100',
+                      'Em descarga na Arcelor': 'bg-purple-50 text-purple-700 border-purple-100',
+                    };
+
+                    const badgeClass = statusColors[result.currentStatus] || 'bg-gray-50 text-gray-600 border-gray-100';
+
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`rounded-xl border p-4 space-y-3 transition-all ${
+                          result.changedToday 
+                            ? 'bg-emerald-50/15 border-emerald-500/20 shadow-sm shadow-emerald-500/5' 
+                            : 'bg-white border-gray-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-titam-deep tracking-wider">NF: {result.nf}</span>
+                          
+                          {result.changedToday ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                              Alterada Hoje
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest bg-gray-100 text-gray-400">
+                              Sem alteração hoje
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Status Atual:</span>
+                            <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
+                              {result.currentStatus}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Filial:</span>
+                            <span className="text-gray-700 font-bold uppercase tracking-wider">{result.branchName}</span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Último Usuário:</span>
+                            <span className="text-gray-600 font-bold font-mono truncate max-w-[120px]">{result.updatedBy}</span>
+                          </div>
+
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-400 font-medium uppercase tracking-wider">Última Atualização:</span>
+                            <span className="text-gray-500 font-bold font-mono text-[10px]">{result.updatedAt}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -6246,10 +6273,11 @@ function ReportsView({
   getExitDate?: (e: Entry | Partial<Entry> | null | undefined, includeDescargaFallback?: boolean) => string,
   branches?: any[]
 }) {
-  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas' | 'acumulado_saidas' | 'acumulado_estoque'>('estoque');
+  const [reportType, setReportType] = useState<'estoque' | 'faturamento' | 'performance' | 'logistica_vli' | 'faturamento_detalhado' | 'saida_detalhada' | 'transporte_municipal' | 'estoque_minerio' | 'faturamento_bobinas' | 'acumulado_saidas' | 'acumulado_estoque' | 'frota_veiculos'>('estoque');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
+  const [fleetSearch, setFleetSearch] = useState('');
 
   const filteredEntries = entries.filter(entry => {
     if (reportType === 'acumulado_saidas') {
@@ -6425,7 +6453,97 @@ function ReportsView({
     });
   }, [filteredEntries, reportType, branches]);
 
+  const fleetData = React.useMemo(() => {
+    if (!Array.isArray(filteredEntries)) return [];
+    
+    const platesMap = new Map<string, {
+      plate: string;
+      trips: number;
+      firstSeen: string;
+      lastSeen: string;
+      products: Set<string>;
+      suppliers: Set<string>;
+      destinations: Set<string>;
+      lastStatus: string;
+    }>();
+
+    filteredEntries.forEach(e => {
+      if (!e) return;
+      const pIn = e.placa_veiculo?.trim().toUpperCase();
+      const pOut = e.placa_saida?.trim().toUpperCase();
+      const date = e.data_descarga || e.data_nf || '';
+      
+      const processPlate = (plate: string) => {
+        if (!plate) return;
+        if (!platesMap.has(plate)) {
+          platesMap.set(plate, {
+            plate,
+            trips: 0,
+            firstSeen: date,
+            lastSeen: date,
+            products: new Set(),
+            suppliers: new Set(),
+            destinations: new Set(),
+            lastStatus: e.status || ''
+          });
+        }
+        
+        const data = platesMap.get(plate)!;
+        data.trips += 1;
+        if (date) {
+          if (!data.firstSeen || date < data.firstSeen) data.firstSeen = date;
+          if (!data.lastSeen || date > data.lastSeen) data.lastSeen = date;
+        }
+        if (e.descricao_produto) data.products.add(e.descricao_produto);
+        if (e.fornecedor) data.suppliers.add(e.fornecedor);
+        if (e.destino) data.destinations.add(e.destino);
+        if (e.status) data.lastStatus = e.status;
+      };
+
+      processPlate(pIn);
+      if (pOut && pOut !== pIn) {
+        processPlate(pOut);
+      }
+    });
+
+    return Array.from(platesMap.values()).map(p => ({
+      ...p,
+      products: Array.from(p.products),
+      suppliers: Array.from(p.suppliers),
+      destinations: Array.from(p.destinations)
+    })).sort((a, b) => b.trips - a.trips);
+  }, [filteredEntries]);
+
+  const filteredFleet = React.useMemo(() => {
+    if (!fleetSearch) return fleetData;
+    const search = fleetSearch.toUpperCase();
+    return fleetData.filter(item => item.plate.includes(search));
+  }, [fleetData, fleetSearch]);
+
   const exportToCSV = () => {
+    if (reportType === 'frota_veiculos') {
+      const headers = ['Placa', 'Viagens', 'Produtos Transportados', 'Fornecedores / Destinos', 'Primeira Entrada', 'Última Operação', 'Status Atual'];
+      const rows = filteredFleet.map(item => [
+        item.plate,
+        item.trips.toString(),
+        item.products.join(', '),
+        [...item.suppliers, ...item.destinations].join(' / '),
+        item.firstSeen ? item.firstSeen.split('-').reverse().join('/') : '-',
+        item.lastSeen ? item.lastSeen.split('-').reverse().join('/') : '-',
+        item.lastStatus || 'Concluído'
+      ]);
+      const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `relatorio_frota_veiculos_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
     if (reportType === 'acumulado_saidas') {
       const headers = ['Mês', 'Destino', 'Material', 'Peso Total (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
       const rows: any[] = [];
@@ -6583,6 +6701,7 @@ function ReportsView({
             <option value="faturamento_bobinas">Faturamento Bobinas</option>
             <option value="acumulado_saidas">Acumulado de Saídas por Mês (Destino/Material)</option>
             <option value="acumulado_estoque">Acumulado de Estoque por Fornecedor (Filial/Material)</option>
+            <option value="frota_veiculos">Controle de Frota & Veículos</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -6626,12 +6745,130 @@ function ReportsView({
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900 capitalize">
-            Prévia: {reportType === 'acumulado_saidas' ? 'Acumulado de Saídas por Mês' : reportType === 'acumulado_estoque' ? 'Acumulado de Estoque por Fornecedor' : reportType}
-          </h2>
+      {reportType === 'frota_veiculos' ? (
+        <div className="bg-white border-gray-100 p-8 rounded-2xl border shadow-sm transition-all duration-700 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-50 pb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-titam-deep/5 text-titam-deep rounded-xl flex items-center justify-center">
+                <Truck size={24} />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em]">Controle de Frota & Veículos</h3>
+                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Histórico de placas identificadas neste terminal</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Search Plate */}
+              <div className="relative group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-titam-lime transition-colors" size={16} />
+                <input 
+                  type="text" 
+                  placeholder="BUSCAR PLACA..."
+                  value={fleetSearch}
+                  onChange={(e) => setFleetSearch(e.target.value)}
+                  className="pl-12 pr-6 py-2.5 border bg-gray-50 border-gray-100 focus:ring-titam-lime/20 focus:bg-white rounded-xl text-[10px] font-bold uppercase tracking-widest outline-none transition-all w-full sm:w-48"
+                />
+              </div>
+
+              {/* Total vehicles Badge */}
+              <div className="bg-titam-deep text-white px-4 py-2.5 rounded-xl flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest">Veículos Únicos:</span>
+                <span className="text-sm font-black text-titam-lime">{fleetData.length}</span>
+              </div>
+            </div>
+          </div>
+
+          {filteredFleet.length === 0 ? (
+            <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+              <Truck className="mx-auto text-gray-300 mb-2" size={32} />
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Nenhum veículo encontrado para os filtros selecionados</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="pb-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">Placa</th>
+                    <th className="pb-3 text-center text-[9px] font-black text-gray-400 uppercase tracking-widest">Viagens</th>
+                    <th className="pb-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">Produtos Transportados</th>
+                    <th className="pb-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">Fornecedores / Destinos</th>
+                    <th className="pb-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">Primeira Entrada</th>
+                    <th className="pb-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">Última Operação</th>
+                    <th className="pb-3 text-right text-[9px] font-black text-gray-400 uppercase tracking-widest">Status Atual</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredFleet.map((item) => (
+                    <tr key={item.plate} className="group hover:bg-gray-50/50 transition-all">
+                      <td className="py-4 pr-3">
+                        {/* Brazilian-style License Plate design */}
+                        <div className="inline-flex flex-col border border-gray-400 rounded-md overflow-hidden bg-white shadow-sm w-24">
+                          <div className="bg-blue-600 text-white text-[7px] font-bold text-center py-0.5 tracking-wider uppercase">
+                            BRASIL
+                          </div>
+                          <div className="text-center py-1 text-xs font-black tracking-widest text-gray-900 font-mono">
+                            {item.plate}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 text-center">
+                        <span className="inline-flex items-center justify-center bg-gray-100 text-gray-800 text-[10px] font-black px-2 py-1 rounded-md">
+                          {item.trips}
+                        </span>
+                      </td>
+                      <td className="py-4">
+                        <div className="flex flex-wrap gap-1 max-w-[180px]">
+                          {item.products.length > 0 ? (
+                            item.products.map(p => (
+                              <span key={p} className="bg-gray-50 text-gray-600 border border-gray-100 text-[9px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                {p}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[9px] text-gray-300 italic">-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-4">
+                        <div className="text-[10px] font-bold text-gray-600 uppercase max-w-[200px] truncate">
+                          {[...item.suppliers, ...item.destinations].join(' / ') || <span className="text-gray-300 italic">-</span>}
+                        </div>
+                      </td>
+                      <td className="py-4 text-[10px] font-medium text-gray-500">
+                        {item.firstSeen ? item.firstSeen.split('-').reverse().join('/') : '-'}
+                      </td>
+                      <td className="py-4 text-[10px] font-semibold text-gray-700">
+                        {item.lastSeen ? item.lastSeen.split('-').reverse().join('/') : '-'}
+                      </td>
+                      <td className="py-4 text-right">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                          item.lastStatus.toLowerCase().includes('estoque') || item.lastStatus.toLowerCase().includes('entrada')
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                            : 'bg-gray-50 text-gray-500 border border-gray-100'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            item.lastStatus.toLowerCase().includes('estoque') || item.lastStatus.toLowerCase().includes('entrada')
+                              ? 'bg-emerald-500 animate-pulse'
+                              : 'bg-gray-400'
+                          }`}></span>
+                          {item.lastStatus || 'Concluído'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
+          <div className="p-6 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900 capitalize">
+              Prévia: {reportType === 'acumulado_saidas' ? 'Acumulado de Saídas por Mês' : reportType === 'acumulado_estoque' ? 'Acumulado de Estoque por Fornecedor' : reportType}
+            </h2>
+          </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
@@ -6964,6 +7201,7 @@ function ReportsView({
           </table>
         </div>
       </div>
+      )}
     </motion.div>
   );
 }
