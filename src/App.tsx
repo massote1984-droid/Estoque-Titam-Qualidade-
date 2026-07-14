@@ -6408,6 +6408,7 @@ function ReportsView({
     const groups: Record<string, {
       branchName: string;
       material: string;
+      destino?: string;
       totalWeight: number;
       supplierMap: Record<string, number>;
     }> = {};
@@ -6418,13 +6419,16 @@ function ReportsView({
       const material = e.descricao_produto || 'Não especificado';
       const supplier = e.fornecedor || 'Não especificado';
       const weight = e.tonelada || 0;
+      const destino = e.destino || 'Não especificado';
 
-      const groupKey = `${branchName}|${material}`;
+      const isTitamBranch = branchName.toLowerCase().includes('titam');
+      const groupKey = isTitamBranch ? `${branchName}|${material}|${destino}` : `${branchName}|${material}`;
 
       if (!groups[groupKey]) {
         groups[groupKey] = {
           branchName,
           material,
+          destino: isTitamBranch ? destino : undefined,
           totalWeight: 0,
           supplierMap: {}
         };
@@ -6449,7 +6453,9 @@ function ReportsView({
       };
     }).sort((a, b) => {
       if (a.branchName !== b.branchName) return a.branchName.localeCompare(b.branchName);
-      return a.material.localeCompare(b.material);
+      if (a.material !== b.material) return a.material.localeCompare(b.material);
+      if (a.destino && b.destino) return a.destino.localeCompare(b.destino);
+      return 0;
     });
   }, [filteredEntries, reportType, branches]);
 
@@ -6573,18 +6579,32 @@ function ReportsView({
       return;
     }
     if (reportType === 'acumulado_estoque') {
-      const headers = ['Filial', 'Material', 'Peso Total em Estoque (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
+      const hasDestino = acumuladoEstoqueData.some(r => r.destino);
+      const headers = hasDestino
+        ? ['Filial', 'Destino', 'Material', 'Peso Total em Estoque (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)']
+        : ['Filial', 'Material', 'Peso Total em Estoque (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
       const rows: any[] = [];
       acumuladoEstoqueData.forEach(row => {
         row.suppliers.forEach(s => {
-          rows.push([
-            row.branchName,
-            row.material,
-            row.totalWeight.toString().replace('.', ','),
-            s.name,
-            s.weight.toString().replace('.', ','),
-            s.percentage.toFixed(2).replace('.', ',')
-          ]);
+          const rowData = hasDestino
+            ? [
+                row.branchName,
+                row.destino || '-',
+                row.material,
+                row.totalWeight.toString().replace('.', ','),
+                s.name,
+                s.weight.toString().replace('.', ','),
+                s.percentage.toFixed(2).replace('.', ',')
+              ]
+            : [
+                row.branchName,
+                row.material,
+                row.totalWeight.toString().replace('.', ','),
+                s.name,
+                s.weight.toString().replace('.', ','),
+                s.percentage.toFixed(2).replace('.', ',')
+              ];
+          rows.push(rowData);
         });
       });
       const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
@@ -6885,6 +6905,9 @@ function ReportsView({
                 {reportType === 'acumulado_estoque' && (
                   <>
                     <th className="px-6 py-3 data-grid-header">Filial</th>
+                    {acumuladoEstoqueData.some(r => r.destino) && (
+                      <th className="px-6 py-3 data-grid-header">Destino</th>
+                    )}
                     <th className="px-6 py-3 data-grid-header">Material</th>
                     <th className="px-6 py-3 data-grid-header">Peso Total em Estoque</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedores em Estoque (Peso / Part. %)</th>
@@ -7047,6 +7070,9 @@ function ReportsView({
                 acumuladoEstoqueData.map((row, idx) => (
                   <tr key={idx} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
                     <td className="px-6 py-4 text-sm font-bold text-gray-700">{row.branchName}</td>
+                    {acumuladoEstoqueData.some(r => r.destino) && (
+                      <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.destino || '-'}</td>
+                    )}
                     <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.material}</td>
                     <td className="px-6 py-4 text-sm font-black text-titam-deep mono-value">
                       {row.totalWeight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
