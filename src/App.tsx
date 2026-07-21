@@ -1522,6 +1522,26 @@ export default function App() {
     }
   };
 
+  const isValidContainerNumberForDuplicateCheck = (num?: string) => {
+    if (!num) return false;
+    const clean = num.trim().toUpperCase();
+    if (
+      clean === '' || 
+      clean === '-' || 
+      clean === 'S/N' || 
+      clean === 'S/C' || 
+      clean === 'N/A' || 
+      clean === 'SEM CONTAINER' || 
+      clean === 'SEM CONTEINER' || 
+      clean === 'N/D' || 
+      clean === 'N/O' ||
+      clean.length < 4
+    ) {
+      return false;
+    }
+    return true;
+  };
+
   const handleCreateEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
@@ -1565,7 +1585,7 @@ export default function App() {
     const targetStatus = finalStatus || 'Estoque';
     const containerNum = rawData.container?.toString().trim().toUpperCase();
 
-    if (isFromTitam && targetStatus === 'Estoque' && containerNum) {
+    if (isFromTitam && targetStatus === 'Estoque' && isValidContainerNumberForDuplicateCheck(containerNum)) {
       const hasDuplicateContainer = entries.some(entry => {
         const eb = branches.find(b => b.id === entry.branchId);
         const entryIsTitam = eb?.name?.toLowerCase().includes('titam');
@@ -1763,7 +1783,7 @@ export default function App() {
       const targetContainer = (updates.container !== undefined ? updates.container : currentEntry?.container)?.toString().trim().toUpperCase();
       const targetNf = (updates.nf_numero !== undefined ? updates.nf_numero : currentEntry?.nf_numero)?.toString().trim().toUpperCase();
 
-      if (isFromTitam && targetStatus === 'Estoque' && targetContainer) {
+      if (isFromTitam && targetStatus === 'Estoque' && isValidContainerNumberForDuplicateCheck(targetContainer)) {
         const hasDuplicateContainer = entries.some(entry => {
           if (String(entry.id) === String(docId)) return false; // skip self
           const eb = branches.find(b => b.id === entry.branchId);
@@ -6231,6 +6251,38 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Toast Notifications Panel */}
+      <div className="fixed bottom-5 right-5 z-[200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        <AnimatePresence>
+          {notifications
+            .filter(n => n.type !== 'critical')
+            .map(n => (
+              <motion.div
+                key={n.id}
+                initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.2 } }}
+                className="pointer-events-auto bg-white rounded-xl shadow-xl border border-gray-100 p-4 flex gap-3 items-start overflow-hidden transition-all duration-300"
+              >
+                <div className="flex-shrink-0 mt-0.5">
+                  {n.type === 'error' && <AlertCircle className="text-red-500" size={18} />}
+                  {n.type === 'warning' && <AlertTriangle className="text-amber-500" size={18} />}
+                  {n.type === 'info' && <CheckSquare className="text-emerald-500" size={18} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800 leading-normal">{n.message}</p>
+                </div>
+                <button 
+                  onClick={() => setNotifications(prev => prev.filter(notif => notif.id !== n.id))}
+                  className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors mt-0.5"
+                >
+                  <X size={14} />
+                </button>
+              </motion.div>
+            ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
