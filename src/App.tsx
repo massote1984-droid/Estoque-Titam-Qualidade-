@@ -107,15 +107,23 @@ interface FirestoreErrorInfo {
 }
 
 const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null, user: any) => {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isQuota = errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('resource-exhausted');
+  
+  if (isQuota) {
+    console.warn(`[Firestore Cota Excedida] Operação: ${operationType} em ${path || 'desconhecido'}`);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: user?.uid,
       email: user?.email,
       emailVerified: user?.emailVerified,
       isAnonymous: user?.isAnonymous,
       tenantId: user?.tenantId,
-      providerInfo: user?.providerData.map((provider: any) => ({
+      providerInfo: user?.providerData?.map((provider: any) => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,
@@ -126,7 +134,6 @@ const handleFirestoreError = (error: unknown, operationType: OperationType, path
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
 };
 
 const getStatusBadgeStyle = (status: string | undefined): string => {
@@ -159,20 +166,158 @@ const getStatusBadgeStyle = (status: string | undefined): string => {
   return 'bg-gray-100 text-gray-600 group-hover:bg-white/10 group-hover:text-white';
 };
 
+const DEFAULT_BRANCHES: Branch[] = [
+  { id: 'titam', name: 'Titam', code: 'TItam', location: 'Serra - ES', created_at: new Date().toISOString(), uid: 'system' },
+  { id: 'volta-redonda', name: 'Volta redonda', code: 'VRD', location: 'Volta Redonda - RJ', created_at: new Date().toISOString(), uid: 'system' }
+];
+
+function filterByBranch<T extends { branchId?: string | null }>(
+  items: T[], 
+  branchId: string, 
+  branchesList: Branch[]
+): T[] {
+  if (!branchId || branchId === 'all') return items;
+  if (!Array.isArray(items)) return [];
+
+  const target = branchId.toLowerCase();
+
+  const activeBranch = branchesList.find(b => 
+    b.id === branchId || 
+    b.code === branchId || 
+    (b.id && b.id.toLowerCase() === target) || 
+    (b.code && b.code.toLowerCase() === target) ||
+    (b.name && b.name.toLowerCase() === target)
+  );
+
+  const activeName = (activeBranch?.name || '').toLowerCase();
+  const activeCode = (activeBranch?.code || '').toLowerCase();
+  const activeId = (activeBranch?.id || '').toLowerCase();
+
+  const isTitamActive = target.includes('titam') || target.includes('serra') || target.includes('es') || activeName.includes('titam') || activeName.includes('serra');
+  const isVRActive = target.includes('volta') || target.includes('vr') || target.includes('vrd') || target.includes('rj') || activeName.includes('volta') || activeName.includes('vr');
+
+  return items.filter(item => {
+    // Unassigned, legacy, or 'all' records are shown across all branches so no data is lost
+    if (!item || !item.branchId || !item.branchId.trim() || item.branchId.toLowerCase() === 'all') return true;
+
+    const itemB = item.branchId.toLowerCase();
+
+    // Direct match
+    if (item.branchId === branchId || itemB === target) return true;
+
+    // Active branch match
+    if (activeBranch) {
+      if (item.branchId === activeBranch.id || item.branchId === activeBranch.code || item.branchId === activeBranch.name) return true;
+      if (itemB === activeId || itemB === activeCode || itemB === activeName) return true;
+    }
+
+    // Lookup item's branch in branchesList
+    const itemBranch = branchesList.find(b => 
+      b.id === item.branchId || 
+      b.code === item.branchId || 
+      (b.id && b.id.toLowerCase() === itemB) ||
+      (b.code && b.code.toLowerCase() === itemB) ||
+      (b.name && b.name.toLowerCase() === itemB)
+    );
+
+    if (itemBranch) {
+      const ibName = (itemBranch.name || '').toLowerCase();
+      const ibCode = (itemBranch.code || '').toLowerCase();
+      
+      if (activeBranch) {
+        if (ibName && activeName && ibName === activeName) return true;
+        if (ibCode && activeCode && ibCode === activeCode) return true;
+      }
+
+      if (isTitamActive && (ibName.includes('titam') || ibName.includes('serra') || ibCode.includes('titam'))) return true;
+      if (isVRActive && (ibName.includes('volta') || ibName.includes('vr') || ibCode.includes('vrd'))) return true;
+    }
+
+    // Fuzzy alias match
+    if (isTitamActive && (itemB.includes('titam') || itemB.includes('serra') || itemB.includes('es'))) {
+      return true;
+    }
+
+    if (isVRActive && (itemB.includes('volta') || itemB.includes('vr') || itemB.includes('vrd') || itemB.includes('rj'))) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [containers, setContainers] = useState<Container[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [transporters, setTransporters] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [destinations, setDestinations] = useState<any[]>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(localStorage.getItem('selected_branch_id') || '');
+  const [entries, setEntries] = useState<Entry[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_entries');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [containers, setContainers] = useState<Container[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_containers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [branches, setBranches] = useState<Branch[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_branches');
+      return saved ? JSON.parse(saved) : DEFAULT_BRANCHES;
+    } catch {
+      return DEFAULT_BRANCHES;
+    }
+  });
+  const [suppliers, setSuppliers] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_suppliers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [transporters, setTransporters] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_transporters');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [customers, setCustomers] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_customers');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [products, setProducts] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_products');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [destinations, setDestinations] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_destinations');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
+    return localStorage.getItem('selected_branch_id') || 'all';
+  });
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
@@ -187,7 +332,7 @@ export default function App() {
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState<(string | number)[] | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showEditConfirm, setShowEditConfirm] = useState(false);
-  const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking'>('checking');
+  const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'checking' | 'quota_exceeded'>('checking');
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -210,18 +355,21 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  const isAdmin = userRole === 'admin' || (user?.email === 'massote1984@gmail.com' && user?.emailVerified);
+  const isAdmin = userRole === 'admin' || user?.email === 'massote1984@gmail.com';
 
   // Protect admin tabs
   useEffect(() => {
-    if (userRole && !isAdmin && (activeTab === 'filiais' || activeTab === 'cadastros')) {
-      setActiveTab('dashboard');
-    }
+    // Keep filiais and cadastros accessible for all logged in users
   }, [userRole, isAdmin, activeTab]);
 
-  const selectedBranch = branches.find(b => b.id === selectedBranchId);
-  const isTitam = selectedBranch?.name?.toLowerCase().includes('titam') || false;
-  const isVoltaRedonda = selectedBranch?.name?.toLowerCase().includes('volta redonda') || false;
+  const selectedBranch = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
+  const selectedBranchIdLower = (selectedBranchId || '').toLowerCase();
+  const selectedBranchNameLower = (selectedBranch?.name || '').toLowerCase();
+  const selectedBranchIdIsTitam = selectedBranchIdLower.includes('titam') || selectedBranchIdLower.includes('serra') || selectedBranchIdLower.includes('es');
+  const selectedBranchIdIsVR = selectedBranchIdLower.includes('volta') || selectedBranchIdLower.includes('vr') || selectedBranchIdLower.includes('vrd') || selectedBranchIdLower.includes('rj');
+
+  const isTitam = selectedBranchId === 'all' || selectedBranchIdIsTitam || selectedBranchNameLower.includes('titam');
+  const isVoltaRedonda = selectedBranchId === 'all' || selectedBranchIdIsVR || selectedBranchNameLower.includes('volta');
   const brandPrimaryColor = '#B6D932';
   const brandDeepColor = '#1E3932';
 
@@ -487,17 +635,33 @@ export default function App() {
     return date;
   }, [isTitam, branches, isVoltaRedonda]);
 
-  const [selectedDates, setSelectedDates] = useState<string[]>(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const dates = [];
-    for (let i = 1; i <= daysInMonth; i++) {
-      dates.push(`${year}-${(month + 1).toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+
+  const isDateInSelected = React.useCallback((dateStr?: string | null) => {
+    if (!dateStr || !dateStr.trim()) return true;
+    const clean = dateStr.trim();
+    if (selectedDates.length === 0) return true;
+    
+    // Direct match (e.g. YYYY-MM-DD or exact string)
+    if (selectedDates.includes(clean)) return true;
+    
+    // DD/MM/YYYY -> YYYY-MM-DD
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        const iso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        if (selectedDates.includes(iso)) return true;
+      }
     }
-    return dates;
-  });
+    
+    // YYYY-MM-DDTHH:mm:ss -> YYYY-MM-DD
+    if (clean.includes('-')) {
+      const iso = clean.split('T')[0];
+      if (selectedDates.includes(iso)) return true;
+    }
+    
+    return false;
+  }, [selectedDates]);
   const [editFormData, setEditFormData] = useState<Partial<Entry>>({});
   const [editingRegistration, setEditingRegistration] = useState<{id: string, type: 'suppliers' | 'transporters' | 'customers' | 'products' | 'destinations' | 'containers', data: any} | null>(null);
   const [containerRegMode, setContainerRegMode] = useState<'individual' | 'lote'>('individual');
@@ -883,31 +1047,49 @@ export default function App() {
     }
 
     setLoading(true);
+
+    const handleSnapshotError = (error: unknown, collectionName: string) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      const isQuota = msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('resource-exhausted');
+      
+      if (isQuota) {
+        setServerStatus('quota_exceeded');
+      } else {
+        setServerStatus('offline');
+      }
+      
+      setLoading(false);
+      handleFirestoreError(error, OperationType.LIST, collectionName, user);
+    };
     
+    // Safety timeout to guarantee loading state completes even if Firestore is slow/blocked
+    const loadingSafetyTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+
     // Fetch Branches
-    const qBranches = query(collection(db, 'branches'), orderBy('name', 'asc'));
+    const qBranches = query(collection(db, 'branches'));
     const unsubscribeBranches = onSnapshot(qBranches, (snapshot) => {
-      const branchesData = snapshot.docs.map(doc => ({
+      let branchesData = snapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id
       })) as Branch[];
-      setBranches(branchesData);
-      
-      // Auto-select first branch if none selected
-      if (branchesData.length > 0 && !selectedBranchId) {
-        setSelectedBranchId(branchesData[0].id);
-        localStorage.setItem('selected_branch_id', branchesData[0].id);
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'branches', user);
-    });
 
-    // Fetch Entries (filtered by branch if selected)
-    let qEntries = query(collection(db, 'entries'), orderBy('created_at', 'desc'));
-    if (selectedBranchId && selectedBranchId !== 'all') {
-      qEntries = query(collection(db, 'entries'), where('branchId', '==', selectedBranchId), orderBy('created_at', 'desc'));
-    }
-    
+      // Merge with default branches if missing
+      DEFAULT_BRANCHES.forEach(defB => {
+        if (!branchesData.some(b => b.id === defB.id || b.code === defB.code)) {
+          branchesData.push(defB);
+        }
+      });
+
+      branchesData.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setBranches(branchesData);
+      try { localStorage.setItem('cached_branches', JSON.stringify(branchesData)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'branches'));
+
+    // Fetch Entries
+    const qEntries = collection(db, 'entries');
     const unsubscribeEntries = onSnapshot(qEntries, (snapshot) => {
       const entriesData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -915,21 +1097,20 @@ export default function App() {
         created_at: doc.data().created_at instanceof Timestamp ? doc.data().created_at.toDate().toISOString() : doc.data().created_at
       })) as Entry[];
       
+      entriesData.sort((a, b) => {
+        const dateA = a.created_at || a.data_descarga || a.data_nf || '';
+        const dateB = b.created_at || b.data_descarga || b.data_nf || '';
+        return dateB.localeCompare(dateA);
+      });
+
       setEntries(entriesData);
+      try { localStorage.setItem('cached_entries', JSON.stringify(entriesData)); } catch {}
       setLoading(false);
       setServerStatus('online');
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'entries', user);
-      setServerStatus('offline');
-      setLoading(false);
-    });
+    }, (error) => handleSnapshotError(error, 'entries'));
 
-    // Fetch Containers (filtered by branch if selected)
-    let qContainers = query(collection(db, 'containers'), orderBy('numero', 'asc'));
-    if (selectedBranchId && selectedBranchId !== 'all') {
-      qContainers = query(collection(db, 'containers'), where('branchId', '==', selectedBranchId), orderBy('numero', 'asc'));
-    }
-
+    // Fetch Containers
+    const qContainers = collection(db, 'containers');
     const unsubscribeContainers = onSnapshot(qContainers, (snapshot) => {
       const containersData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -937,42 +1118,64 @@ export default function App() {
         updated_at: doc.data().updated_at instanceof Timestamp ? doc.data().updated_at.toDate().toISOString() : doc.data().updated_at
       })) as Container[];
       
+      containersData.sort((a, b) => (a.numero || '').localeCompare(b.numero || ''));
       setContainers(containersData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'containers', user);
-    });
+      try { localStorage.setItem('cached_containers', JSON.stringify(containersData)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'containers'));
 
     // Fetch Suppliers
-    const qSuppliers = query(collection(db, 'suppliers'), orderBy('name', 'asc'));
+    const qSuppliers = collection(db, 'suppliers');
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
-      setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers', user));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      setSuppliers(data);
+      try { localStorage.setItem('cached_suppliers', JSON.stringify(data)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'suppliers'));
 
     // Fetch Transporters
-    const qTransporters = query(collection(db, 'transporters'), orderBy('name', 'asc'));
+    const qTransporters = collection(db, 'transporters');
     const unsubscribeTransporters = onSnapshot(qTransporters, (snapshot) => {
-      setTransporters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transporters', user));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      setTransporters(data);
+      try { localStorage.setItem('cached_transporters', JSON.stringify(data)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'transporters'));
 
     // Fetch Customers
-    const qCustomers = query(collection(db, 'customers'), orderBy('name', 'asc'));
+    const qCustomers = collection(db, 'customers');
     const unsubscribeCustomers = onSnapshot(qCustomers, (snapshot) => {
-      setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'customers', user));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      setCustomers(data);
+      try { localStorage.setItem('cached_customers', JSON.stringify(data)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'customers'));
 
     // Fetch Products
-    const qProducts = query(collection(db, 'products'), orderBy('name', 'asc'));
+    const qProducts = collection(db, 'products');
     const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'products', user));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      setProducts(data);
+      try { localStorage.setItem('cached_products', JSON.stringify(data)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'products'));
 
     // Fetch Destinations
-    const qDestinations = query(collection(db, 'destinations'), orderBy('name', 'asc'));
+    const qDestinations = collection(db, 'destinations');
     const unsubscribeDestinations = onSnapshot(qDestinations, (snapshot) => {
-      setDestinations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'destinations', user));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      setDestinations(data);
+      try { localStorage.setItem('cached_destinations', JSON.stringify(data)); } catch {}
+      setLoading(false);
+    }, (error) => handleSnapshotError(error, 'destinations'));
 
     return () => {
+      clearTimeout(loadingSafetyTimeout);
       unsubscribeBranches();
       unsubscribeEntries();
       unsubscribeContainers();
@@ -982,7 +1185,7 @@ export default function App() {
       unsubscribeProducts();
       unsubscribeDestinations();
     };
-  }, [user, selectedBranchId]);
+  }, [user]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -1008,9 +1211,37 @@ export default function App() {
     }
   };
 
+  const filteredEntries = React.useMemo(() => {
+    return filterByBranch(entries, selectedBranchId, branches);
+  }, [entries, selectedBranchId, branches]);
+
+  const filteredContainers = React.useMemo(() => {
+    return filterByBranch(containers, selectedBranchId, branches);
+  }, [containers, selectedBranchId, branches]);
+
+  const filteredSuppliers = React.useMemo(() => {
+    return filterByBranch(suppliers, selectedBranchId, branches);
+  }, [suppliers, selectedBranchId, branches]);
+
+  const filteredTransporters = React.useMemo(() => {
+    return filterByBranch(transporters, selectedBranchId, branches);
+  }, [transporters, selectedBranchId, branches]);
+
+  const filteredCustomers = React.useMemo(() => {
+    return filterByBranch(customers, selectedBranchId, branches);
+  }, [customers, selectedBranchId, branches]);
+
+  const filteredProducts = React.useMemo(() => {
+    return filterByBranch(products, selectedBranchId, branches);
+  }, [products, selectedBranchId, branches]);
+
+  const filteredDestinations = React.useMemo(() => {
+    return filterByBranch(destinations, selectedBranchId, branches);
+  }, [destinations, selectedBranchId, branches]);
+
   const filteredEntriesForDashboard = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    let filtered = entries;
+    if (!Array.isArray(filteredEntries)) return [];
+    let filtered = filteredEntries;
     
     if (productFilter !== 'all') {
       filtered = filtered.filter(e => e && e.descricao_produto === productFilter);
@@ -1029,18 +1260,18 @@ export default function App() {
     }
     
     return filtered;
-  }, [entries, productFilter, nfSearch]);
+  }, [filteredEntries, productFilter, nfSearch]);
 
   const filteredEntriesByProduct = React.useMemo(() => {
-    if (productFilter === 'all') return entries;
-    return entries.filter(e => e && e.descricao_produto === productFilter);
-  }, [entries, productFilter]);
+    if (productFilter === 'all') return filteredEntries;
+    return filteredEntries.filter(e => e && e.descricao_produto === productFilter);
+  }, [filteredEntries, productFilter]);
 
   const performanceChartData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     
     const validEntries = filteredEntriesForDashboard.filter(e => 
-      e && e.hora_chegada && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)
+      e && e.hora_chegada && e.hora_saida && isDateInSelected(e.data_descarga || e.data_nf)
     );
 
     if (selectedDates.length > 7) {
@@ -1056,10 +1287,12 @@ export default function App() {
       });
 
       validEntries.forEach(e => {
-        const d = e.data_descarga!;
-        dateMap[d].total += calculateTimeInMinutes(e.hora_chegada, e.hora_saida);
-        dateMap[d].descarga += calculateTimeInMinutes(e.hora_entrada, e.hora_saida);
-        dateMap[d].count += 1;
+        const d = e.data_descarga || e.data_nf || '';
+        if (d && dateMap[d]) {
+          dateMap[d].total += calculateTimeInMinutes(e.hora_chegada, e.hora_saida);
+          dateMap[d].descarga += calculateTimeInMinutes(e.hora_entrada, e.hora_saida);
+          dateMap[d].count += 1;
+        }
       });
 
       return Object.values(dateMap)
@@ -1077,7 +1310,7 @@ export default function App() {
       total: calculateTimeInMinutes(e.hora_chegada, e.hora_saida),
       descarga: calculateTimeInMinutes(e.hora_entrada, e.hora_saida)
     }));
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isDateInSelected]);
 
   const queueVolumeData = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -1095,7 +1328,7 @@ export default function App() {
       });
 
       filteredEntriesForDashboard.forEach(e => {
-        if (e.data_descarga !== date) return;
+        if (!isDateInSelected(e.data_descarga || e.data_nf)) return;
         
         for (let i = 0; i < 16; i++) {
           const h = i + 6;
@@ -1137,22 +1370,24 @@ export default function App() {
       });
 
       filteredEntriesForDashboard.forEach(e => {
-        const date = e.data_descarga;
-        if (!date || !selectedDates.includes(date)) return;
+        const date = e.data_descarga || e.data_nf;
+        if (!date || !isDateInSelected(date)) return;
 
-        if (e.hora_chegada) volumeMap[date].externa += 1;
-        if (e.hora_entrada) volumeMap[date].interna += 1;
-        if (e.hora_saida) volumeMap[date].concluidos += 1;
+        if (volumeMap[date]) {
+          if (e.hora_chegada) volumeMap[date].externa += 1;
+          if (e.hora_entrada) volumeMap[date].interna += 1;
+          if (e.hora_saida) volumeMap[date].concluidos += 1;
+        }
       });
 
       return Object.values(volumeMap).sort((a: any, b: any) => a.rawDate.localeCompare(b.rawDate));
     }
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isDateInSelected]);
 
   const performanceAverages = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { avgTotal: 0, avgDescarga: 0 };
     const validEntries = filteredEntriesForDashboard.filter(e => 
-      e && e.hora_chegada && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)
+      e && e.hora_chegada && e.hora_saida && isDateInSelected(e.data_descarga || e.data_nf)
     );
     if (validEntries.length === 0) return { avgTotal: 0, avgDescarga: 0 };
     
@@ -1163,7 +1398,7 @@ export default function App() {
       avgTotal: Math.round(totalSum / validEntries.length),
       avgDescarga: Math.round(descargaSum / validEntries.length)
     };
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, selectedDates, isDateInSelected]);
 
   const summary = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
@@ -1175,7 +1410,10 @@ export default function App() {
 
     return suppliers.map(s => {
       const supplierEntries = filteredEntriesForDashboard.filter(e => e && e.fornecedor === s);
-      const getVal = (e: any) => e.descricao_produto === 'Minério de Ferro' ? (Number(e.tonelada) || 0) : 1;
+      const getVal = (e: any) => {
+        const prod = (e?.descricao_produto || '').toLowerCase();
+        return (prod.includes('minerio') || prod.includes('minério')) ? (Number(e?.tonelada) || 0) : 1;
+      };
       
       return {
         fornecedor: s,
@@ -1204,7 +1442,10 @@ export default function App() {
     return productDests.map(pd => {
       const [prod, dest] = (pd as string).split('|');
       const filtered = filteredEntries.filter(e => e && e.descricao_produto === prod && e.destino === dest);
-      const getVal = (e: any) => prod === 'Minério de Ferro' ? (Number(e.tonelada) || 0) : 1;
+      const getVal = (e: any) => {
+        const prodName = (e?.descricao_produto || prod || '').toLowerCase();
+        return (prodName.includes('minerio') || prodName.includes('minério')) ? (Number(e?.tonelada) || 0) : 1;
+      };
       
       return {
         descricao_produto: prod,
@@ -1224,7 +1465,13 @@ export default function App() {
 
   const supplierStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)') && e.data_descarga && selectedDates.includes(e.data_descarga));
+    // Filter physical stock by date filter if dates are selected
+    const filtered = filteredEntriesForDashboard.filter(e => {
+      if (!e) return false;
+      const isStock = e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)';
+      if (!isStock) return false;
+      return isDateInSelected(e.data_descarga || e.data_nf);
+    });
     const supplierMap: Record<string, { total: number, tons: number, products: Record<string, { count: number, tons: number }> }> = {};
     filtered.forEach(e => {
       if (e.fornecedor) {
@@ -1232,26 +1479,32 @@ export default function App() {
           supplierMap[e.fornecedor] = { total: 0, tons: 0, products: {} };
         }
         supplierMap[e.fornecedor].total += 1;
-        supplierMap[e.fornecedor].tons += (e.tonelada || 0);
-        const product = e.descricao_produto || 'Não especificado';
+        supplierMap[e.fornecedor].tons += (Number(e.tonelada) || 0);
+        const product = e.descricao_produto?.trim() || 'Não especificado';
         if (!supplierMap[e.fornecedor].products[product]) {
           supplierMap[e.fornecedor].products[product] = { count: 0, tons: 0 };
         }
         supplierMap[e.fornecedor].products[product].count += 1;
-        supplierMap[e.fornecedor].products[product].tons += (e.tonelada || 0);
+        supplierMap[e.fornecedor].products[product].tons += (Number(e.tonelada) || 0);
       }
     });
     return Object.entries(supplierMap).map(([name, data]) => ({ 
       name, 
       count: data.total,
-      tons: data.tons,
-      products: Object.entries(data.products).map(([pName, pData]) => ({ name: pName, count: pData.count, tons: pData.tons }))
+      tons: Math.round(data.tons * 100) / 100,
+      products: Object.entries(data.products).map(([pName, pData]) => ({ name: pName, count: pData.count, tons: Math.round(pData.tons * 100) / 100 }))
     }));
-  }, [filteredEntriesForDashboard, selectedDates]);
+  }, [filteredEntriesForDashboard, isDateInSelected]);
 
   const productStockByDate = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
-    const filtered = filteredEntriesForDashboard.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)') && e.data_descarga && selectedDates.includes(e.data_descarga));
+    // Filter physical stock by date filter if dates are selected
+    const filtered = filteredEntriesForDashboard.filter(e => {
+      if (!e) return false;
+      const isStock = e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)';
+      if (!isStock) return false;
+      return isDateInSelected(e.data_descarga || e.data_nf);
+    });
     
     // Initialize with mandatory products to ensure they always show up
     const productMap: Record<string, { count: number, tons: number }> = {
@@ -1264,20 +1517,26 @@ export default function App() {
     }
 
     filtered.forEach(e => {
-      const product = e.descricao_produto || 'Não especificado';
+      const rawProduct = e.descricao_produto?.trim() || 'Não especificado';
+      // Match key ignoring accents/case if necessary, or exact trimmed string
+      let product = rawProduct;
+      const lower = rawProduct.toLowerCase();
+      if (lower.includes('dolomitico') || lower.includes('dolomítico')) product = 'Cal Dolomítico';
+      else if (lower.includes('calcitico') || lower.includes('calcítico')) product = 'Cal Calcítico';
+      else if (lower.includes('bobina')) product = 'Bobina de Aço';
+      else if (lower.includes('minerio') || lower.includes('minério')) product = 'Minério de Ferro';
+
       if (!productMap[product]) {
         productMap[product] = { count: 0, tons: 0 };
       }
       productMap[product].count += 1;
-      productMap[product].tons += (e.tonelada || 0);
+      productMap[product].tons += (Number(e.tonelada) || 0);
     });
     
-    // Filter out 0 counts for other products, but maybe keep the main ones?
-    // User wants to "constar a bobina de aço também", which implies visibility.
     return Object.entries(productMap)
-      .map(([name, data]) => ({ name, count: data.count, tons: data.tons }))
+      .map(([name, data]) => ({ name, count: data.count, tons: Math.round(data.tons * 100) / 100 }))
       .filter(p => p.count > 0 || ["Cal Dolomítico", "Cal Calcítico", "Bobina de Aço"].includes(p.name));
-  }, [filteredEntriesForDashboard, selectedDates, isTitam]);
+  }, [filteredEntriesForDashboard, isTitam, isDateInSelected]);
 
   const dailyStats = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return { in_stock: 0, exited: 0, suppliers: 0 };
@@ -1287,26 +1546,33 @@ export default function App() {
     const currentH = now.getHours();
     const currentM = now.getMinutes();
     
-    const arrivals = filteredEntriesForDashboard.filter(e => e && e.data_descarga && selectedDates.includes(e.data_descarga));
+    const inStockItems = filteredEntriesForDashboard.filter(e => e && ['Estoque', 'Estoque (Cheio Terminal)', 'Rejeitado'].includes(e.status) && isDateInSelected(e.data_descarga || e.data_nf));
+    const arrivals = filteredEntriesForDashboard.filter(e => e && isDateInSelected(e.data_descarga || e.data_nf));
     const exits = filteredEntriesForDashboard.filter(e => {
       if (!e || !isExitEntry(e)) return false;
-      const exitDate = getExitDate(e);
-      return exitDate && selectedDates.includes(exitDate);
+      const exitDate = getExitDate(e, true);
+      return isDateInSelected(exitDate);
     });
 
-    const queue_external = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && !e.hora_entrada && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
-    const queue_internal = filteredEntriesForDashboard.filter(e => e && e.hora_entrada && !e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
-    const queue_exit = filteredEntriesForDashboard.filter(e => e && e.hora_saida && e.data_descarga && selectedDates.includes(e.data_descarga)).length;
+    const queue_external = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && !e.hora_entrada && isDateInSelected(e.data_descarga || e.data_nf)).length;
+    const queue_internal = filteredEntriesForDashboard.filter(e => e && e.hora_entrada && !e.hora_saida && isDateInSelected(e.data_descarga || e.data_nf)).length;
+    const queue_exit = filteredEntriesForDashboard.filter(e => {
+      if (!e) return false;
+      const isExit = e.hora_saida || isExitEntry(e);
+      if (!isExit) return false;
+      const exitDate = getExitDate(e, true);
+      return isDateInSelected(exitDate);
+    }).length;
     
     const queue_external_exceeded = filteredEntriesForDashboard.filter(e => {
-      if (!e || !e.hora_chegada || e.hora_entrada || e.data_descarga !== today) return false;
+      if (!e || !e.hora_chegada || e.hora_entrada || !isDateInSelected(e.data_descarga || e.data_nf)) return false;
       const [h, m] = e.hora_chegada.split(':').map(Number);
       const diff = (currentH * 60 + currentM) - (h * 60 + m);
       return diff > 120;
     }).length;
 
     const queue_internal_exceeded = filteredEntriesForDashboard.filter(e => {
-      if (!e || !e.hora_entrada || e.hora_saida || e.data_descarga !== today) return false;
+      if (!e || !e.hora_entrada || e.hora_saida || !isDateInSelected(e.data_descarga || e.data_nf)) return false;
       const [h, m] = e.hora_entrada.split(':').map(Number);
       const diff = (currentH * 60 + currentM) - (h * 60 + m);
       return diff > 60;
@@ -1315,9 +1581,9 @@ export default function App() {
     return {
       arrival_count: arrivals.length,
       arrival_tons: arrivals.reduce((acc, e) => acc + (e.tonelada || 0), 0),
-      in_stock: arrivals.filter(e => e && ['Estoque', 'Estoque (Cheio Terminal)', 'Rejeitado'].includes(e.status)).length,
+      in_stock: inStockItems.length,
       exited: exits.length,
-      suppliers: [...new Set(arrivals.filter(e => e && e.fornecedor).map(e => e.fornecedor))].length,
+      suppliers: [...new Set(filteredEntriesForDashboard.filter(e => e && e.fornecedor && isDateInSelected(e.data_descarga || e.data_nf)).map(e => e.fornecedor))].length,
       exited_tons: exits.reduce((acc, e) => acc + (e.tonelada || 0), 0),
       queue_external,
       queue_internal,
@@ -1325,7 +1591,7 @@ export default function App() {
       queue_external_exceeded,
       queue_internal_exceeded
     };
-  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate, isDateInSelected]);
 
   const monthlyExitTotal = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return 0;
@@ -1364,34 +1630,49 @@ export default function App() {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
     const dailyMap: Record<string, any> = {};
     
+    const normalizeDate = (dateStr?: string) => {
+      if (!dateStr) return '';
+      let iso = dateStr;
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          const y = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+          iso = `${y}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      } else if (dateStr.includes('T')) {
+        iso = dateStr.split('T')[0];
+      }
+      return iso;
+    };
+
     const exitedEntries = filteredEntriesForDashboard.filter(entry => {
       if (!entry) return false;
       const isExited = isExitEntry(entry);
       if (!isExited) return false;
       
-      const arrivedOnSelected = selectedDates.includes(entry.data_descarga);
-      const exitDate = getExitDate(entry);
-      const exitedOnSelected = exitDate && selectedDates.includes(exitDate);
-      
-      return arrivedOnSelected || exitedOnSelected;
-    });
-
-    const chartDates = new Set<string>(selectedDates);
-    exitedEntries.forEach(entry => {
-      // Prioritize appropriate exit dates dynamically
       const exitDate = getExitDate(entry, true);
-      if (exitDate) chartDates.add(exitDate);
+      return exitDate && isDateInSelected(exitDate);
     });
 
-    const sortedDates = Array.from(chartDates).sort();
+    const chartDates = new Set<string>();
+    if (selectedDates.length > 0) {
+      selectedDates.forEach(d => chartDates.add(normalizeDate(d)));
+    } else {
+      exitedEntries.forEach(entry => {
+        const exitDate = getExitDate(entry, true);
+        if (exitDate) chartDates.add(normalizeDate(exitDate));
+      });
+    }
+
+    const sortedDates = Array.from(chartDates).filter(Boolean).sort();
     
     sortedDates.forEach(date => {
       dailyMap[date] = { date };
     });
 
     exitedEntries.forEach(entry => {
-      // Prioritize appropriate exit dates dynamically
-      const exitDate = getExitDate(entry, true);
+      const exitDateRaw = getExitDate(entry, true);
+      const exitDate = normalizeDate(exitDateRaw);
       const key = `${entry.descricao_produto} - ${entry.destino}`;
       if (exitDate && dailyMap[exitDate]) {
         if (!dailyMap[exitDate][key]) {
@@ -1399,12 +1680,12 @@ export default function App() {
           dailyMap[exitDate][`${key}_tons`] = 0;
         }
         dailyMap[exitDate][key] += 1;
-        dailyMap[exitDate][`${key}_tons`] += (entry.tonelada || 0);
+        dailyMap[exitDate][`${key}_tons`] += (Number(entry.tonelada) || 0);
       }
     });
 
     return Object.values(dailyMap);
-  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
+  }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate, isDateInSelected]);
 
   const exitChartKeys = React.useMemo(() => {
     const keys = new Set<string>();
@@ -1426,8 +1707,8 @@ export default function App() {
 
     filteredEntriesForDashboard.forEach(e => {
       if (!e || !isExitEntry(e)) return;
-      const exitDate = getExitDate(e);
-      if (!exitDate || !selectedDates.includes(exitDate)) return;
+      const exitDate = getExitDate(e, true);
+      if (!exitDate || !isDateInSelected(exitDate)) return;
       
       const dest = e.destino || 'Não especificado';
       if (!summaryMap[dest]) {
@@ -1440,14 +1721,15 @@ export default function App() {
       }
       
       summaryMap[dest].products[prod].count += 1;
-      summaryMap[dest].products[prod].tons += (e.tonelada || 0);
+      summaryMap[dest].products[prod].tons += (Number(e.tonelada) || 0);
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
   }, [filteredEntriesForDashboard, selectedDates, isExitEntry, getExitDate]);
 
   const monthlyAccumulatedExits = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
+    const branchFiltered = filterByBranch(entries, selectedBranchId, branches);
+    if (!Array.isArray(branchFiltered)) return [];
     
     const monthlyMap: Record<string, { 
       month: string, 
@@ -1456,11 +1738,10 @@ export default function App() {
       }> 
     }> = {};
 
-    entries.forEach(e => {
+    branchFiltered.forEach(e => {
       if (!e || !isExitEntry(e)) return;
       
       const exitDate = getExitDate(e, true);
-      
       if (!exitDate) return;
       
       // Handle both YYYY-MM-DD and DD/MM/YYYY formats
@@ -1470,8 +1751,7 @@ export default function App() {
       } else if (exitDate.includes('/')) {
         const parts = exitDate.split('/');
         if (parts.length === 3) {
-          // Assume DD/MM/YYYY
-          year = parts[2];
+          year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
           month = parts[1];
         }
       }
@@ -1494,11 +1774,11 @@ export default function App() {
       }
       
       monthlyMap[monthKey].destinations[dest].products[prod].count += 1;
-      monthlyMap[monthKey].destinations[dest].products[prod].tons += (e.tonelada || 0);
+      monthlyMap[monthKey].destinations[dest].products[prod].tons += (Number(e.tonelada) || 0);
     });
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
-  }, [entries, isTitam, isExitEntry, getExitDate]);
+  }, [entries, selectedBranchId, branches, isTitam, isExitEntry, getExitDate]);
 
   const getMonthName = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -2730,15 +3010,21 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Titam Intermodais</p>
                 <div className="w-1 h-1 rounded-full bg-gray-300" />
-                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
                   serverStatus === 'online' ? 'bg-emerald-50 text-emerald-600' : 
+                  serverStatus === 'quota_exceeded' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                   serverStatus === 'offline' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
                 }`}>
-                  <div className={`w-1 h-1 rounded-full ${
+                  <div className={`w-1.5 h-1.5 rounded-full ${
                     serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
+                    serverStatus === 'quota_exceeded' ? 'bg-amber-500 animate-pulse' :
                     serverStatus === 'offline' ? 'bg-red-500' : 'bg-gray-400'
                   }`} />
-                  <span>{serverStatus === 'online' ? 'Online' : serverStatus === 'offline' ? 'Offline' : '...'}</span>
+                  <span>
+                    {serverStatus === 'online' ? 'Online' : 
+                     serverStatus === 'quota_exceeded' ? 'Modo Local (Cota Firestore Excedida)' : 
+                     serverStatus === 'offline' ? 'Offline' : '...'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -3544,7 +3830,7 @@ export default function App() {
                                 </div>
                                 <div className="w-px h-8 bg-gray-200"></div>
                                 <div>
-                                  <p className="text-2xl font-black text-titam-lime">{item.tons.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</p>
+                                  <p className="text-2xl font-black text-titam-lime">{item.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                   <p className="text-[9px] text-gray-400 font-bold uppercase">Ton</p>
                                 </div>
                               </div>
@@ -4557,12 +4843,12 @@ export default function App() {
               {/* Quick Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {[
-                  { label: 'Fornecedores', count: suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length, icon: <Building2 className="text-blue-600" />, color: 'blue' },
-                  { label: 'Transportadores', count: transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length, icon: <Truck className="text-emerald-600" />, color: 'emerald' },
-                  { label: 'Clientes', count: customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Users className="text-indigo-600" />, color: 'indigo' },
-                  { label: 'Produtos', count: products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).length, icon: <Boxes className="text-titam-deep" />, color: 'lime' },
-                  { label: 'Destinos', count: destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).length, icon: <MapPin className="text-amber-600" />, color: 'amber' },
-                  { label: 'Containers', count: containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length, icon: <Truck className="text-rose-600" />, color: 'rose' },
+                  { label: 'Fornecedores', count: filteredSuppliers.length, icon: <Building2 className="text-blue-600" />, color: 'blue' },
+                  { label: 'Transportadores', count: filteredTransporters.length, icon: <Truck className="text-emerald-600" />, color: 'emerald' },
+                  { label: 'Clientes', count: filteredCustomers.length, icon: <Users className="text-indigo-600" />, color: 'indigo' },
+                  { label: 'Produtos', count: filteredProducts.length, icon: <Boxes className="text-titam-deep" />, color: 'lime' },
+                  { label: 'Destinos', count: filteredDestinations.length, icon: <MapPin className="text-amber-600" />, color: 'amber' },
+                  { label: 'Containers', count: filteredContainers.length, icon: <Truck className="text-rose-600" />, color: 'rose' },
                 ].map((stat, i) => (
                   <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm transition-all duration-700">
                     <div className="flex items-center justify-between mb-2">
@@ -4590,13 +4876,13 @@ export default function App() {
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).length === 0 ? (
+                      {filteredSuppliers.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Package size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum fornecedor</p>
                         </div>
                       ) : (
-                        suppliers.filter(s => selectedBranchId === 'all' || !selectedBranchId ? true : s.branchId === selectedBranchId).map(sup => (
+                        filteredSuppliers.map(sup => (
                           <div key={sup.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{sup.name}</p>
@@ -4704,13 +4990,13 @@ export default function App() {
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).length === 0 ? (
+                      {filteredTransporters.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Truck size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum transportador</p>
                         </div>
                       ) : (
-                        transporters.filter(t => selectedBranchId === 'all' || !selectedBranchId ? true : t.branchId === selectedBranchId).map(tr => (
+                        filteredTransporters.map(tr => (
                           <div key={tr.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{tr.name}</p>
@@ -4818,13 +5104,13 @@ export default function App() {
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length === 0 ? (
+                      {filteredCustomers.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Building2 size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum cliente</p>
                         </div>
                       ) : (
-                        customers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).map(cl => (
+                        filteredCustomers.map(cl => (
                           <div key={cl.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{cl.name}</p>
@@ -4932,13 +5218,13 @@ export default function App() {
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).length === 0 ? (
+                      {filteredProducts.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Boxes size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum produto</p>
                         </div>
                       ) : (
-                        products.filter(p => selectedBranchId === 'all' || !selectedBranchId ? true : p.branchId === selectedBranchId).map(prod => (
+                        filteredProducts.map(prod => (
                           <div key={prod.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{prod.name}</p>
@@ -5035,13 +5321,13 @@ export default function App() {
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).length === 0 ? (
+                      {filteredDestinations.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <MapPin size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum destino</p>
                         </div>
                       ) : (
-                        destinations.filter(d => selectedBranchId === 'all' || !selectedBranchId ? true : d.branchId === selectedBranchId).map(dest => (
+                        filteredDestinations.map(dest => (
                           <div key={dest.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{dest.name}</p>
@@ -5144,19 +5430,19 @@ export default function App() {
                           Eliminar Duplicados
                         </button>
                         <span className="text-[10px] bg-titam-deep/10 text-titam-deep px-1.5 py-0.5 rounded-full font-black uppercase">
-                          {containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length}
+                          {filteredContainers.length}
                         </span>
                       </div>
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                      {containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).length === 0 ? (
+                      {filteredContainers.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Truck size={32} className="mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-widest">Nenhum container</p>
                         </div>
                       ) : (
-                        containers.filter(c => selectedBranchId === 'all' || !selectedBranchId ? true : c.branchId === selectedBranchId).map(container => (
+                        filteredContainers.map(container => (
                           <div key={container.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors group">
                             <div className="min-w-0">
                               <p className="text-xs font-black text-titam-deep uppercase truncate">{container.numero}</p>
@@ -5585,7 +5871,7 @@ export default function App() {
                         <option value="Cal Calcítico">Cal Calcítico</option>
                         <option value="Bobina de Aço">Bobina de Aço</option>
                         {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
-                        {products.filter(p => p.branchId === selectedBranchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                     </div>
                     <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
@@ -5604,10 +5890,10 @@ export default function App() {
                       </select>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
+                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider font-bold">Fornecedor</label>
                       <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                         <option value="" disabled>Selecione o fornecedor</option>
-                        {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {filteredSuppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
                     </div>
                     <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
@@ -5627,8 +5913,8 @@ export default function App() {
                         <option value="Resende - RJ">Resende - RJ</option>
                         <option value="Cosmorama - SP">Cosmorama - SP</option>
                         {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
-                        {destinations.filter(d => d.branchId === selectedBranchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                        {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                        {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                       </select>
                     </div>
                   </div>
@@ -5667,7 +5953,7 @@ export default function App() {
                         <option value="Cal Calcítico">Cal Calcítico</option>
                         <option value="Bobina de Aço">Bobina de Aço</option>
                         <option value="Vazio">Vazio</option>
-                        {products.filter(p => p.branchId === selectedBranchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                     </div>
                     <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
@@ -5688,7 +5974,7 @@ export default function App() {
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
                       <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                         <option value="" disabled>Selecione o fornecedor</option>
-                        {suppliers.filter(s => s.branchId === selectedBranchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {filteredSuppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
                     </div>
                     <div className="flex flex-col gap-1">
@@ -5696,7 +5982,7 @@ export default function App() {
                       <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
                         <option value="" disabled>Selecione o destino</option>
                         <option value="Arcos - MG">Arcos - MG</option>
-                        {destinations.filter(d => d.branchId === selectedBranchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                        {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                       </select>
                     </div>
                     <ContainerSearchField 
@@ -5717,14 +6003,14 @@ export default function App() {
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
                         <select name="transportador" defaultValue={formData.transportador || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
                           <option value="">Selecione o transportador</option>
-                          {transporters.filter(t => t.branchId === selectedBranchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                          {filteredTransporters.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                         </select>
                       </div>
                       <div className="flex flex-col gap-1">
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</label>
                         <select name="cliente" defaultValue={formData.cliente || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
                           <option value="">Selecione o cliente</option>
-                          {customers.filter(c => c.branchId === selectedBranchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                          {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                         </select>
                       </div>
                       <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
