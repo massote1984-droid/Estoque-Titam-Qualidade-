@@ -1548,31 +1548,31 @@ export default function App() {
     
     const inStockItems = filteredEntriesForDashboard.filter(e => e && ['Estoque', 'Estoque (Cheio Terminal)', 'Rejeitado'].includes(e.status) && isDateInSelected(e.data_descarga || e.data_nf));
     const arrivals = filteredEntriesForDashboard.filter(e => e && isDateInSelected(e.data_descarga || e.data_nf));
-    const exits = filteredEntriesForDashboard.filter(e => {
-      if (!e || !isExitEntry(e)) return false;
-      const exitDate = getExitDate(e, true);
-      return isDateInSelected(exitDate);
+
+    const yardTodayEntries = filteredEntriesForDashboard.filter(e => {
+      if (!e) return false;
+      const isToday = e.data_descarga === today || e.data_posicionamento === today;
+      const isInYard = e.hora_chegada && !e.hora_saida;
+      if (selectedDates.length > 0) {
+        return isDateInSelected(e.data_descarga || e.data_posicionamento || e.data_nf) || isInYard;
+      }
+      return isToday || isInYard;
     });
 
-    const queue_external = filteredEntriesForDashboard.filter(e => e && e.hora_chegada && !e.hora_entrada && isDateInSelected(e.data_descarga || e.data_nf)).length;
-    const queue_internal = filteredEntriesForDashboard.filter(e => e && e.hora_entrada && !e.hora_saida && isDateInSelected(e.data_descarga || e.data_nf)).length;
-    const queue_exit = filteredEntriesForDashboard.filter(e => {
-      if (!e) return false;
-      const isExit = e.hora_saida || isExitEntry(e);
-      if (!isExit) return false;
-      const exitDate = getExitDate(e, true);
-      return isDateInSelected(exitDate);
-    }).length;
+    const exits = yardTodayEntries.filter(e => e.hora_saida);
+    const queue_external = yardTodayEntries.filter(e => e.hora_chegada && !e.hora_entrada).length;
+    const queue_internal = yardTodayEntries.filter(e => e.hora_entrada && !e.hora_saida).length;
+    const queue_exit = exits.length;
     
-    const queue_external_exceeded = filteredEntriesForDashboard.filter(e => {
-      if (!e || !e.hora_chegada || e.hora_entrada || !isDateInSelected(e.data_descarga || e.data_nf)) return false;
+    const queue_external_exceeded = yardTodayEntries.filter(e => {
+      if (!e || !e.hora_chegada || e.hora_entrada) return false;
       const [h, m] = e.hora_chegada.split(':').map(Number);
       const diff = (currentH * 60 + currentM) - (h * 60 + m);
       return diff > 120;
     }).length;
 
-    const queue_internal_exceeded = filteredEntriesForDashboard.filter(e => {
-      if (!e || !e.hora_entrada || e.hora_saida || !isDateInSelected(e.data_descarga || e.data_nf)) return false;
+    const queue_internal_exceeded = yardTodayEntries.filter(e => {
+      if (!e || !e.hora_entrada || e.hora_saida) return false;
       const [h, m] = e.hora_entrada.split(':').map(Number);
       const diff = (currentH * 60 + currentM) - (h * 60 + m);
       return diff > 60;
@@ -1647,7 +1647,7 @@ export default function App() {
 
     const exitedEntries = filteredEntriesForDashboard.filter(entry => {
       if (!entry) return false;
-      const isExited = isExitEntry(entry);
+      const isExited = entry.status === 'Embarcado' || isExitEntry(entry);
       if (!isExited) return false;
       
       const exitDate = getExitDate(entry, true);
@@ -1690,7 +1690,7 @@ export default function App() {
   const exitChartKeys = React.useMemo(() => {
     const keys = new Set<string>();
     filteredEntriesForDashboard.forEach(entry => {
-      if (isExitEntry(entry)) {
+      if (entry && (entry.status === 'Embarcado' || isExitEntry(entry))) {
         keys.add(`${entry.descricao_produto} - ${entry.destino}`);
       }
     });
@@ -1706,7 +1706,7 @@ export default function App() {
     }> = {};
 
     filteredEntriesForDashboard.forEach(e => {
-      if (!e || !isExitEntry(e)) return;
+      if (!e || (e.status !== 'Embarcado' && !isExitEntry(e))) return;
       const exitDate = getExitDate(e, true);
       if (!exitDate || !isDateInSelected(exitDate)) return;
       
@@ -2692,8 +2692,8 @@ export default function App() {
   };
 
   const yardEntries = React.useMemo(() => {
-    if (!Array.isArray(entries)) return [];
-    return entries.filter(e => {
+    if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    return filteredEntriesForDashboard.filter(e => {
       const today = new Date().toISOString().split('T')[0];
       const isToday = e.data_descarga === today || e.data_posicionamento === today;
       const isInYard = e.hora_chegada && !e.hora_saida;
@@ -2703,7 +2703,7 @@ export default function App() {
       const timeB = b.hora_chegada || '99:99';
       return timeA.localeCompare(timeB);
     });
-  }, [entries]);
+  }, [filteredEntriesForDashboard]);
 
   const handleDeleteEntry = (id: string | number) => {
     setDeleteConfirmation(id);
