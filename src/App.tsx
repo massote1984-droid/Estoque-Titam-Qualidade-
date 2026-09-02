@@ -1702,7 +1702,14 @@ export default function App() {
     
     const summaryMap: Record<string, { 
       destination: string, 
-      products: Record<string, { count: number, tons: number }> 
+      products: Record<string, { 
+        count: number;
+        tons: number;
+        embarcadoCount: number;
+        embarcadoTons: number;
+        devolvidoCount: number;
+        devolvidoTons: number;
+      }> 
     }> = {};
 
     filteredEntriesForDashboard.forEach(e => {
@@ -1717,11 +1724,27 @@ export default function App() {
       
       const prod = e.descricao_produto || 'Não especificado';
       if (!summaryMap[dest].products[prod]) {
-        summaryMap[dest].products[prod] = { count: 0, tons: 0 };
+        summaryMap[dest].products[prod] = { 
+          count: 0, 
+          tons: 0,
+          embarcadoCount: 0,
+          embarcadoTons: 0,
+          devolvidoCount: 0,
+          devolvidoTons: 0
+        };
       }
       
+      const tonsVal = Number(e.tonelada) || 0;
       summaryMap[dest].products[prod].count += 1;
-      summaryMap[dest].products[prod].tons += (Number(e.tonelada) || 0);
+      summaryMap[dest].products[prod].tons += tonsVal;
+
+      if (e.status === 'Devolvido') {
+        summaryMap[dest].products[prod].devolvidoCount += 1;
+        summaryMap[dest].products[prod].devolvidoTons += tonsVal;
+      } else {
+        summaryMap[dest].products[prod].embarcadoCount += 1;
+        summaryMap[dest].products[prod].embarcadoTons += tonsVal;
+      }
     });
 
     return Object.values(summaryMap).sort((a, b) => a.destination.localeCompare(b.destination));
@@ -1734,7 +1757,14 @@ export default function App() {
     const monthlyMap: Record<string, { 
       month: string, 
       destinations: Record<string, { 
-        products: Record<string, { count: number, tons: number }> 
+        products: Record<string, { 
+          count: number;
+          tons: number;
+          embarcadoCount: number;
+          embarcadoTons: number;
+          devolvidoCount: number;
+          devolvidoTons: number;
+        }> 
       }> 
     }> = {};
 
@@ -1770,11 +1800,27 @@ export default function App() {
       
       const prod = e.descricao_produto || 'Não especificado';
       if (!monthlyMap[monthKey].destinations[dest].products[prod]) {
-        monthlyMap[monthKey].destinations[dest].products[prod] = { count: 0, tons: 0 };
+        monthlyMap[monthKey].destinations[dest].products[prod] = { 
+          count: 0, 
+          tons: 0,
+          embarcadoCount: 0,
+          embarcadoTons: 0,
+          devolvidoCount: 0,
+          devolvidoTons: 0
+        };
       }
       
+      const tonsVal = Number(e.tonelada) || 0;
       monthlyMap[monthKey].destinations[dest].products[prod].count += 1;
-      monthlyMap[monthKey].destinations[dest].products[prod].tons += (Number(e.tonelada) || 0);
+      monthlyMap[monthKey].destinations[dest].products[prod].tons += tonsVal;
+
+      if (e.status === 'Devolvido') {
+        monthlyMap[monthKey].destinations[dest].products[prod].devolvidoCount += 1;
+        monthlyMap[monthKey].destinations[dest].products[prod].devolvidoTons += tonsVal;
+      } else {
+        monthlyMap[monthKey].destinations[dest].products[prod].embarcadoCount += 1;
+        monthlyMap[monthKey].destinations[dest].products[prod].embarcadoTons += tonsVal;
+      }
     });
 
     return Object.values(monthlyMap).sort((a, b) => b.month.localeCompare(a.month));
@@ -3882,14 +3928,32 @@ export default function App() {
                           </div>
                           <div className="space-y-2">
                             {Object.entries(destData.products).map(([prod, data]) => (
-                              <div key={prod} className="bg-white border border-gray-100 p-3 rounded-lg flex justify-between items-center shadow-sm transition-all duration-700">
-                                <div className="flex flex-col">
-                                  <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
-                                  <span className="text-xs font-black text-titam-deep">{data.count} Unidades</span>
+                              <div key={prod} className="bg-white border border-gray-100 p-3 rounded-lg flex flex-col justify-between shadow-sm transition-all duration-700">
+                                <div className="flex justify-between items-center mb-2">
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
+                                    <span className="text-xs font-black text-titam-deep">{data.count} Unidades</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase leading-none block mb-1">Volume Total</span>
+                                    <span className="text-xs font-black text-titam-deep">{data.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton</span>
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
-                                  <span className="text-xs font-black text-titam-deep">{data.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-[10px]">
+                                  <div className="bg-emerald-50/70 p-1.5 rounded border border-emerald-100">
+                                    <span className="text-[9px] font-bold text-emerald-800 uppercase block">Embarcado</span>
+                                    <span className="font-mono font-black text-emerald-950 text-[11px] block mt-0.5">
+                                      {data.embarcadoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
+                                    </span>
+                                    <span className="text-[9px] text-emerald-700 font-medium">{data.embarcadoCount} un</span>
+                                  </div>
+                                  <div className="bg-amber-50/70 p-1.5 rounded border border-amber-100">
+                                    <span className="text-[9px] font-bold text-amber-800 uppercase block">Devolvido</span>
+                                    <span className="font-mono font-black text-amber-950 text-[11px] block mt-0.5">
+                                      {data.devolvidoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
+                                    </span>
+                                    <span className="text-[9px] text-amber-700 font-medium">{data.devolvidoCount} un</span>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -3924,49 +3988,88 @@ export default function App() {
                         <p className="text-gray-400 text-sm">Nenhuma saída registrada até o momento.</p>
                       </div>
                     ) : (
-                      monthlyAccumulatedExits.map((monthData) => (
-                        <div key={monthData.month} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm transition-all duration-700">
-                          <div className="bg-titam-deep px-4 py-3 flex justify-between items-center">
-                            <h4 className="text-white font-bold uppercase tracking-wider text-sm">
-                              {(() => {
-                                const [y, m] = monthData.month.split('-');
-                                return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-                              })()}
-                            </h4>
-                            <div className="flex gap-4 text-white/80 text-[10px] font-bold uppercase">
-                              <span>Total Mês: {Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0)} Un</span>
-                              <span>|</span>
-                              <span>{Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.tons, 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
+                      monthlyAccumulatedExits.map((monthData) => {
+                        const totalEmbarcadoTons = Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + (p.embarcadoTons || 0), 0), 0);
+                        const totalDevolvidoTons = Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + (p.devolvidoTons || 0), 0), 0);
+                        const totalCount = Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.count, 0), 0);
+                        const totalTons = Object.values(monthData.destinations).reduce((acc, d) => acc + Object.values(d.products).reduce((pAcc, p) => pAcc + p.tons, 0), 0);
+
+                        return (
+                          <div key={monthData.month} className="border border-gray-100 rounded-xl overflow-hidden shadow-sm transition-all duration-700">
+                            <div className="bg-titam-deep px-4 py-3 flex flex-wrap gap-2 justify-between items-center">
+                              <h4 className="text-white font-bold uppercase tracking-wider text-sm">
+                                {(() => {
+                                  const [y, m] = monthData.month.split('-');
+                                  return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                                })()}
+                              </h4>
+                              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] font-bold uppercase">
+                                <span className="bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded border border-emerald-400/30">
+                                  Embarcado: {totalEmbarcadoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
+                                </span>
+                                <span className="bg-amber-500/20 text-amber-300 px-2.5 py-1 rounded border border-amber-400/30">
+                                  Devolvido: {totalDevolvidoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton
+                                </span>
+                                <span className="text-white/80 border-l border-white/20 pl-2">
+                                  Total: {totalTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton ({totalCount} Un)
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="divide-y divide-gray-100">
+                              {Object.entries(monthData.destinations).map(([dest, destData]) => (
+                                <div key={dest} className="p-4 hover:bg-gray-50/50 transition-colors">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-2 h-2 rounded-full bg-titam-lime"></div>
+                                    <span className="text-xs font-black text-gray-700 uppercase tracking-tight">{dest}</span>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {Object.entries(destData.products).map(([prod, prodData]) => (
+                                      <div key={prod} className="bg-white p-3.5 rounded-xl border border-gray-200/80 flex flex-col justify-between shadow-sm transition-all duration-700 hover:border-gray-300">
+                                        <div className="flex justify-between items-start mb-2.5">
+                                          <div>
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase leading-none block mb-1">{prod}</span>
+                                            <span className="text-xs font-black text-titam-deep">{prodData.count} Unidades</span>
+                                          </div>
+                                          <div className="text-right">
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase leading-none block mb-1">Volume Total</span>
+                                            <span className="text-xs font-black text-titam-deep">{prodData.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ton</span>
+                                          </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-gray-100">
+                                          <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-100">
+                                            <div className="flex items-center gap-1.5 text-emerald-800 font-bold uppercase text-[9px] mb-0.5">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                              Embarcado
+                                            </div>
+                                            <div className="font-mono font-black text-emerald-900 text-xs">
+                                              {prodData.embarcadoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] font-bold text-emerald-700">Ton</span>
+                                            </div>
+                                            <div className="text-[9px] text-emerald-700 font-medium">{prodData.embarcadoCount} un</div>
+                                          </div>
+
+                                          <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-100">
+                                            <div className="flex items-center gap-1.5 text-amber-800 font-bold uppercase text-[9px] mb-0.5">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                              Devolvido
+                                            </div>
+                                            <div className="font-mono font-black text-amber-900 text-xs">
+                                              {prodData.devolvidoTons.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] font-bold text-amber-700">Ton</span>
+                                            </div>
+                                            <div className="text-[9px] text-amber-700 font-medium">{prodData.devolvidoCount} un</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          
-                          <div className="divide-y divide-gray-100">
-                            {Object.entries(monthData.destinations).map(([dest, destData]) => (
-                              <div key={dest} className="p-4 hover:bg-gray-50 transition-colors">
-                                <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-2 h-2 rounded-full bg-titam-lime"></div>
-                                  <span className="text-xs font-black text-gray-700 uppercase tracking-tight">{dest}</span>
-                                </div>
-                                
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                  {Object.entries(destData.products).map(([prod, prodData]) => (
-                                    <div key={prod} className="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center shadow-sm transition-all duration-700">
-                                      <div className="flex flex-col">
-                                        <span className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">{prod}</span>
-                                        <span className="text-xs font-black text-titam-deep">{prodData.count} Unidades</span>
-                                      </div>
-                                      <div className="text-right">
-                                        <span className="text-[10px] font-bold text-titam-lime uppercase leading-none block mb-1">Peso Total</span>
-                                        <span className="text-xs font-black text-titam-deep">{prodData.tons.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} Ton</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -6615,16 +6718,18 @@ function ReportsView({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterFornecedor, setFilterFornecedor] = useState('');
+  const [filterDestino, setFilterDestino] = useState('');
   const [fleetSearch, setFleetSearch] = useState('');
 
   const filteredEntries = entries.filter(entry => {
+    const matchesDestino = !filterDestino || (entry.destino && entry.destino.toLowerCase().includes(filterDestino.toLowerCase()));
     if (reportType === 'acumulado_saidas') {
       if (!isExitEntry || !isExitEntry(entry)) return false;
       const exitDate = getExitDate ? getExitDate(entry, true) : '';
       if (!exitDate) return false;
       const matchesDate = (!startDate || exitDate >= startDate) && (!endDate || exitDate <= endDate);
       const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
-      return matchesDate && matchesFornecedor;
+      return matchesDate && matchesFornecedor && matchesDestino;
     }
     if (reportType === 'acumulado_estoque') {
       const isCurrentlyInStock = entry.status === 'Estoque' || entry.status === 'Estoque (Cheio Terminal)';
@@ -6632,7 +6737,7 @@ function ReportsView({
       const date = entry.data_nf;
       const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
       const matchesFornecedor = !filterFornecedor || (entry.fornecedor && entry.fornecedor.toLowerCase().includes(filterFornecedor.toLowerCase()));
-      return matchesDate && matchesFornecedor;
+      return matchesDate && matchesFornecedor && matchesDestino;
     }
     const date = reportType === 'saida_detalhada' ? (entry.data_faturamento_vli || entry.data_nf) : entry.data_nf;
     const matchesDate = (!startDate || date >= startDate) && (!endDate || date <= endDate);
@@ -6643,7 +6748,7 @@ function ReportsView({
       : reportType === 'faturamento_bobinas'
       ? entry.descricao_produto === 'Bobina de Aço'
       : true;
-    return matchesDate && matchesFornecedor && matchesStatus && matchesProduct;
+    return matchesDate && matchesFornecedor && matchesDestino && matchesStatus && matchesProduct;
   });
 
   const getMonthName = (dateStr?: string) => {
@@ -6676,7 +6781,13 @@ function ReportsView({
       destination: string;
       material: string;
       totalWeight: number;
-      supplierMap: Record<string, number>;
+      weightEmbarcado: number;
+      weightDevolvido: number;
+      supplierMap: Record<string, {
+        weight: number;
+        embarcado: number;
+        devolvido: number;
+      }>;
     }> = {};
 
     filteredEntries.forEach(e => {
@@ -6702,7 +6813,7 @@ function ReportsView({
       const destination = e.destino || 'Não especificado';
       const material = e.descricao_produto || 'Não especificado';
       const supplier = e.fornecedor || 'Não especificado';
-      const weight = e.tonelada || 0;
+      const weight = Number(e.tonelada) || 0;
 
       const groupKey = `${monthKey}|${destination}|${material}`;
 
@@ -6712,21 +6823,44 @@ function ReportsView({
           destination,
           material,
           totalWeight: 0,
+          weightEmbarcado: 0,
+          weightDevolvido: 0,
           supplierMap: {}
         };
       }
 
       groups[groupKey].totalWeight += weight;
-      if (!groups[groupKey].supplierMap[supplier]) {
-        groups[groupKey].supplierMap[supplier] = 0;
+      if (e.status === 'Devolvido') {
+        groups[groupKey].weightDevolvido += weight;
+      } else {
+        groups[groupKey].weightEmbarcado += weight;
       }
-      groups[groupKey].supplierMap[supplier] += weight;
+
+      if (!groups[groupKey].supplierMap[supplier]) {
+        groups[groupKey].supplierMap[supplier] = {
+          weight: 0,
+          embarcado: 0,
+          devolvido: 0
+        };
+      }
+      groups[groupKey].supplierMap[supplier].weight += weight;
+      if (e.status === 'Devolvido') {
+        groups[groupKey].supplierMap[supplier].devolvido += weight;
+      } else {
+        groups[groupKey].supplierMap[supplier].embarcado += weight;
+      }
     });
 
     return Object.values(groups).map(g => {
-      const suppliers = Object.entries(g.supplierMap).map(([name, weight]) => {
-        const percentage = g.totalWeight > 0 ? (weight / g.totalWeight) * 100 : 0;
-        return { name, weight, percentage };
+      const suppliers = Object.entries(g.supplierMap).map(([name, sData]) => {
+        const percentage = g.totalWeight > 0 ? (sData.weight / g.totalWeight) * 100 : 0;
+        return { 
+          name, 
+          weight: sData.weight, 
+          embarcado: sData.embarcado, 
+          devolvido: sData.devolvido, 
+          percentage 
+        };
       }).sort((a, b) => b.weight - a.weight);
 
       return {
@@ -6889,20 +7023,36 @@ function ReportsView({
       return;
     }
     if (reportType === 'acumulado_saidas') {
-      const headers = ['Mês', 'Destino', 'Material', 'Peso Total (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
+      const headers = ['Mês', 'Destino', 'Material', 'Vol. Embarcado (Ton)', 'Vol. Devolvido (Ton)', 'Peso Total (Ton)', 'Fornecedor', 'Peso Fornecedor (Ton)', 'Percentual (%)'];
       const rows: any[] = [];
       acumuladoSaidasData.forEach(row => {
-        row.suppliers.forEach(s => {
+        if (row.suppliers.length === 0) {
           rows.push([
             getMonthName(row.monthKey + "-01"),
             row.destination,
             row.material,
-            row.totalWeight.toString().replace('.', ','),
-            s.name,
-            s.weight.toString().replace('.', ','),
-            s.percentage.toFixed(2).replace('.', ',')
+            row.weightEmbarcado.toFixed(2).replace('.', ','),
+            row.weightDevolvido.toFixed(2).replace('.', ','),
+            row.totalWeight.toFixed(2).replace('.', ','),
+            '-',
+            '0,00',
+            '0,00'
           ]);
-        });
+        } else {
+          row.suppliers.forEach(s => {
+            rows.push([
+              getMonthName(row.monthKey + "-01"),
+              row.destination,
+              row.material,
+              row.weightEmbarcado.toFixed(2).replace('.', ','),
+              row.weightDevolvido.toFixed(2).replace('.', ','),
+              row.totalWeight.toFixed(2).replace('.', ','),
+              s.name,
+              s.weight.toFixed(2).replace('.', ','),
+              s.percentage.toFixed(2).replace('.', ',')
+            ]);
+          });
+        }
       });
       const csvContent = [headers, ...rows].map(r => r.map(val => `"${val || ''}"`).join(';')).join('\n');
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -7011,8 +7161,8 @@ function ReportsView({
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-4 items-end transition-all duration-700">
-        <div className="md:col-span-5 flex justify-between items-center mb-2 border-b border-gray-100 pb-4">
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end transition-all duration-700">
+        <div className="col-span-full flex justify-between items-center mb-2 border-b border-gray-100 pb-4">
           <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Ferramentas de Dados</h3>
           <div className="flex gap-3">
             <button 
@@ -7069,6 +7219,16 @@ function ReportsView({
             placeholder="Nome do fornecedor..."
             value={filterFornecedor}
             onChange={(e) => setFilterFornecedor(e.target.value)}
+            className="border border-gray-200 bg-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filtrar Destino</label>
+          <input 
+            type="text" 
+            placeholder="Nome do destino..."
+            value={filterDestino}
+            onChange={(e) => setFilterDestino(e.target.value)}
             className="border border-gray-200 bg-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
           />
         </div>
@@ -7236,6 +7396,8 @@ function ReportsView({
                     <th className="px-6 py-3 data-grid-header">Mês</th>
                     <th className="px-6 py-3 data-grid-header">Destino</th>
                     <th className="px-6 py-3 data-grid-header">Material</th>
+                    <th className="px-6 py-3 data-grid-header text-emerald-700">Vol. Embarcado</th>
+                    <th className="px-6 py-3 data-grid-header text-amber-700">Vol. Devolvido</th>
                     <th className="px-6 py-3 data-grid-header">Peso Total</th>
                     <th className="px-6 py-3 data-grid-header">Fornecedores (Peso / Part. %)</th>
                   </>
@@ -7382,6 +7544,12 @@ function ReportsView({
                     <td className="px-6 py-4 text-sm font-bold text-gray-700">{getMonthName(row.monthKey + "-01")}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.destination}</td>
                     <td className="px-6 py-4 text-sm text-gray-600 font-semibold">{row.material}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-emerald-700 mono-value bg-emerald-50/40">
+                      {row.weightEmbarcado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-amber-700 mono-value bg-amber-50/40">
+                      {row.weightDevolvido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
+                    </td>
                     <td className="px-6 py-4 text-sm font-black text-titam-deep mono-value">
                       {row.totalWeight.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t
                     </td>
