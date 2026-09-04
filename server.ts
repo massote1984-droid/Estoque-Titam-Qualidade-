@@ -1,64 +1,58 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
 
 // Import the Firebase configuration
-import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
+import firebaseConfig from './firebase-applet-config.json';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const logFile = process.env.VERCEL ? path.join("/tmp", "server.log") : path.join(process.cwd(), "server.log");
 function log(msg: string) {
-  const entry = `${new Date().toISOString()} - ${msg}\n`;
-  try {
-    fs.appendFileSync(logFile, entry);
-  } catch (e) {
-    // Ignore log errors in production if filesystem is read-only
-  }
-  console.log(msg);
+  console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
 log("Starting server process...");
 
-// Initialize Firebase SDK on server
-const appFirebase = initializeApp(firebaseConfig);
-const db = getFirestore(appFirebase, firebaseConfig.firestoreDatabaseId);
+let aiClient: GoogleGenAI | null = null;
+function getAi(): GoogleGenAI {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    aiClient = new GoogleGenAI({ apiKey: key });
+  }
+  return aiClient;
+}
 
 async function startServer() {
   log("startServer function called");
   const app = express();
   const PORT = 3000;
 
-  // Health check
-  app.get("/api/health", (req, res) => {
-    log("Health check hit");
-    res.json({ 
-      status: "ok", 
-      env: process.env.VERCEL ? 'vercel' : 'local'
-    });
-  });
-
   app.use((req, res, next) => {
     log(`${req.method} ${req.url}`);
     next();
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
+
+  // Health check
+  app.get("/api/health", (req, res) => {
+    log("Health check hit");
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV || 'development'
+    });
+  });
 
   app.post("/api/parse-nfe", async (req, res) => {
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: "Content is required" });
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = getAi();
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: `Extraia os seguintes dados desta Nota Fiscal (pode ser XML ou texto): 
         - Chave de Acesso
         - Número da NF
@@ -90,9 +84,9 @@ async function startServer() {
       });
 
       res.json(JSON.parse(response.text || "{}"));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gemini Error:", error);
-      res.status(500).json({ error: "Failed to parse NF-e" });
+      res.status(500).json({ error: error?.message || "Failed to parse NF-e" });
     }
   });
 
@@ -104,7 +98,7 @@ async function startServer() {
 
   // Global Error Handler
   app.use((err: any, req: any, res: any, next: any) => {
-    log(`GLOBAL ERROR: ${err.message}`);
+    console.error("GLOBAL ERROR:", err);
     res.status(500).json({ error: err.message || "Internal Server Error" });
   });
 
@@ -116,16 +110,17 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== "test") {
     app.listen(PORT, "0.0.0.0", () => {
       log(`Server running on http://localhost:${PORT}`);
-      log(`NODE_ENV: ${process.env.NODE_ENV}`);
+      log(`NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
     });
   }
 
@@ -133,11 +128,8 @@ async function startServer() {
 }
 
 const appPromise = startServer().catch(err => {
-  log(`CRITICAL SERVER STARTUP ERROR: ${err.message}`);
-  if (!process.env.VERCEL) {
-    process.exit(1);
-  }
-  return null;
+  console.error(`CRITICAL SERVER STARTUP ERROR: ${err.message}`);
+  process.exit(1);
 });
 
 export default appPromise;

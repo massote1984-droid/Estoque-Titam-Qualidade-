@@ -37,7 +37,10 @@ import {
   Boxes,
   Edit2,
   Check,
-  Award
+  Award,
+  Copy,
+  ExternalLink,
+  ShieldAlert
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -249,7 +252,8 @@ function filterByBranch<T extends { branchId?: string | null }>(
 type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao';
 
 export default function App() {
-  const { user, loading: authLoading, login, logout, loginLoading, error: authError } = useAuth();
+  const { user, loading: authLoading, login, logout, loginLoading, error: authError, errorCode } = useAuth();
+  const [domainCopied, setDomainCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [entries, setEntries] = useState<Entry[]>(() => {
     try {
@@ -2821,9 +2825,70 @@ export default function App() {
           <p className="text-gray-500 mb-8">Acesse o sistema para gerenciar seu estoque e logística.</p>
           
           {authError && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-left">
-              <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
-              <p className="text-sm text-red-600 font-medium leading-relaxed">{authError}</p>
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-left">
+              {(errorCode === 'auth/unauthorized-domain' || authError.includes('não está autorizado')) ? (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                    <div>
+                      <h4 className="font-bold text-amber-900 text-sm">Domínio precisa ser autorizado no Firebase</h4>
+                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                        Para o login com Google funcionar no ambiente de prévia, autorize este domínio no Firebase Console:
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono text-gray-800 break-all select-all font-semibold">
+                      {window.location.hostname}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(window.location.hostname);
+                        setDomainCopied(true);
+                        setTimeout(() => setDomainCopied(false), 2500);
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors cursor-pointer"
+                    >
+                      {domainCopied ? (
+                        <>
+                          <Check size={14} />
+                          <span>Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-amber-800 space-y-1 bg-amber-100/50 p-2.5 rounded-xl">
+                    <p className="font-bold text-amber-900">Passos rápidos no console:</p>
+                    <p>1. Clique no botão abaixo para abrir as configurações.</p>
+                    <p>2. Em <strong>Domínios autorizados</strong>, clique em <strong>Adicionar domínio</strong>.</p>
+                    <p>3. Cole o domínio copiado e clique em <strong>Adicionar</strong>.</p>
+                    <p>4. Em seguida, clique em <strong>Entrar com Google</strong> novamente.</p>
+                  </div>
+
+                  <a
+                    href="https://console.firebase.google.com/project/gen-lang-client-0972087549/authentication/settings"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 rounded-xl transition-colors"
+                  >
+                    <ExternalLink size={14} />
+                    <span>Abrir Configurações do Firebase Console</span>
+                  </a>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
+                  <p className="text-sm text-red-600 font-medium leading-relaxed">{authError}</p>
+                </div>
+              )}
             </div>
           )}
 

@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean;
   loginLoading: boolean;
   error: string | null;
+  errorCode: string | null;
   login: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -18,6 +19,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -29,12 +31,14 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const login = async () => {
     setError(null);
+    setErrorCode(null);
     setLoginLoading(true);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error("Login error:", err);
+      setErrorCode(err.code || 'unknown');
       if (err.code === 'auth/popup-blocked') {
         setError("O popup de login foi bloqueado pelo navegador. Por favor, permita popups para este site.");
       } else if (err.code === 'auth/unauthorized-domain') {
@@ -56,7 +60,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginLoading, error, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginLoading, error, errorCode, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
