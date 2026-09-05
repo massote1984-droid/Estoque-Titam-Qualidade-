@@ -3,9 +3,6 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Import the Firebase configuration
-import firebaseConfig from './firebase-applet-config.json';
-
 function log(msg: string) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }

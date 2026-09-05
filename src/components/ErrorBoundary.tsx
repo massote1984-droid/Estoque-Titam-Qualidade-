@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 interface Props {
@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    console.error('Uncaught error in ErrorBoundary:', error, errorInfo);
   }
 
   render() {
@@ -36,17 +36,19 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertTriangle className="text-red-600 w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Ops! Algo deu errado.</h1>
-            <p className="text-gray-600 mb-6">
-              {this.state.error?.message || "Ocorreu um erro inesperado."}
+            <p className="text-gray-600 mb-6 text-sm">
+              {this.state.error?.message || "Ocorreu um erro inesperado na interface."}
             </p>
             <div className="space-y-3">
               <button
+                type="button"
                 onClick={() => window.location.reload()}
-                className="w-full bg-titam-deep text-white py-3 rounded-xl font-semibold hover:opacity-90 transition-all"
+                className="w-full bg-[#1E3932] text-white py-3 rounded-xl font-semibold hover:opacity-90 transition-all"
               >
                 Recarregar Página
               </button>
               <button
+                type="button"
                 onClick={() => {
                   this.setState({ hasError: false, error: null });
                   window.location.href = '/';
@@ -64,3 +66,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+export default ErrorBoundary;
