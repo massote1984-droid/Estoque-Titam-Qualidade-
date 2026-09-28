@@ -1,6 +1,6 @@
 {
   "name": "Estoque Titam - (Produção)",
-  "description": "Sistema de gestão de estoque, movimentação, faturamento e rastreamento de cargas e containers Titam.",
+  "description": "Sistema integrado de gestão de estoque, agendamento de carga/descarga por janelas horárias, controle de pátio e movimentação de cargas e containers Titam.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

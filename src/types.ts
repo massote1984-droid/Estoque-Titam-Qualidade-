@@ -107,3 +107,57 @@ export interface Customer {
   created_at: any;
   uid: string;
 }
+
+export type SlotLimitType = 'veiculos' | 'volume';
+export type SlotOperationType = 'todos' | 'carga' | 'descarga';
+
+export interface SlotConfig {
+  id: string;
+  branchId: string;
+  hora_inicio: string; // e.g. "07:00"
+  hora_fim: string; // e.g. "08:00"
+  tipo_limite: SlotLimitType;
+  limite_veiculos: number;
+  limite_volume_toneladas: number;
+  tipo_operacao_permitida: SlotOperationType;
+  ativo: boolean;
+  dias_semana?: number[];
+  created_at?: any;
+  updated_at?: any;
+  uid?: string;
+}
+
+export type AppointmentOperation = 'carga' | 'descarga';
+export type AppointmentStatus = 'agendado' | 'em_patio' | 'em_operacao' | 'concluido' | 'cancelado';
+
+export interface Appointment {
+  id: string;
+  protocolo: string;
+  branchId: string;
+  data_agendamento: string; // YYYY-MM-DD
+  hora_inicio: string;
+  hora_fim: string;
+  tipo_operacao: AppointmentOperation;
+  transportadora: string;
+  cnpj_transportadora?: string;
+  placa_veiculo: string;
+  placa_carreta?: string;
+  tipo_veiculo?: string;
+  motorista_nome: string;
+  motorista_cpf?: string;
+  motorista_telefone?: string;
+  descricao_produto: string;
+  peso_estimado_toneladas: number;
+  nf_numero?: string;
+  pedido_lote?: string;
+  status: AppointmentStatus;
+  origem: 'portal_transportador' | 'interno';
+  hora_chegada_real?: string;
+  hora_inicio_operacao?: string;
+  hora_conclusao_operacao?: string;
+  observacoes?: string;
+  created_at: any;
+  updated_at?: any;
+  created_by_email?: string;
+  uid?: string;
+}

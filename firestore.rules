@@ -78,8 +78,11 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.email == "massote1984@gmail.com" ||
+        (request.auth.token.email != null && request.auth.token.email.matches("(?i)^massote1984@gmail\\.com$")) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/app2_users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/app2_users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
@@ -112,41 +115,119 @@ service cloud.firestore {
              data.branchId is string;
     }
 
+    // Regra Global Mestre para o Administrador:
+    // O Administrador Geral possui liberação absoluta para todas as execuções (leitura, criação, edição e exclusão)
+    // em qualquer documento e coleção de todo o banco de dados.
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // Regras para usuários
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+    match /app2_users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
     }
 
+    // Regras para filiais
     match /branches/{branchId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /app2_branches/{branchId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
+    // Regras para fornecedores
     match /suppliers/{supplierId} {
       allow read, write: if isAuthenticated();
     }
-
-    match /transporters/{transporterId} {
+    match /app2_suppliers/{supplierId} {
       allow read, write: if isAuthenticated();
     }
 
+    // Regras para transportadoras
+    match /transporters/{transporterId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /app2_transporters/{transporterId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Regras para clientes
     match /customers/{customerId} {
       allow read, write: if isAuthenticated();
     }
+    match /app2_customers/{customerId} {
+      allow read, write: if isAuthenticated();
+    }
 
+    // Regras para produtos
     match /products/{productId} {
       allow read, write: if isAuthenticated();
     }
+    match /app2_products/{productId} {
+      allow read, write: if isAuthenticated();
+    }
 
+    // Regras para destinos
     match /destinations/{destinationId} {
       allow read, write: if isAuthenticated();
     }
-
-    match /entries/{entryId} {
+    match /app2_destinations/{destinationId} {
       allow read, write: if isAuthenticated();
     }
 
+    // Regras para entradas de estoque
+    match /entries/{entryId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_entries/{entryId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para containers
     match /containers/{containerId} {
       allow read, write: if isAuthenticated();
+    }
+    match /app2_containers/{containerId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para janelas horárias de agendamento
+    match /slot_configs/{configId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /app2_slot_configs/{configId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Regras para agendamentos de carga e descarga
+    match /appointments/{appointmentId} {
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
+    }
+    match /app2_appointments/{appointmentId} {
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
+    }
+
+    // Regras para configurações globais da aplicação (ex: URL pública do portal)
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /app2_settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
   }
 }

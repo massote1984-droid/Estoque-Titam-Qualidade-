@@ -40,7 +40,11 @@ import {
   Award,
   Copy,
   ExternalLink,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck,
+  Shield,
+  CalendarClock,
+  Smartphone
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -60,9 +64,14 @@ import {
   LabelList,
   ReferenceLine
 } from 'recharts';
-import { Entry, StockSummary, Container, Branch } from './types';
+import { Entry, StockSummary, Container, Branch, SlotConfig, Appointment, AppointmentStatus, Transporter } from './types';
 import { useAuth } from './components/FirebaseProvider';
 import TitamPresentationView from './components/TitamPresentationView';
+import SchedulingManager from './components/scheduling/SchedulingManager';
+import TransporterPortal from './components/scheduling/TransporterPortal';
+import { VehicleFlowManager } from './components/VehicleFlowManager';
+import { TransporterAccessModal } from './components/scheduling/TransporterAccessModal';
+import { isTransporterUrl } from './components/scheduling/schedulingUtils';
 import { 
   collection, 
   onSnapshot, 
@@ -77,9 +86,10 @@ import {
   Timestamp,
   where,
   getDocs,
+  getDoc,
   writeBatch
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, COLLECTIONS } from './firebase';
 
 enum OperationType {
   CREATE = 'create',
@@ -249,12 +259,32 @@ function filterByBranch<T extends { branchId?: string | null }>(
   });
 }
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao' | 'agendamento';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError, errorCode } = useAuth();
   const [domainCopied, setDomainCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [slotConfigs, setSlotConfigs] = useState<SlotConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_slot_configs');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [appointments, setAppointments] = useState<Appointment[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_appointments');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isTransporterPortalOpen, setIsTransporterPortalOpen] = useState<boolean>(() => {
+    return isTransporterUrl();
+  });
+  const [isTransporterAccessModalOpen, setIsTransporterAccessModalOpen] = useState<boolean>(false);
   const [entries, setEntries] = useState<Entry[]>(() => {
     try {
       const saved = localStorage.getItem('cached_entries');
@@ -340,6 +370,29 @@ export default function App() {
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'warning' | 'error' | 'critical', persistent?: boolean}[]>([]);
   
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [appUsers, setAppUsers] = useState<any[]>([]);
+
+  const userEmailNormalized = (user?.email || '').toLowerCase().trim();
+  const isMasterAdminEmail = userEmailNormalized === 'massote1984@gmail.com';
+  const isAdmin = isMasterAdminEmail || userRole === 'admin' || (user as any)?.role === 'admin';
+
+  const handleUpdateUserRole = async (targetUid: string, newRole: string) => {
+    if (!isAdmin) return;
+    try {
+      const updateData = {
+        role: newRole,
+        allPermissionsGranted: newRole === 'admin',
+        updated_at: serverTimestamp()
+      };
+      await setDoc(doc(db, COLLECTIONS.users, targetUid), updateData, { merge: true });
+      try {
+        await setDoc(doc(db, 'users', targetUid), updateData, { merge: true });
+      } catch {}
+      addNotification(`Permissão alterada para ${newRole === 'admin' ? 'Administrador Geral' : 'Operador'}!`, 'info');
+    } catch (err) {
+      addNotification('Erro ao atualizar permissão.', 'error');
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -347,19 +400,58 @@ export default function App() {
       return;
     }
     
-    // Fetch user role from 'users' collection
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+    const emailNorm = (user.email || '').toLowerCase().trim();
+    const isMaster = emailNorm === 'massote1984@gmail.com';
+
+    // Se for o administrador master, define o papel imediatamente
+    if (isMaster) {
+      setUserRole('admin');
+      
+      // Provisiona/atualiza o perfil mestre de administrador no Firestore com todas as permissões liberadas
+      const masterProfile = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || 'Administrador Master',
+        role: 'admin',
+        accessLevel: 'full',
+        allPermissionsGranted: true,
+        canDelete: true,
+        canEdit: true,
+        canCreate: true,
+        status: 'active',
+        updated_at: serverTimestamp()
+      };
+
+      setDoc(doc(db, COLLECTIONS.users, user.uid), masterProfile, { merge: true }).catch(() => {});
+      setDoc(doc(db, 'users', user.uid), masterProfile, { merge: true }).catch(() => {});
+    }
+    
+    // Escuta alterações de perfil na coleção do aplicativo (app2_users)
+    const unsubscribe = onSnapshot(doc(db, COLLECTIONS.users, user.uid), (snapshot) => {
       if (snapshot.exists()) {
-        setUserRole(snapshot.data().role || 'user');
+        const data = snapshot.data();
+        setUserRole(isMaster ? 'admin' : (data.role || 'user'));
       } else {
-        setUserRole('user');
+        // Fallback para a coleção legado 'users'
+        getDoc(doc(db, 'users', user.uid)).then((legacySnap) => {
+          if (legacySnap.exists()) {
+            setUserRole(isMaster ? 'admin' : (legacySnap.data().role || 'user'));
+          } else {
+            setUserRole(isMaster ? 'admin' : 'user');
+          }
+        }).catch(() => {
+          setUserRole(isMaster ? 'admin' : 'user');
+        });
+      }
+    }, (err) => {
+      console.warn("Aviso ao escutar perfil:", err);
+      if (isMaster) {
+        setUserRole('admin');
       }
     });
 
     return () => unsubscribe();
   }, [user]);
-
-  const isAdmin = userRole === 'admin' || user?.email === 'massote1984@gmail.com';
 
   // Protect admin tabs
   useEffect(() => {
@@ -921,7 +1013,7 @@ export default function App() {
         return;
       }
 
-      const q = query(collection(db, 'entries'), where('import_batch', '==', lastBatchId));
+      const q = query(collection(db, COLLECTIONS.entries), where('import_batch', '==', lastBatchId));
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
@@ -1014,7 +1106,7 @@ export default function App() {
                 if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
                 if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
               }
-              return addDoc(collection(db, 'entries'), {
+              return addDoc(collection(db, COLLECTIONS.entries), {
                 ...data,
                 status: finalStatus,
                 branchId: data.branchId || (selectedBranchId !== 'all' ? selectedBranchId : null),
@@ -1072,7 +1164,7 @@ export default function App() {
     }, 1500);
 
     // Fetch Branches
-    const qBranches = query(collection(db, 'branches'));
+    const qBranches = query(collection(db, COLLECTIONS.branches));
     const unsubscribeBranches = onSnapshot(qBranches, (snapshot) => {
       let branchesData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -1093,7 +1185,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'branches'));
 
     // Fetch Entries
-    const qEntries = collection(db, 'entries');
+    const qEntries = collection(db, COLLECTIONS.entries);
     const unsubscribeEntries = onSnapshot(qEntries, (snapshot) => {
       const entriesData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -1114,7 +1206,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'entries'));
 
     // Fetch Containers
-    const qContainers = collection(db, 'containers');
+    const qContainers = collection(db, COLLECTIONS.containers);
     const unsubscribeContainers = onSnapshot(qContainers, (snapshot) => {
       const containersData = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -1129,7 +1221,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'containers'));
 
     // Fetch Suppliers
-    const qSuppliers = collection(db, 'suppliers');
+    const qSuppliers = collection(db, COLLECTIONS.suppliers);
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
@@ -1139,7 +1231,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'suppliers'));
 
     // Fetch Transporters
-    const qTransporters = collection(db, 'transporters');
+    const qTransporters = collection(db, COLLECTIONS.transporters);
     const unsubscribeTransporters = onSnapshot(qTransporters, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
@@ -1149,7 +1241,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'transporters'));
 
     // Fetch Customers
-    const qCustomers = collection(db, 'customers');
+    const qCustomers = collection(db, COLLECTIONS.customers);
     const unsubscribeCustomers = onSnapshot(qCustomers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
@@ -1159,7 +1251,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'customers'));
 
     // Fetch Products
-    const qProducts = collection(db, 'products');
+    const qProducts = collection(db, COLLECTIONS.products);
     const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
@@ -1169,7 +1261,7 @@ export default function App() {
     }, (error) => handleSnapshotError(error, 'products'));
 
     // Fetch Destinations
-    const qDestinations = collection(db, 'destinations');
+    const qDestinations = collection(db, COLLECTIONS.destinations);
     const unsubscribeDestinations = onSnapshot(qDestinations, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
@@ -1177,6 +1269,13 @@ export default function App() {
       try { localStorage.setItem('cached_destinations', JSON.stringify(data)); } catch {}
       setLoading(false);
     }, (error) => handleSnapshotError(error, 'destinations'));
+
+    // Fetch Users (para gerenciamento de permissões do administrador)
+    const qUsers = collection(db, COLLECTIONS.users);
+    const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAppUsers(data);
+    }, () => {});
 
     return () => {
       clearTimeout(loadingSafetyTimeout);
@@ -1188,17 +1287,165 @@ export default function App() {
       unsubscribeCustomers();
       unsubscribeProducts();
       unsubscribeDestinations();
+      unsubscribeUsers();
     };
   }, [user]);
 
   useEffect(() => {
+    // Escuta mudanças de URL (ex: clique em links ou navegação do histórico)
+    const handleUrlChange = () => {
+      if (isTransporterUrl()) {
+        setIsTransporterPortalOpen(true);
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+
+    // Carrega filiais em tempo real mesmo para usuários não autenticados (Canal do Transportador)
+    const unsubBranches = onSnapshot(collection(db, COLLECTIONS.branches), (snapshot) => {
+      let branchesData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as Branch[];
+
+      DEFAULT_BRANCHES.forEach(defB => {
+        if (!branchesData.some(b => b.id === defB.id || b.code === defB.code)) {
+          branchesData.push(defB);
+        }
+      });
+
+      branchesData.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setBranches(branchesData);
+      try { localStorage.setItem('cached_branches', JSON.stringify(branchesData)); } catch {}
+    }, (err) => console.log('Notice: branches public fetch:', err.message));
+
+    // Realtime listeners for slot_configs and appointments (works for both logged in users and transporter portal)
+    const unsubSlots = onSnapshot(collection(db, COLLECTIONS.slot_configs), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as SlotConfig[];
+      setSlotConfigs(data);
+      try { localStorage.setItem('cached_slot_configs', JSON.stringify(data)); } catch {}
+    }, (err) => console.log('Notice: slot_configs fetch:', err.message));
+
+    const unsubAppts = onSnapshot(collection(db, COLLECTIONS.appointments), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Appointment[];
+      setAppointments(data);
+      try { localStorage.setItem('cached_appointments', JSON.stringify(data)); } catch {}
+    }, (err) => console.log('Notice: appointments fetch:', err.message));
+
+    // Carrega transportadoras em tempo real também para o portal público
+    const unsubTransporters = onSnapshot(collection(db, COLLECTIONS.transporters), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Transporter[];
+      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setTransporters(data);
+      try { localStorage.setItem('cached_transporters', JSON.stringify(data)); } catch {}
+    }, (err) => console.log('Notice: transporters public fetch:', err.message));
+
     setTimeout(() => {
       addNotification("Bem-vindo ao Sistema Titam! O monitoramento de estoque está ativo.", "info");
     }, 1500);
 
     return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+      unsubBranches();
+      unsubSlots();
+      unsubAppts();
+      unsubTransporters();
     };
   }, []);
+
+  const handleCreateEntryFromAppointment = async (appointment: Appointment) => {
+    if (!user) return;
+    try {
+      const now = new Date();
+      const monthNames = [
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+      ];
+      const mesStr = monthNames[now.getMonth()];
+      const todayIso = now.toISOString().slice(0, 10);
+
+      const targetBranch = branches.find(b => b.id === (appointment.branchId || selectedBranchId)) || branches[0];
+      const isCarga = appointment.tipo_operacao === 'carga';
+
+      const newEntryData: any = {
+        mes: mesStr,
+        chave_acesso: '',
+        nf_numero: appointment.nf_numero || `AGD-${appointment.protocolo.slice(-4)}`,
+        id_lote: appointment.pedido_lote || '',
+        tonelada: Number(appointment.peso_estimado_toneladas) || 0,
+        valor: 0,
+        descricao_produto: appointment.descricao_produto || (isCarga ? 'Carga Expedida por Agendamento' : 'Carga Recebida por Agendamento'),
+        data_nf: todayIso,
+        data_descarga: !isCarga ? todayIso : '',
+        data_carregamento_rodoviario: isCarga ? todayIso : '',
+        status: isCarga ? 'Embarcado' : 'Estoque',
+        fornecedor: !isCarga ? (appointment.transportadora || 'Fornecedor Agendado') : 'Titam Logística',
+        cliente: isCarga ? (appointment.transportadora || 'Cliente Expedição') : '',
+        placa_veiculo: appointment.placa_veiculo,
+        placa_saida: isCarga ? appointment.placa_veiculo : '',
+        container: appointment.placa_carreta || '',
+        destino: targetBranch?.name || 'Titam',
+        branchId: appointment.branchId || (selectedBranchId !== 'all' ? selectedBranchId : (branches[0]?.id || 'titam')),
+        transportador: appointment.transportadora,
+        hora_chegada: appointment.hora_chegada_real || appointment.hora_inicio,
+        hora_entrada: appointment.hora_inicio_operacao || '',
+        hora_saida: appointment.hora_conclusao_operacao || '',
+        created_at: serverTimestamp(),
+        created_by_email: user.email,
+        uid: user.uid
+      };
+
+      await addDoc(collection(db, COLLECTIONS.entries), newEntryData);
+
+      // Marca o agendamento como lançado no estoque e concluído
+      try {
+        await updateDoc(doc(db, COLLECTIONS.appointments, appointment.id), {
+          stock_entry_created: true,
+          status: 'concluido',
+          updated_at: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn("Notice: could not update appointment status flag:", e);
+      }
+
+      if (isCarga) {
+        addNotification(`Saída de estoque (Carga / Embarque) registrada com sucesso a partir do agendamento ${appointment.protocolo}!`, "info");
+      } else {
+        addNotification(`Entrada de estoque (Descarga / Recebimento) registrada com sucesso a partir do agendamento ${appointment.protocolo}!`, "info");
+      }
+    } catch (err: any) {
+      console.error("Erro ao converter agendamento em entrada/saída:", err);
+      addNotification("Erro ao lançar movimentação de estoque: " + err.message, "error");
+    }
+  };
+
+  const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: AppointmentStatus) => {
+    if (!user) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const updates: any = {
+      status: newStatus,
+      updated_at: serverTimestamp()
+    };
+    if (newStatus === 'em_patio') {
+      updates.hora_chegada_real = timeStr;
+    }
+    if (newStatus === 'em_operacao') {
+      updates.hora_inicio_operacao = timeStr;
+    }
+    if (newStatus === 'concluido') {
+      updates.hora_conclusao_operacao = timeStr;
+    }
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.appointments, appointmentId), updates);
+      addNotification(`Status do agendamento atualizado para ${newStatus.replace('_', ' ')}!`, "info");
+    } catch (err: any) {
+      console.error("Erro ao atualizar status do agendamento:", err);
+      addNotification("Erro ao atualizar agendamento: " + err.message, "error");
+    }
+  };
 
   const calculateTimeInMinutes = (start?: string, end?: string) => {
     if (!start || !end) return 0;
@@ -1953,7 +2200,7 @@ export default function App() {
     };
     
     try {
-      const docRef = await addDoc(collection(db, 'entries'), data);
+      const docRef = await addDoc(collection(db, COLLECTIONS.entries), data);
       
       // Tentar disparar integração se já for criado como Embarcado
       if (data.status === 'Embarcado') {
@@ -2006,7 +2253,7 @@ export default function App() {
       if (voltaRedondaBranch) {
         // Verificar duplicidade no servidor (já que o estado 'entries' pode estar filtrado por filial)
         const qAlready = query(
-          collection(db, 'entries'), 
+          collection(db, COLLECTIONS.entries), 
           where('nf_numero', '==', nf), 
           where('branchId', '==', voltaRedondaBranch.id)
         );
@@ -2056,7 +2303,7 @@ export default function App() {
         delete (newEntry as any).id;
 
         try {
-          await addDoc(collection(db, 'entries'), newEntry);
+          await addDoc(collection(db, COLLECTIONS.entries), newEntry);
           addNotification("Integração: Registro enviado para Volta Redonda (Trânsito Cheio)", "info");
         } catch (error) {
           console.error("[Integração] Erro ao criar registro em Volta Redonda:", error);
@@ -2153,9 +2400,9 @@ export default function App() {
       sanitizedUpdates.updated_at = serverTimestamp();
       sanitizedUpdates.updated_by_email = user.email || 'Usuário';
 
-      console.log(`[Update] Enviando para Firestore: entries/${docId}`, sanitizedUpdates);
+      console.log(`[Update] Enviando para Firestore: ${COLLECTIONS.entries}/${docId}`, sanitizedUpdates);
       
-      const entryRef = doc(db, 'entries', String(docId));
+      const entryRef = doc(db, COLLECTIONS.entries, String(docId));
       await setDoc(entryRef, sanitizedUpdates, { merge: true });
       
       console.log(`[Update] Sucesso no merge do Firestore para ${docId}`);
@@ -2211,7 +2458,7 @@ export default function App() {
     }
 
     try {
-      await updateDoc(doc(db, 'entries', String(id)), updates);
+      await updateDoc(doc(db, COLLECTIONS.entries, String(id)), updates);
       
       // Tentar disparar integração
       await triggerIntegration(id, updates);
@@ -2241,7 +2488,7 @@ export default function App() {
     }
 
     try {
-      await addDoc(collection(db, 'containers'), {
+      await addDoc(collection(db, COLLECTIONS.containers), {
         numero: upperNumero,
         status,
         observacao: observacao || '',
@@ -2289,7 +2536,7 @@ export default function App() {
       let successCount = 0;
       await Promise.all(
         codesToAdd.map(async (numero) => {
-          await addDoc(collection(db, 'containers'), {
+          await addDoc(collection(db, COLLECTIONS.containers), {
             numero,
             status,
             observacao: '',
@@ -2351,7 +2598,7 @@ export default function App() {
       let deletedCount = 0;
       await Promise.all(
         toDelete.map(async (c) => {
-          await deleteDoc(doc(db, 'containers', c.id));
+          await deleteDoc(doc(db, COLLECTIONS.containers, c.id));
           deletedCount++;
         })
       );
@@ -2369,7 +2616,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await addDoc(collection(db, 'branches'), {
+      await addDoc(collection(db, COLLECTIONS.branches), {
         name,
         code,
         location,
@@ -2389,7 +2636,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'branches', id));
+      await deleteDoc(doc(db, COLLECTIONS.branches, id));
       addNotification("Filial excluída com sucesso!", "info");
       if (selectedBranchId === id) {
         setSelectedBranchId('all');
@@ -2407,7 +2654,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'suppliers'), {
+      await addDoc(collection(db, COLLECTIONS.suppliers), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2428,7 +2675,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, 'suppliers', id), {
+      await updateDoc(doc(db, COLLECTIONS.suppliers, id), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2449,7 +2696,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'suppliers', id));
+      await deleteDoc(doc(db, COLLECTIONS.suppliers, id));
       addNotification("Fornecedor excluído com sucesso!", "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'suppliers', user);
@@ -2463,7 +2710,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'transporters'), {
+      await addDoc(collection(db, COLLECTIONS.transporters), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2484,7 +2731,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, 'transporters', id), {
+      await updateDoc(doc(db, COLLECTIONS.transporters, id), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2505,7 +2752,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'transporters', id));
+      await deleteDoc(doc(db, COLLECTIONS.transporters, id));
       addNotification("Transportador excluído com sucesso!", "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'transporters', user);
@@ -2519,7 +2766,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'customers'), {
+      await addDoc(collection(db, COLLECTIONS.customers), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2540,7 +2787,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, 'customers', id), {
+      await updateDoc(doc(db, COLLECTIONS.customers, id), {
         name,
         branchId,
         cnpj: cnpj || '',
@@ -2561,7 +2808,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'customers', id));
+      await deleteDoc(doc(db, COLLECTIONS.customers, id));
       addNotification("Cliente excluído com sucesso!", "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'customers', user);
@@ -2575,7 +2822,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'products'), {
+      await addDoc(collection(db, COLLECTIONS.products), {
         name,
         branchId,
         uid: user.uid,
@@ -2594,7 +2841,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, 'products', id), {
+      await updateDoc(doc(db, COLLECTIONS.products, id), {
         name,
         branchId,
         updated_at: serverTimestamp()
@@ -2613,7 +2860,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'products', id));
+      await deleteDoc(doc(db, COLLECTIONS.products, id));
       addNotification("Produto excluído com sucesso!", "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'products', user);
@@ -2627,7 +2874,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await addDoc(collection(db, 'destinations'), {
+      await addDoc(collection(db, COLLECTIONS.destinations), {
         name,
         branchId,
         uid: user.uid,
@@ -2646,7 +2893,7 @@ export default function App() {
     if (!user || !branchId) return;
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, 'destinations', id), {
+      await updateDoc(doc(db, COLLECTIONS.destinations, id), {
         name,
         branchId,
         updated_at: serverTimestamp()
@@ -2665,7 +2912,7 @@ export default function App() {
     if (!user) return;
     try {
       setIsProcessing(true);
-      await deleteDoc(doc(db, 'destinations', id));
+      await deleteDoc(doc(db, COLLECTIONS.destinations, id));
       addNotification("Destino excluído com sucesso!", "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, 'destinations', user);
@@ -2685,7 +2932,7 @@ export default function App() {
       // Filtrar entradas sem branchId
       entries.forEach(entry => {
         if (!entry.branchId) {
-          const docRef = doc(db, 'entries', String(entry.id));
+          const docRef = doc(db, COLLECTIONS.entries, String(entry.id));
           batch.update(docRef, { branchId: targetBranchId });
           count++;
         }
@@ -2694,7 +2941,7 @@ export default function App() {
       // Filtrar containers sem branchId
       containers.forEach(container => {
         if (!container.branchId) {
-          const docRef = doc(db, 'containers', String(container.id));
+          const docRef = doc(db, COLLECTIONS.containers, String(container.id));
           batch.update(docRef, { branchId: targetBranchId });
           count++;
         }
@@ -2717,7 +2964,7 @@ export default function App() {
   const handleUpdateContainer = async (id: string, updates: Partial<Container>) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, 'containers', id), {
+      await updateDoc(doc(db, COLLECTIONS.containers, id), {
         ...updates,
         updated_at: serverTimestamp(),
         updated_by_email: user.email
@@ -2733,7 +2980,7 @@ export default function App() {
   const handleDeleteContainer = async (id: string) => {
     if (!user) return;
     try {
-      await deleteDoc(doc(db, 'containers', id));
+      await deleteDoc(doc(db, COLLECTIONS.containers, id));
       addNotification("Container removido!", "warning");
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `containers/${id}`, user);
@@ -2770,6 +3017,7 @@ export default function App() {
     try {
       const batch = writeBatch(db);
       bulkDeleteConfirmation.forEach((id) => {
+        batch.delete(doc(db, COLLECTIONS.entries, String(id)));
         batch.delete(doc(db, 'entries', String(id)));
       });
       await batch.commit();
@@ -2777,7 +3025,7 @@ export default function App() {
       setBulkDeleteConfirmation(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `entries/bulk`, user);
-      addNotification("Erro ao excluir registros. Verifique suas permissões.", "error");
+      addNotification("Erro ao excluir registros. Verifique a conexão com o banco de dados.", "error");
     } finally {
       setIsDeleting(false);
     }
@@ -2788,16 +3036,40 @@ export default function App() {
     
     setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, 'entries', String(deleteConfirmation)));
+      await deleteDoc(doc(db, COLLECTIONS.entries, String(deleteConfirmation)));
+      try {
+        await deleteDoc(doc(db, 'entries', String(deleteConfirmation)));
+      } catch {}
       addNotification("Registro excluído com sucesso!", "info");
       setDeleteConfirmation(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `entries/${deleteConfirmation}`, user);
-      addNotification("Erro ao excluir registro. Verifique suas permissões.", "error");
+      addNotification("Erro ao excluir registro. Verifique a conexão com o banco de dados.", "error");
     } finally {
       setIsDeleting(false);
     }
   };
+
+  if (isTransporterPortalOpen) {
+    return (
+      <TransporterPortal
+        branches={branches}
+        slotConfigs={slotConfigs}
+        appointments={appointments}
+        transporters={transporters}
+        onBackToApp={() => {
+          setIsTransporterPortalOpen(false);
+          if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('portal');
+            url.searchParams.delete('agendar');
+            url.searchParams.delete('agendamento');
+            window.history.replaceState({}, '', url.pathname);
+          }
+        }}
+      />
+    );
+  }
 
   if (authLoading) {
     return (
@@ -2812,103 +3084,142 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="h-screen flex items-center justify-center bg-titam-deep p-4">
+      <div className="min-h-screen flex items-center justify-center bg-titam-deep p-4 sm:p-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full text-center"
+          className="bg-white p-6 sm:p-10 rounded-3xl shadow-2xl max-w-lg w-full text-center space-y-6"
         >
-          <div className="w-24 h-24 bg-titam-lime/10 rounded-full flex items-center justify-center mx-auto mb-8">
-             <Truck className="text-titam-deep w-12 h-12" />
-          </div>
-          <h1 className="text-3xl font-bold text-titam-deep mb-2">Titam Intermodais</h1>
-          <p className="text-gray-500 mb-8">Acesse o sistema para gerenciar seu estoque e logística.</p>
-          
-          {authError && (
-            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-left">
-              {(errorCode === 'auth/unauthorized-domain' || authError.includes('não está autorizado')) ? (
-                <div className="space-y-3">
-                  <div className="flex items-start gap-2.5">
-                    <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={20} />
-                    <div>
-                      <h4 className="font-bold text-amber-900 text-sm">Domínio precisa ser autorizado no Firebase</h4>
-                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                        Para o login com Google funcionar no ambiente de prévia, autorize este domínio no Firebase Console:
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 flex items-center justify-between gap-2">
-                    <code className="text-xs font-mono text-gray-800 break-all select-all font-semibold">
-                      {window.location.hostname}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(window.location.hostname);
-                        setDomainCopied(true);
-                        setTimeout(() => setDomainCopied(false), 2500);
-                      }}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors cursor-pointer"
-                    >
-                      {domainCopied ? (
-                        <>
-                          <Check size={14} />
-                          <span>Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy size={14} />
-                          <span>Copiar</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  <div className="text-[11px] text-amber-800 space-y-1 bg-amber-100/50 p-2.5 rounded-xl">
-                    <p className="font-bold text-amber-900">Passos rápidos no console:</p>
-                    <p>1. Clique no botão abaixo para abrir as configurações.</p>
-                    <p>2. Em <strong>Domínios autorizados</strong>, clique em <strong>Adicionar domínio</strong>.</p>
-                    <p>3. Cole o domínio copiado e clique em <strong>Adicionar</strong>.</p>
-                    <p>4. Em seguida, clique em <strong>Entrar com Google</strong> novamente.</p>
-                  </div>
-
-                  <a
-                    href="https://console.firebase.google.com/project/gen-lang-client-0972087549/authentication/settings"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 rounded-xl transition-colors"
-                  >
-                    <ExternalLink size={14} />
-                    <span>Abrir Configurações do Firebase Console</span>
-                  </a>
-                </div>
-              ) : (
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
-                  <p className="text-sm text-red-600 font-medium leading-relaxed">{authError}</p>
-                </div>
-              )}
+          <div>
+            <div className="w-20 h-20 bg-titam-lime/15 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-titam-lime/30">
+              <Truck className="text-titam-deep w-10 h-10" />
             </div>
-          )}
+            <h1 className="text-2xl sm:text-3xl font-black text-titam-deep">Titam Intermodais</h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
+              Logística Integrada, Controle de Pátio e Gestão de Estoque
+            </p>
+          </div>
 
-          <button 
-            onClick={login}
-            disabled={loginLoading}
-            className={`w-full bg-titam-deep text-white py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3 ${loginLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {loginLoading ? (
-              <>
-                <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Autenticando...</span>
-              </>
-            ) : (
-              <>
-                <img src="https://www.google.com/favicon.ico" className="w-6 h-6" alt="Google" referrerPolicy="no-referrer" />
-                <span>Entrar com Google</span>
-              </>
+          {/* CARD 1: CANAL DO TRANSPORTADOR (ACESSO LIVRE / SEM SENHA) */}
+          <div className="bg-gradient-to-b from-emerald-50 to-white border-2 border-emerald-500/30 rounded-2xl p-5 text-left shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white px-2.5 py-0.5 rounded-full">
+                Acesso Livre • Sem Senha
+              </span>
+              <Smartphone size={16} className="text-emerald-700" />
+            </div>
+            <h2 className="text-base font-black text-titam-deep">Canal do Transportador & Motorista</h2>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              Agende sua janela de <strong>Carga (Saída)</strong> ou <strong>Descarga (Entrada)</strong> diretamente pelo celular ou consulte o status de um agendamento já realizado.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsTransporterPortalOpen(true)}
+              className="mt-4 w-full bg-titam-lime hover:bg-titam-lime/90 text-titam-deep font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-98"
+            >
+              <CalendarClock size={18} />
+              <span>Acessar Canal do Transportador</span>
+            </button>
+          </div>
+
+          {/* CARD 2: ÁREA INTERNA TITAM (LOGIN GOOGLE) */}
+          <div className="pt-2 border-t border-gray-100 text-left">
+            <div className="mb-3">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                Acesso Restrito
+              </span>
+              <h3 className="text-sm font-bold text-gray-700">Equipe Titam & Operadores Internos</h3>
+              <p className="text-[11px] text-gray-400 leading-tight">
+                Exclusivo para colaboradores autorizados com conta institucional.
+              </p>
+            </div>
+
+            {authError && (
+              <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-left">
+                {(errorCode === 'auth/unauthorized-domain' || authError.includes('não está autorizado')) ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={20} />
+                      <div>
+                        <h4 className="font-bold text-amber-900 text-sm">Domínio precisa ser autorizado no Firebase</h4>
+                        <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                          Para o login com Google funcionar no ambiente de prévia, autorize este domínio no Firebase Console:
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200 flex items-center justify-between gap-2">
+                      <code className="text-xs font-mono text-gray-800 break-all select-all font-semibold">
+                        {window.location.hostname}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.hostname);
+                          setDomainCopied(true);
+                          setTimeout(() => setDomainCopied(false), 2500);
+                        }}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors cursor-pointer"
+                      >
+                        {domainCopied ? (
+                          <>
+                            <Check size={14} />
+                            <span>Copiado!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={14} />
+                            <span>Copiar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="text-[11px] text-amber-800 space-y-1 bg-amber-100/50 p-2.5 rounded-xl">
+                      <p className="font-bold text-amber-900">Passos rápidos no console:</p>
+                      <p>1. Clique no botão abaixo para abrir as configurações.</p>
+                      <p>2. Em <strong>Domínios autorizados</strong>, clique em <strong>Adicionar domínio</strong>.</p>
+                      <p>3. Cole o domínio copiado e clique em <strong>Adicionar</strong>.</p>
+                      <p>4. Em seguida, clique em <strong>Entrar com Google</strong> novamente.</p>
+                    </div>
+
+                    <a
+                      href="https://console.firebase.google.com/project/gen-lang-client-0972087549/authentication/settings"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 rounded-xl transition-colors"
+                    >
+                      <ExternalLink size={14} />
+                      <span>Abrir Configurações do Firebase Console</span>
+                    </a>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="text-red-500 shrink-0 mt-0.5" size={18} />
+                    <p className="text-sm text-red-600 font-medium leading-relaxed">{authError}</p>
+                  </div>
+                )}
+              </div>
             )}
-          </button>
+
+            <button 
+              onClick={login}
+              disabled={loginLoading}
+              className={`w-full bg-titam-deep text-white py-3.5 rounded-xl font-bold text-sm hover:opacity-90 transition-all shadow-md active:scale-98 flex items-center justify-center gap-2.5 ${loginLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {loginLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Autenticando...</span>
+                </>
+              ) : (
+                <>
+                  <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" referrerPolicy="no-referrer" />
+                  <span>Entrar com Google (Equipe Interna)</span>
+                </>
+              )}
+            </button>
+          </div>
         </motion.div>
       </div>
     );
@@ -3015,6 +3326,12 @@ export default function App() {
             onClick={() => setActiveTab('fluxo')} 
           />
           <NavItem 
+            icon={<CalendarClock size={18} />} 
+            label="Agendamentos" 
+            active={activeTab === 'agendamento'} 
+            onClick={() => setActiveTab('agendamento')} 
+          />
+          <NavItem 
             icon={<FileText size={18} />} 
             label="Faturamento" 
             active={activeTab === 'faturamento'} 
@@ -3058,15 +3375,32 @@ export default function App() {
         </nav>
 
         <div className="p-4 border-t border-white/10">
-          <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-4">
-            <div className="w-8 h-8 rounded-full bg-titam-lime text-titam-deep flex items-center justify-center font-bold text-xs">
+          <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl mb-2">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+              isAdmin ? 'bg-titam-lime text-titam-deep ring-2 ring-titam-lime shadow-sm' : 'bg-white/10 text-white'
+            }`}>
               <span>{user.displayName?.charAt(0) || user.email?.charAt(0).toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate">{user.displayName || 'Usuário'}</p>
-              <p className="text-[10px] text-white/40 truncate">{user.email}</p>
+              <p className="text-xs font-bold truncate text-white">{user.displayName || (isAdmin ? 'Administrador Master' : 'Usuário')}</p>
+              <p className="text-[10px] text-white/50 truncate">{user.email}</p>
             </div>
           </div>
+
+          {isAdmin ? (
+            <div className="mb-3 px-3 py-2 bg-titam-lime/10 border border-titam-lime/30 rounded-xl flex items-center gap-2.5">
+              <ShieldCheck size={16} className="text-titam-lime shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-black text-titam-lime uppercase tracking-wider">Administrador Geral</span>
+                <span className="text-[9px] text-white/70 font-medium">Execuções e acessos 100% liberados</span>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-3 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg flex items-center gap-2">
+              <span className="text-[10px] text-white/50">Operador</span>
+            </div>
+          )}
+
           <button 
             onClick={logout}
             className="w-full flex items-center gap-2 px-4 py-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-xs font-bold"
@@ -3187,19 +3521,24 @@ export default function App() {
               <button 
                 onClick={() => {
                   if (selectedBranchId === 'all') {
-                    addNotification("Selecione uma filial específica para cadastrar novos registros.", "warning");
-                    return;
+                    if (isAdmin && branches.length > 0) {
+                      setSelectedBranchId(branches[0].id);
+                      addNotification(`Filial selecionada automaticamente para ${branches[0].name}.`, "info");
+                    } else {
+                      addNotification("Selecione uma filial específica para cadastrar novos registros.", "warning");
+                      return;
+                    }
                   }
                   setFormData({});
                   setShowForm(true);
                 }}
                 className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-bold text-sm ${
-                  selectedBranchId === 'all' 
+                  selectedBranchId === 'all' && !isAdmin
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                    : 'bg-titam-deep text-white hover:bg-titam-deep/90 shadow-lg shadow-titam-deep/20'
+                    : 'bg-titam-deep text-white hover:bg-titam-deep/90 shadow-lg shadow-titam-deep/20 cursor-pointer'
                 }`}
               >
-                <Plus size={18} className={selectedBranchId === 'all' ? 'text-gray-400' : 'text-titam-lime'} />
+                <Plus size={18} className={selectedBranchId === 'all' && !isAdmin ? 'text-gray-400' : 'text-titam-lime'} />
                 Novo Registro
               </button>
             )}
@@ -4172,7 +4511,7 @@ export default function App() {
               <DataView 
                 title="Gestão de Entradas"
                 entries={filteredEntriesByProduct}
-                readOnly={selectedBranchId === 'all'}
+                readOnly={!isAdmin && selectedBranchId === 'all'}
                 columns={[
                   { key: 'mes', label: 'Mês' },
                   { key: 'data_nf', label: 'Data NF' },
@@ -4228,7 +4567,7 @@ export default function App() {
               <DataView 
                 title="Gestão de Saídas"
                 entries={filteredEntriesByProduct}
-                readOnly={selectedBranchId === 'all'}
+                readOnly={!isAdmin && selectedBranchId === 'all'}
                 columns={[
                   { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
@@ -4259,7 +4598,7 @@ export default function App() {
             <DataView 
               title="Faturamento e CTEs"
               entries={filteredEntriesByProduct}
-              readOnly={selectedBranchId === 'all'}
+              readOnly={!isAdmin && selectedBranchId === 'all'}
               columns={[
                 { key: 'data_emissao_nf', label: 'Emissão NF' },
                 { key: 'nf_numero', label: 'N.F' },
@@ -4280,7 +4619,7 @@ export default function App() {
             <DataView 
               title="Todos os Registros"
               entries={filteredEntriesByProduct}
-              readOnly={selectedBranchId === 'all'}
+              readOnly={!isAdmin && selectedBranchId === 'all'}
               columns={[
                 { key: 'nf_numero', label: 'N.F' },
                 { key: 'descricao_produto', label: 'Produto' },
@@ -4317,105 +4656,18 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-black text-titam-deep uppercase tracking-tight">Fluxo de Veículos</h2>
-                  <p className="text-gray-500 text-sm">Controle operacional de entrada e saída do pátio</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Externa */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
-                  <div className="p-4 bg-blue-600 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-sm uppercase tracking-wider">Fila Externa</h3>
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
-                      {yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).length}
-                    </span>
-                  </div>
-                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
-                    {yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).length === 0 ? (
-                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhum veículo na fila externa</p>
-                    ) : (
-                      yardEntries.filter(e => e.hora_chegada && !e.hora_entrada).map(e => (
-                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
-                          <div className="flex justify-between items-start">
-                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
-                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase">Chegada: {e.hora_chegada}</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
-                          <button 
-                            onClick={() => handleQuickStatusUpdate(e.id, 'entrada')}
-                            className="w-full py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded hover:bg-blue-700 transition-colors uppercase"
-                          >
-                            Registrar Entrada
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Interna */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
-                  <div className="p-4 bg-amber-500 text-white flex justify-between items-center">
-                    <h3 className="font-bold text-sm uppercase tracking-wider">Fila Interna</h3>
-                    <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
-                      {yardEntries.filter(e => e.hora_entrada && !e.hora_saida).length}
-                    </span>
-                  </div>
-                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
-                    {yardEntries.filter(e => e.hora_entrada && !e.hora_saida).length === 0 ? (
-                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhum veículo na fila interna</p>
-                    ) : (
-                      yardEntries.filter(e => e.hora_entrada && !e.hora_saida).map(e => (
-                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
-                          <div className="flex justify-between items-start">
-                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
-                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded uppercase">Entrada: {e.hora_entrada}</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
-                          <button 
-                            onClick={() => handleQuickStatusUpdate(e.id, 'saida')}
-                            className="w-full py-1.5 bg-amber-500 text-white text-[10px] font-bold rounded hover:bg-amber-600 transition-colors uppercase"
-                          >
-                            Registrar Saída
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Saída */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-700">
-                  <div className="p-4 bg-titam-lime text-titam-deep flex justify-between items-center">
-                    <h3 className="font-bold text-sm uppercase tracking-wider">Saídas de Hoje</h3>
-                    <span className="bg-titam-deep/10 px-2 py-0.5 rounded text-xs font-black">
-                      {yardEntries.filter(e => e.hora_saida).length}
-                    </span>
-                  </div>
-                  <div className="p-4 space-y-3 max-h-[600px] overflow-auto">
-                    {yardEntries.filter(e => e.hora_saida).length === 0 ? (
-                      <p className="text-center py-8 text-gray-400 text-xs italic">Nenhuma saída registrada hoje</p>
-                    ) : (
-                      yardEntries.filter(e => e.hora_saida).map(e => (
-                        <div key={e.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
-                          <div className="flex justify-between items-start">
-                            <span className="text-xs font-black text-gray-900">{e.placa_veiculo}</span>
-                            <span className="text-[10px] font-bold text-titam-deep bg-titam-lime/20 px-1.5 py-0.5 rounded uppercase">Saída: {e.hora_saida}</span>
-                          </div>
-                          <p className="text-[10px] text-gray-500 truncate">{e.fornecedor}</p>
-                          <div className="flex justify-between text-[10px] font-bold">
-                            <span className="text-gray-400 uppercase">T. Total:</span>
-                            <span className="text-titam-deep">{calculateTimeDiff(e.hora_chegada, e.hora_saida)}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
+              <VehicleFlowManager
+                yardEntries={yardEntries}
+                appointments={appointments}
+                selectedBranchId={selectedBranchId}
+                branches={branches}
+                onQuickEntryStatusUpdate={handleQuickStatusUpdate}
+                onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+                onCreateEntryOrExitFromAppointment={handleCreateEntryFromAppointment}
+                onOpenTransporterAccessModal={() => setIsTransporterAccessModalOpen(true)}
+                onNavigateToScheduling={() => setActiveTab('agendamento')}
+                calculateTimeDiff={calculateTimeDiff}
+              />
             </motion.div>
           )}
 
@@ -4498,10 +4750,10 @@ export default function App() {
                               <td className="px-6 py-4">
                                 <select 
                                   value={container.status}
-                                  disabled={selectedBranchId === 'all'}
+                                  disabled={!isAdmin && selectedBranchId === 'all'}
                                   onChange={(e) => handleUpdateContainer(container.id, { status: e.target.value as any })}
                                   className={`text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-widest outline-none border-none ${
-                                    selectedBranchId === 'all' ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                                    !isAdmin && selectedBranchId === 'all' ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
                                   } ${
                                     container.status === 'Disponível' ? 'bg-emerald-50 text-emerald-600' :
                                     container.status === 'Em Manutenção' ? 'bg-amber-50 text-amber-600' :
@@ -4516,11 +4768,12 @@ export default function App() {
                               <td className="px-6 py-4">
                                 <span className="text-[10px] text-gray-500 font-medium">{container.observacao || '-'}</span>
                               </td>
-                              {selectedBranchId !== 'all' && (
+                              {(isAdmin || selectedBranchId !== 'all') && (
                                 <td className="px-6 py-4 text-right">
                                   <button 
                                     onClick={() => handleDeleteContainer(container.id)}
                                     className="p-2 text-gray-300 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Excluir Container"
                                   >
                                     <Trash2 size={14} />
                                   </button>
@@ -5800,6 +6053,160 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Seção de Controle de Usuários e Permissões Administrativas */}
+              {isAdmin && (
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-titam-deep text-titam-lime flex items-center justify-center font-bold">
+                        <ShieldCheck size={22} />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-base text-titam-deep uppercase tracking-tight">
+                          Controle de Usuários & Execuções do Sistema
+                        </h3>
+                        <p className="text-gray-500 text-xs">
+                          Gerenciamento de privilégios de acesso e permissões de execução no banco de dados.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs font-bold">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Usuário Atual: Administrador Master Liberado
+                    </div>
+                  </div>
+
+                  {/* Card do Administrador Master */}
+                  <div className="bg-gradient-to-r from-titam-deep to-[#2A4D44] text-white rounded-xl p-5 shadow-sm">
+                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-titam-lime text-titam-deep">
+                            Administrador Master
+                          </span>
+                          <span className="text-xs text-white/70 font-mono">massote1984@gmail.com</span>
+                        </div>
+                        <h4 className="text-base font-bold text-white">
+                          Acesso e Execuções 100% Liberados em Todas as Áreas
+                        </h4>
+                        <p className="text-xs text-white/70 max-w-3xl leading-relaxed">
+                          Sua conta possui autorização total e irrestrita no aplicativo e nas regras de segurança do Firestore. Todas as operações de exclusão (individual e em lote), edição, cadastro de filiais, transportadoras, produtos e relatórios executivos estão permanentemente ativas.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        <span className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold tracking-wider text-titam-lime border border-titam-lime/30 flex items-center gap-1.5">
+                          <Check size={12} /> Exclusões Liberadas
+                        </span>
+                        <span className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold tracking-wider text-titam-lime border border-titam-lime/30 flex items-center gap-1.5">
+                          <Check size={12} /> Edição Irrestrita
+                        </span>
+                        <span className="px-2.5 py-1 bg-white/10 rounded-lg text-[10px] font-bold tracking-wider text-titam-lime border border-titam-lime/30 flex items-center gap-1.5">
+                          <Check size={12} /> Gestão de Filiais
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lista de Usuários do Sistema */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                        Contas com Acesso ao Sistema ({appUsers.length > 0 ? appUsers.length : 1})
+                      </h4>
+                      <span className="text-[11px] text-gray-400">
+                        O Administrador Geral pode conceder ou revogar permissões a outros operadores
+                      </span>
+                    </div>
+
+                    <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-100">
+                      {/* Usuário Master Fixado */}
+                      <div className="p-4 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-titam-lime text-titam-deep font-black text-xs flex items-center justify-center shrink-0">
+                            M
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-titam-deep">massote1984@gmail.com</span>
+                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-titam-deep text-titam-lime">
+                                Master
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-400 font-medium">Permissões de execução: Todas (Total)</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-lg uppercase tracking-wider">
+                            Administrador Geral
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Demais Usuários */}
+                      {appUsers
+                        .filter(u => (u.email || '').toLowerCase().trim() !== 'massote1984@gmail.com')
+                        .map(userItem => {
+                          const isItemAdmin = userItem.role === 'admin';
+                          return (
+                            <div key={userItem.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50/50 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 font-bold text-xs flex items-center justify-center shrink-0">
+                                  {(userItem.displayName || userItem.email || 'U').charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <span className="font-bold text-xs text-gray-800">{userItem.displayName || userItem.email || 'Usuário'}</span>
+                                  {userItem.email && <p className="text-[10px] text-gray-400">{userItem.email}</p>}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md tracking-wider ${
+                                  isItemAdmin ? 'bg-titam-lime/30 text-titam-deep' : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {isItemAdmin ? 'Administrador' : 'Operador'}
+                                </span>
+
+                                <select
+                                  value={isItemAdmin ? 'admin' : 'user'}
+                                  onChange={(e) => handleUpdateUserRole(userItem.id, e.target.value)}
+                                  className="text-[11px] font-bold border border-gray-200 rounded-lg px-2.5 py-1 text-gray-700 bg-white outline-none focus:ring-1 focus:ring-titam-deep cursor-pointer"
+                                >
+                                  <option value="user">Operador (Padrão)</option>
+                                  <option value="admin">Administrador (Total)</option>
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'agendamento' && (
+            <motion.div 
+              key="agendamento"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <SchedulingManager
+                user={user}
+                branches={branches}
+                selectedBranchId={selectedBranchId}
+                slotConfigs={slotConfigs}
+                appointments={appointments}
+                transporters={transporters}
+                onOpenTransporterPortal={() => setIsTransporterPortalOpen(true)}
+                onAddStockEntryFromAppointment={handleCreateEntryFromAppointment}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -6042,7 +6449,7 @@ export default function App() {
                         {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                     </div>
-                    <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
+                    <Input label="ID do Lote / Nº do Pedido" name="id_lote" defaultValue={formData.id_lote} placeholder="Ex: PED-10492 ou Lote 88" />
                     <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
                     <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
                     <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
@@ -6065,6 +6472,7 @@ export default function App() {
                       </select>
                     </div>
                     <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
+                    <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} placeholder="Ex: VAG-1234" />
                     <ContainerSearchField 
                       label="Container" 
                       name="container" 
@@ -6124,7 +6532,7 @@ export default function App() {
                         {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                       </select>
                     </div>
-                    <Input label="ID do Lote" name="id_lote" defaultValue={formData.id_lote} />
+                    <Input label="ID do Lote / Nº do Pedido" name="id_lote" defaultValue={formData.id_lote} placeholder="Ex: PED-10492 ou Lote 88" />
                     <Input label="Data N.F" name="data_nf" type="date" defaultValue={formData.data_nf} />
                     <Input label="Data Descarga" name="data_descarga" type="date" defaultValue={formData.data_descarga} />
                     <div className="flex flex-col gap-1">
@@ -6161,49 +6569,16 @@ export default function App() {
                       containers={containers}
                       branches={branches}
                     />
+                    <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
+                    <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} placeholder="Ex: VAG-1234" />
                   </div>
                 )}
 
-                {!isVoltaRedonda && (
-                  <>
-                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
-                        <select name="transportador" defaultValue={formData.transportador || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
-                          <option value="">Selecione o transportador</option>
-                          {filteredTransporters.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cliente</label>
-                        <select name="cliente" defaultValue={formData.cliente || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700">
-                          <option value="">Selecione o cliente</option>
-                          {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      <Input label="Data Carregamento Rodoviário" name="data_carregamento_rodoviario" type="date" defaultValue={formData.data_carregamento_rodoviario} />
-                      <Input label="Placa do Veículo (Saída)" name="placa_saida" defaultValue={formData.placa_saida} />
-                    </div>
-
-                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
-                      <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
-                      <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
-                      <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
-                    </div>
-
-                    <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-6 pt-4 border-t border-gray-100">
-                      <Input label="Data Emissão NF" name="data_emissao_nf" type="date" defaultValue={formData.data_emissao_nf} />
-                      <Input label="Emissão CTE Intertex" name="data_emissao_cte" type="date" defaultValue={formData.data_emissao_cte} />
-                      <Input label="CTE Intertex" name="cte_intertex" defaultValue={formData.cte_intertex} />
-                      <Input label="Emissão CTE Transp." name="data_emissao_cte_transp" type="date" defaultValue={formData.data_emissao_cte_transp} />
-                      <Input label="CTE Transportador" name="cte_transportador" defaultValue={formData.cte_transportador} />
-                      <Input label="Data TITAM" name="data_titam" type="date" defaultValue={formData.data_titam} />
-                      <Input label="Faturamento Titam" name="faturamento_titam" defaultValue={formData.faturamento_titam} />
-                      <Input label="Data Faturamento VLI" name="data_faturamento_vli" type="date" defaultValue={formData.data_faturamento_vli} />
-                      <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} />
-                    </div>
-                  </>
-                )}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
+                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
+                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
+                </div>
 
                 <div className="flex justify-end gap-3 mt-4 border-t border-gray-100 pt-6">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors" disabled={isSaving}>Cancelar</button>
@@ -6338,11 +6713,18 @@ export default function App() {
                       </select>
                     </div>
                     {!isVREdit && (
-                      <Input 
-                        label="Placa Veículo" 
-                        value={editFormData.placa_veiculo || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
-                      />
+                      <>
+                        <Input 
+                          label="Placa Veículo" 
+                          value={editFormData.placa_veiculo || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
+                        />
+                        <Input 
+                          label="Nº Vagão" 
+                          value={editFormData.numero_vagao || ''} 
+                          onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
+                        />
+                      </>
                     )}
                     <Input 
                       label="Data NF" 
@@ -6401,9 +6783,10 @@ export default function App() {
                       </select>
                     </div>
                     <Input 
-                      label="ID do Lote" 
+                      label="ID do Lote / Nº do Pedido" 
                       value={editFormData.id_lote || ''} 
                       onChange={(e) => setEditFormData(prev => ({ ...prev, id_lote: e.target.value }))}
+                      placeholder="Ex: PED-10492 ou Lote 88"
                     />
                     <div className="flex flex-col gap-1">
                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
@@ -6737,6 +7120,16 @@ export default function App() {
             ))}
         </AnimatePresence>
       </div>
+
+      {/* Modal de Compartilhamento do Canal do Transportador & QR Code */}
+      <TransporterAccessModal
+        isOpen={isTransporterAccessModalOpen}
+        onClose={() => setIsTransporterAccessModalOpen(false)}
+        onOpenPortal={() => {
+          setIsTransporterAccessModalOpen(false);
+          setIsTransporterPortalOpen(true);
+        }}
+      />
     </div>
   );
 }

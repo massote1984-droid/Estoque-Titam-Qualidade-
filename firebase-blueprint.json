@@ -130,6 +130,59 @@
         "uid": { "type": "string" }
       },
       "required": ["name", "branchId"]
+    },
+    "SlotConfig": {
+      "title": "SlotConfig",
+      "description": "Hourly time slot configuration with vehicle or volume limits",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "hora_inicio": { "type": "string" },
+        "hora_fim": { "type": "string" },
+        "tipo_limite": { "type": "string", "enum": ["veiculos", "volume"] },
+        "limite_veiculos": { "type": "number" },
+        "limite_volume_toneladas": { "type": "number" },
+        "tipo_operacao_permitida": { "type": "string", "enum": ["todos", "carga", "descarga"] },
+        "ativo": { "type": "boolean" },
+        "dias_semana": { "type": "array", "items": { "type": "number" } },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["branchId", "hora_inicio", "hora_fim", "tipo_limite"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Carrier vehicle loading or unloading schedule appointment",
+      "type": "object",
+      "properties": {
+        "protocolo": { "type": "string" },
+        "branchId": { "type": "string" },
+        "data_agendamento": { "type": "string" },
+        "hora_inicio": { "type": "string" },
+        "hora_fim": { "type": "string" },
+        "tipo_operacao": { "type": "string", "enum": ["carga", "descarga"] },
+        "transportadora": { "type": "string" },
+        "cnpj_transportadora": { "type": "string" },
+        "placa_veiculo": { "type": "string" },
+        "placa_carreta": { "type": "string" },
+        "tipo_veiculo": { "type": "string" },
+        "motorista_nome": { "type": "string" },
+        "motorista_cpf": { "type": "string" },
+        "motorista_telefone": { "type": "string" },
+        "descricao_produto": { "type": "string" },
+        "peso_estimado_toneladas": { "type": "number" },
+        "nf_numero": { "type": "string" },
+        "pedido_lote": { "type": "string" },
+        "status": { "type": "string", "enum": ["agendado", "em_patio", "em_operacao", "concluido", "cancelado"] },
+        "origem": { "type": "string", "enum": ["portal_transportador", "interno"] },
+        "hora_chegada_real": { "type": "string" },
+        "hora_inicio_operacao": { "type": "string" },
+        "hora_conclusao_operacao": { "type": "string" },
+        "observacoes": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["protocolo", "branchId", "data_agendamento", "hora_inicio", "hora_fim", "tipo_operacao", "placa_veiculo", "status"]
     }
   },
   "firestore": {
@@ -164,6 +217,54 @@
     "destinations": {
       "schema": "Destination",
       "description": "Collection of destinations"
+    },
+    "slot_configs": {
+      "schema": "SlotConfig",
+      "description": "Configured hourly windows and capacities"
+    },
+    "appointments": {
+      "schema": "Appointment",
+      "description": "Collection of scheduled carrier appointments"
+    },
+    "app2_entries": {
+      "schema": "Entry",
+      "description": "Isolated collection of stock entries for independent applet"
+    },
+    "app2_containers": {
+      "schema": "Container",
+      "description": "Isolated collection of containers for independent applet"
+    },
+    "app2_branches": {
+      "schema": "Branch",
+      "description": "Isolated collection of company branches for independent applet"
+    },
+    "app2_suppliers": {
+      "schema": "Supplier",
+      "description": "Isolated collection of suppliers for independent applet"
+    },
+    "app2_transporters": {
+      "schema": "Transporter",
+      "description": "Isolated collection of transporters for independent applet"
+    },
+    "app2_customers": {
+      "schema": "Customer",
+      "description": "Isolated collection of customers for independent applet"
+    },
+    "app2_products": {
+      "schema": "Product",
+      "description": "Isolated collection of products for independent applet"
+    },
+    "app2_destinations": {
+      "schema": "Destination",
+      "description": "Isolated collection of destinations for independent applet"
+    },
+    "app2_slot_configs": {
+      "schema": "SlotConfig",
+      "description": "Isolated collection of configured hourly windows for independent applet"
+    },
+    "app2_appointments": {
+      "schema": "Appointment",
+      "description": "Isolated collection of scheduled carrier appointments for independent applet"
     }
   }
 }

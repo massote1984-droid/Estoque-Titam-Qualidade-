@@ -26,8 +26,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use((req, res, next) => {
-    log(`${req.method} ${req.url}`);
+  // API request logger
+  app.use("/api", (req, res, next) => {
+    console.log(`[API] ${req.method} ${req.url}`);
     next();
   });
 
