@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { type User, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { 
+  type User, 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
+  GoogleAuthProvider, 
+  signOut 
+} from 'firebase/auth';
 import { auth } from '../firebase';
 
 interface AuthContextType {
@@ -22,6 +30,21 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
   useEffect(() => {
+    // Process redirect result if login was initiated via redirect
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+        }
+      })
+      .catch((err: any) => {
+        console.error("Redirect result error:", err);
+        if (err.code === 'auth/unauthorized-domain') {
+          setErrorCode('auth/unauthorized-domain');
+          setError("Este domínio não está autorizado no Firebase. Adicione '" + window.location.hostname + "' aos domínios autorizados no console do Firebase.");
+        }
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -34,13 +57,22 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setErrorCode(null);
     setLoginLoading(true);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
     try {
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error("Login error:", err);
       setErrorCode(err.code || 'unknown');
       if (err.code === 'auth/popup-blocked') {
-        setError("O popup de login foi bloqueado pelo navegador. Por favor, permita popups para este site.");
+        try {
+          // Fallback para redirect se o popup foi bloqueado (comum em celulares)
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectErr: any) {
+          console.error("Redirect fallback error:", redirectErr);
+          setError("O popup foi bloqueado pelo navegador. Por favor, permita popups para este site ou clique novamente para redirecionar.");
+        }
       } else if (err.code === 'auth/unauthorized-domain') {
         setError("Este domínio não está autorizado no Firebase. Adicione '" + window.location.hostname + "' aos domínios autorizados no console do Firebase.");
       } else {

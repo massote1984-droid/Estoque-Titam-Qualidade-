@@ -183,9 +183,92 @@
         "uid": { "type": "string" }
       },
       "required": ["protocolo", "branchId", "data_agendamento", "hora_inicio", "hora_fim", "tipo_operacao", "placa_veiculo", "status"]
+    },
+    "InternalMovement": {
+      "title": "InternalMovement",
+      "description": "Internal movement inside the terminal/yard",
+      "type": "object",
+      "properties": {
+        "entryId": { "type": "string" },
+        "nf_numero": { "type": "string" },
+        "id_lote": { "type": "string" },
+        "descricao_produto": { "type": "string" },
+        "tipo_movimentacao": { "type": "string" },
+        "origem_local": { "type": "string" },
+        "destino_local": { "type": "string" },
+        "container_origem": { "type": "string" },
+        "container_destino": { "type": "string" },
+        "vagao_origem": { "type": "string" },
+        "vagao_destino": { "type": "string" },
+        "toneladas_movimentadas": { "type": "number" },
+        "data_movimentacao": { "type": "string" },
+        "hora_movimentacao": { "type": "string" },
+        "responsavel_operador": { "type": "string" },
+        "observacoes": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["entryId", "origem_local", "destino_local", "branchId", "data_movimentacao"]
+    },
+    "YardLocation": {
+      "title": "YardLocation",
+      "description": "Physical location/address inside terminal yard",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "tipo": { "type": "string" },
+        "capacidade_toneladas": { "type": "number" },
+        "descricao": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "branchId"]
+    },
+    "RailDispatch": {
+      "title": "RailDispatch",
+      "description": "Rail wagon dispatch with up to two containers",
+      "type": "object",
+      "properties": {
+        "numero_vagao": { "type": "string" },
+        "container_1": { "type": "string" },
+        "container_2": { "type": "string" },
+        "lacre_1": { "type": "string" },
+        "lacre_2": { "type": "string" },
+        "peso_container_1": { "type": "number" },
+        "peso_container_2": { "type": "number" },
+        "produto_container_1": { "type": "string" },
+        "produto_container_2": { "type": "string" },
+        "nf_container_1": { "type": "string" },
+        "nf_container_2": { "type": "string" },
+        "destino": { "type": "string" },
+        "ferrovia_operadora": { "type": "string" },
+        "numero_composicao": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pronto para Partida", "Despachado", "Em Trânsito", "Entregue"] },
+        "data_despacho": { "type": "string" },
+        "hora_despacho": { "type": "string" },
+        "observacoes": { "type": "string" },
+        "branchId": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "uid": { "type": "string" }
+      },
+      "required": ["numero_vagao", "branchId", "status", "data_despacho"]
     }
   },
   "firestore": {
+    "dispatches": {
+      "schema": "RailDispatch",
+      "description": "Collection of rail car dispatches"
+    },
+    "internal_movements": {
+      "schema": "InternalMovement",
+      "description": "Collection of terminal internal movements"
+    },
+    "yard_locations": {
+      "schema": "YardLocation",
+      "description": "Collection of yard addresses and bays"
+    },
     "entries": {
       "schema": "Entry",
       "description": "Collection of stock entries"

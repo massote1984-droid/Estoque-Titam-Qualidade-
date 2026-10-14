@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Truck, Clock, CheckCircle2, ArrowDownRight, ArrowUpRight, 
   CalendarClock, Search, Filter, QrCode, Play, Check, 
-  UserCheck, AlertCircle, FileText, ChevronRight
+  UserCheck, AlertCircle, FileText, ChevronRight, X, Edit3
 } from 'lucide-react';
 import { Entry, Appointment, AppointmentStatus, Branch } from '../types';
 
@@ -11,7 +11,14 @@ interface VehicleFlowManagerProps {
   appointments: Appointment[];
   selectedBranchId: string;
   branches: Branch[];
-  onQuickEntryStatusUpdate: (id: string | number, type: 'chegada' | 'entrada' | 'saida') => Promise<void>;
+  isVoltaRedonda?: boolean;
+  onQuickEntryStatusUpdate: (
+    id: string | number, 
+    type: 'chegada' | 'entrada' | 'saida' | 'chegada_terminal' | 'saida_terminal' | 'retorno_terminal',
+    customData?: { data?: string; hora?: string }
+  ) => Promise<any>;
+  onUpdateVRTerminalFlow?: (id: string | number, flowUpdates: Partial<Entry>) => Promise<any>;
+  onOpenEditEntry?: (entry: Entry) => void;
   onUpdateAppointmentStatus: (appointmentId: string, status: AppointmentStatus) => Promise<void>;
   onCreateEntryOrExitFromAppointment: (appointment: Appointment) => Promise<void>;
   onOpenTransporterAccessModal: () => void;
@@ -24,7 +31,10 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
   appointments,
   selectedBranchId,
   branches,
+  isVoltaRedonda,
   onQuickEntryStatusUpdate,
+  onUpdateVRTerminalFlow,
+  onOpenEditEntry,
   onUpdateAppointmentStatus,
   onCreateEntryOrExitFromAppointment,
   onOpenTransporterAccessModal,
@@ -33,6 +43,91 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [operationFilter, setOperationFilter] = useState<'all' | 'carga' | 'descarga'>('all');
+
+  const [editingVRFlowEntry, setEditingVRFlowEntry] = useState<Entry | null>(null);
+  const [vrFlowStatus, setVrFlowStatus] = useState<string>('');
+  const [isSavingVRFlow, setIsSavingVRFlow] = useState(false);
+  const [vrFlowForm, setVrFlowForm] = useState<{
+    letra: string;
+    turno: string;
+    local_descarga: string;
+    data_chegada_terminal: string;
+    hora_chegada_terminal: string;
+    data_saida_terminal: string;
+    hora_saida_terminal: string;
+    data_retorno_terminal: string;
+    hora_retorno_terminal: string;
+  }>({
+    letra: '',
+    turno: '',
+    local_descarga: '',
+    data_chegada_terminal: '',
+    hora_chegada_terminal: '',
+    data_saida_terminal: '',
+    hora_saida_terminal: '',
+    data_retorno_terminal: '',
+    hora_retorno_terminal: ''
+  });
+
+  const handleOpenVREditModal = (entryOrItem: any) => {
+    const raw: Entry = entryOrItem?.rawEntry || entryOrItem;
+    if (!raw) return;
+    setEditingVRFlowEntry(raw);
+    setVrFlowForm({
+      letra: raw.letra || '',
+      turno: raw.turno || '',
+      local_descarga: raw.local_descarga || '',
+      data_chegada_terminal: raw.data_chegada_terminal || raw.data_chegada || '',
+      hora_chegada_terminal: raw.hora_chegada_terminal || raw.hora_chegada || '',
+      data_saida_terminal: raw.data_saida_terminal || '',
+      hora_saida_terminal: raw.hora_saida_terminal || '',
+      data_retorno_terminal: raw.data_retorno_terminal || '',
+      hora_retorno_terminal: raw.hora_retorno_terminal || ''
+    });
+    setVrFlowStatus(raw.status || 'Estoque (Cheio Terminal)');
+  };
+
+  const handleSaveVRFlow = async () => {
+    if (!editingVRFlowEntry) return;
+    setIsSavingVRFlow(true);
+    try {
+      const updates: Partial<Entry> = {
+        letra: vrFlowForm.letra || undefined,
+        turno: vrFlowForm.turno || undefined,
+        local_descarga: vrFlowForm.local_descarga || undefined,
+        data_chegada_terminal: vrFlowForm.data_chegada_terminal || undefined,
+        hora_chegada_terminal: vrFlowForm.hora_chegada_terminal || undefined,
+        data_saida_terminal: vrFlowForm.data_saida_terminal || undefined,
+        hora_saida_terminal: vrFlowForm.hora_saida_terminal || undefined,
+        data_retorno_terminal: vrFlowForm.data_retorno_terminal || undefined,
+        hora_retorno_terminal: vrFlowForm.hora_retorno_terminal || undefined,
+        status: (vrFlowStatus || editingVRFlowEntry.status) as any
+      };
+
+      if (onUpdateVRTerminalFlow) {
+        await onUpdateVRTerminalFlow(editingVRFlowEntry.id, updates);
+      } else {
+        await onQuickEntryStatusUpdate(editingVRFlowEntry.id, 'chegada_terminal', {
+          data: vrFlowForm.data_chegada_terminal,
+          hora: vrFlowForm.hora_chegada_terminal
+        });
+      }
+      setEditingVRFlowEntry(null);
+    } catch (err) {
+      console.error("Erro ao salvar fluxo do terminal:", err);
+    } finally {
+      setIsSavingVRFlow(false);
+    }
+  };
+
+  const isVR = useMemo(() => {
+    if (isVoltaRedonda) return true;
+    if (selectedBranchId !== 'all') {
+      const b = branches.find(br => br.id === selectedBranchId);
+      return b?.name?.toLowerCase().includes('volta redonda') || false;
+    }
+    return false;
+  }, [isVoltaRedonda, selectedBranchId, branches]);
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -63,8 +158,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
     }).sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio));
   }, [todayAppointments, operationFilter, searchTerm]);
 
-  // Fila Externa (Pátio de Espera)
-  // Combina entries com hora_chegada && !hora_entrada e appointments em_patio
+  // Auxiliar para identificar registros de Volta Redonda
+  const isVREntry = (e: Entry) => {
+    if (isVR) return true;
+    const b = branches.find(br => br.id === e.branchId);
+    return b?.name?.toLowerCase().includes('volta redonda') || false;
+  };
+
+  // Fila Externa / Chegada no Terminal (VR)
+  // Combina entries com hora_chegada && !hora_entrada (ou VR Chegada Terminal) e appointments em_patio
   const externalQueue = useMemo(() => {
     const list: Array<{
       type: 'entry' | 'appointment';
@@ -78,6 +180,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       horaChegada: string;
       operation: 'carga' | 'descarga';
       rawAppointment?: Appointment;
+      rawEntry?: Entry;
+      isVR?: boolean;
+      dataChegadaTerminal?: string;
+      horaChegadaTerminal?: string;
+      dataSaidaTerminal?: string;
+      horaSaidaTerminal?: string;
+      dataRetornoTerminal?: string;
+      horaRetornoTerminal?: string;
+      status?: string;
     }> = [];
 
     // Agendamentos em pátio
@@ -97,23 +208,42 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       });
     });
 
-    // Yard entries que não correspondam à mesma placa já adicionada
-    const existingPlacas = new Set(list.map(i => i.placa.toUpperCase().replace(/[^A-Z0-9]/g, '')));
+    // Yard entries que não correspondam à mesma chave já adicionada
+    const existingEntryIds = new Set(list.map(i => `${i.type}-${i.id}`));
     yardEntries
-      .filter(e => e.hora_chegada && !e.hora_entrada)
+      .filter(e => {
+        if (!e) return false;
+        if (isVREntry(e)) {
+          const hasChegada = Boolean(e.hora_chegada_terminal || e.data_chegada_terminal || e.hora_chegada || e.status === 'Estoque (Cheio Terminal)' || e.status === 'Trânsito Cheio');
+          const hasSaida = Boolean(e.hora_saida_terminal || e.data_saida_terminal || e.status === 'Saída para descarga no cliente' || e.hora_retorno_terminal || e.status === 'Entregue ao cliente');
+          return hasChegada && !hasSaida;
+        }
+        return e.hora_chegada && !e.hora_entrada;
+      })
       .forEach(e => {
-        const cleanPlaca = (e.placa_veiculo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (!existingPlacas.has(cleanPlaca)) {
+        const itemKey = `entry-${e.id}`;
+        if (!existingEntryIds.has(itemKey)) {
+          existingEntryIds.add(itemKey);
+          const isThisVR = isVREntry(e);
           list.push({
             type: 'entry',
             id: e.id,
-            placa: e.placa_veiculo || 'SEM PLACA',
+            placa: e.placa_saida || e.placa_veiculo || 'SEM PLACA',
             carreta: e.container,
             transportadora: e.transportador || e.fornecedor || 'Não informado',
             produto: e.descricao_produto,
             peso: Number(e.tonelada) || 0,
-            horaChegada: e.hora_chegada || '',
-            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga') ? 'carga' : 'descarga'
+            horaChegada: (isThisVR ? (e.hora_chegada_terminal || e.hora_chegada) : e.hora_chegada) || '',
+            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga' || isThisVR) ? 'carga' : 'descarga',
+            rawEntry: e,
+            isVR: isThisVR,
+            dataChegadaTerminal: e.data_chegada_terminal || e.data_chegada,
+            horaChegadaTerminal: e.hora_chegada_terminal || e.hora_chegada,
+            dataSaidaTerminal: e.data_saida_terminal,
+            horaSaidaTerminal: e.hora_saida_terminal,
+            dataRetornoTerminal: e.data_retorno_terminal,
+            horaRetornoTerminal: e.hora_retorno_terminal,
+            status: e.status
           });
         }
       });
@@ -125,14 +255,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
         return (
           item.placa.toLowerCase().includes(term) ||
           item.transportadora.toLowerCase().includes(term) ||
-          item.motorista?.toLowerCase().includes(term)
+          item.motorista?.toLowerCase().includes(term) ||
+          (item.carreta && item.carreta.toLowerCase().includes(term))
         );
       }
       return true;
     }).sort((a, b) => (b.horaChegada || '').localeCompare(a.horaChegada || ''));
-  }, [todayAppointments, yardEntries, operationFilter, searchTerm]);
+  }, [todayAppointments, yardEntries, operationFilter, searchTerm, isVR, branches]);
 
-  // Fila Interna (Em Operação)
+  // Fila Interna (Em Operação) / Saída Terminal (No Cliente - VR)
   const internalQueue = useMemo(() => {
     const list: Array<{
       type: 'entry' | 'appointment';
@@ -147,6 +278,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       horaEntrada: string;
       operation: 'carga' | 'descarga';
       rawAppointment?: Appointment;
+      rawEntry?: Entry;
+      isVR?: boolean;
+      dataChegadaTerminal?: string;
+      horaChegadaTerminal?: string;
+      dataSaidaTerminal?: string;
+      horaSaidaTerminal?: string;
+      dataRetornoTerminal?: string;
+      horaRetornoTerminal?: string;
+      status?: string;
     }> = [];
 
     todayAppointments.filter(a => a.status === 'em_operacao').forEach(a => {
@@ -166,23 +306,42 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       });
     });
 
-    const existingPlacas = new Set(list.map(i => i.placa.toUpperCase().replace(/[^A-Z0-9]/g, '')));
+    const existingEntryIds = new Set(list.map(i => `${i.type}-${i.id}`));
     yardEntries
-      .filter(e => e.hora_entrada && !e.hora_saida)
+      .filter(e => {
+        if (!e) return false;
+        if (isVREntry(e)) {
+          const hasSaida = Boolean(e.hora_saida_terminal || e.data_saida_terminal || e.status === 'Saída para descarga no cliente');
+          const hasRetorno = Boolean(e.hora_retorno_terminal || e.status === 'Entregue ao cliente');
+          return hasSaida && !hasRetorno;
+        }
+        return e.hora_entrada && !e.hora_saida;
+      })
       .forEach(e => {
-        const cleanPlaca = (e.placa_veiculo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (!existingPlacas.has(cleanPlaca)) {
+        const itemKey = `entry-${e.id}`;
+        if (!existingEntryIds.has(itemKey)) {
+          existingEntryIds.add(itemKey);
+          const isThisVR = isVREntry(e);
           list.push({
             type: 'entry',
             id: e.id,
-            placa: e.placa_veiculo || 'SEM PLACA',
+            placa: e.placa_saida || e.placa_veiculo || 'SEM PLACA',
             carreta: e.container,
             transportadora: e.transportador || e.fornecedor || 'Não informado',
             produto: e.descricao_produto,
             peso: Number(e.tonelada) || 0,
-            horaChegada: e.hora_chegada,
-            horaEntrada: e.hora_entrada || '',
-            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga') ? 'carga' : 'descarga'
+            horaChegada: (isThisVR ? (e.hora_chegada_terminal || e.hora_chegada) : e.hora_chegada) || '',
+            horaEntrada: (isThisVR ? (e.hora_saida_terminal || e.hora_saida) : e.hora_entrada) || '',
+            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga' || isThisVR) ? 'carga' : 'descarga',
+            rawEntry: e,
+            isVR: isThisVR,
+            dataChegadaTerminal: e.data_chegada_terminal || e.data_chegada,
+            horaChegadaTerminal: e.hora_chegada_terminal || e.hora_chegada,
+            dataSaidaTerminal: e.data_saida_terminal,
+            horaSaidaTerminal: e.hora_saida_terminal,
+            dataRetornoTerminal: e.data_retorno_terminal,
+            horaRetornoTerminal: e.hora_retorno_terminal,
+            status: e.status
           });
         }
       });
@@ -194,14 +353,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
         return (
           item.placa.toLowerCase().includes(term) ||
           item.transportadora.toLowerCase().includes(term) ||
-          item.motorista?.toLowerCase().includes(term)
+          item.motorista?.toLowerCase().includes(term) ||
+          (item.carreta && item.carreta.toLowerCase().includes(term))
         );
       }
       return true;
     }).sort((a, b) => (b.horaEntrada || '').localeCompare(a.horaEntrada || ''));
-  }, [todayAppointments, yardEntries, operationFilter, searchTerm]);
+  }, [todayAppointments, yardEntries, operationFilter, searchTerm, isVR, branches]);
 
-  // Saídas de Hoje
+  // Saídas de Hoje / Retorno do Terminal Concluído (VR)
   const completedQueue = useMemo(() => {
     const list: Array<{
       type: 'entry' | 'appointment';
@@ -218,6 +378,15 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       operation: 'carga' | 'descarga';
       stockCreated?: boolean;
       rawAppointment?: Appointment;
+      rawEntry?: Entry;
+      isVR?: boolean;
+      dataChegadaTerminal?: string;
+      horaChegadaTerminal?: string;
+      dataSaidaTerminal?: string;
+      horaSaidaTerminal?: string;
+      dataRetornoTerminal?: string;
+      horaRetornoTerminal?: string;
+      status?: string;
     }> = [];
 
     todayAppointments.filter(a => a.status === 'concluido').forEach(a => {
@@ -239,25 +408,42 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
       });
     });
 
-    const existingPlacas = new Set(list.map(i => i.placa.toUpperCase().replace(/[^A-Z0-9]/g, '')));
+    const existingEntryIds = new Set(list.map(i => `${i.type}-${i.id}`));
     yardEntries
-      .filter(e => e.hora_saida)
+      .filter(e => {
+        if (!e) return false;
+        if (isVREntry(e)) {
+          return Boolean(e.hora_retorno_terminal || e.status === 'Entregue ao cliente');
+        }
+        return Boolean(e.hora_saida);
+      })
       .forEach(e => {
-        const cleanPlaca = (e.placa_veiculo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (!existingPlacas.has(cleanPlaca)) {
+        const itemKey = `entry-${e.id}`;
+        if (!existingEntryIds.has(itemKey)) {
+          existingEntryIds.add(itemKey);
+          const isThisVR = isVREntry(e);
           list.push({
             type: 'entry',
             id: e.id,
-            placa: e.placa_veiculo || 'SEM PLACA',
+            placa: e.placa_saida || e.placa_veiculo || 'SEM PLACA',
             carreta: e.container,
             transportadora: e.transportador || e.fornecedor || 'Não informado',
             produto: e.descricao_produto,
             peso: Number(e.tonelada) || 0,
-            horaChegada: e.hora_chegada,
-            horaEntrada: e.hora_entrada,
-            horaSaida: e.hora_saida || '',
-            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga') ? 'carga' : 'descarga',
-            stockCreated: true
+            horaChegada: (isThisVR ? (e.hora_chegada_terminal || e.hora_chegada) : e.hora_chegada) || '',
+            horaEntrada: (isThisVR ? (e.hora_saida_terminal || e.hora_saida) : e.hora_entrada) || '',
+            horaSaida: (isThisVR ? (e.hora_retorno_terminal || e.hora_saida) : e.hora_saida) || '',
+            operation: (e.status === 'Embarcado' || (e as any).tipo_operacao === 'carga' || isThisVR) ? 'carga' : 'descarga',
+            stockCreated: true,
+            rawEntry: e,
+            isVR: isThisVR,
+            dataChegadaTerminal: e.data_chegada_terminal || e.data_chegada,
+            horaChegadaTerminal: e.hora_chegada_terminal || e.hora_chegada,
+            dataSaidaTerminal: e.data_saida_terminal,
+            horaSaidaTerminal: e.hora_saida_terminal,
+            dataRetornoTerminal: e.data_retorno_terminal,
+            horaRetornoTerminal: e.hora_retorno_terminal,
+            status: e.status
           });
         }
       });
@@ -269,12 +455,13 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
         return (
           item.placa.toLowerCase().includes(term) ||
           item.transportadora.toLowerCase().includes(term) ||
-          item.motorista?.toLowerCase().includes(term)
+          item.motorista?.toLowerCase().includes(term) ||
+          (item.carreta && item.carreta.toLowerCase().includes(term))
         );
       }
       return true;
     }).sort((a, b) => (b.horaSaida || '').localeCompare(a.horaSaida || ''));
-  }, [todayAppointments, yardEntries, operationFilter, searchTerm]);
+  }, [todayAppointments, yardEntries, operationFilter, searchTerm, isVR, branches]);
 
   return (
     <div className="space-y-6">
@@ -314,6 +501,30 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
         </div>
       </div>
 
+      {/* Banner Informativo Filial Volta Redonda */}
+      {isVR && (
+        <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/90 to-purple-50/90 border border-blue-200/80 rounded-3xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-titam-deep text-titam-lime flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Clock size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm uppercase tracking-wide text-titam-deep">
+                  Gestão de Fluxo do Terminal • Filial Volta Redonda
+                </span>
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  Operação Ativa
+                </span>
+              </div>
+              <p className="text-gray-600 mt-0.5 text-[11px]">
+                Os campos <strong>Data e hora de Chegada No terminal</strong>, <strong>Data e hora Saída Terminal</strong> e <strong>Data e Hora: Retorno do terminal</strong> são geridos diretamente neste fluxo com atualização automática no estoque e geração de Vazio Terminal.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cards de Métricas em Tempo Real */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
@@ -331,7 +542,9 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
             <Clock size={20} />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-gray-400 uppercase">Fila Externa</span>
+            <span className="text-[11px] font-bold text-gray-400 uppercase">
+              {isVR ? 'No Terminal (Aguardando)' : 'Fila Externa'}
+            </span>
             <p className="text-xl font-black text-blue-700">{externalQueue.length}</p>
           </div>
         </div>
@@ -341,7 +554,9 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
             <Truck size={20} />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-gray-400 uppercase">Em Operação</span>
+            <span className="text-[11px] font-bold text-gray-400 uppercase">
+              {isVR ? 'Saída Terminal (No Cliente)' : 'Em Operação'}
+            </span>
             <p className="text-xl font-black text-amber-700">{internalQueue.length}</p>
           </div>
         </div>
@@ -351,7 +566,9 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
             <CheckCircle2 size={20} />
           </div>
           <div>
-            <span className="text-[11px] font-bold text-gray-400 uppercase">Saídas Hoje</span>
+            <span className="text-[11px] font-bold text-gray-400 uppercase">
+              {isVR ? 'Retorno Concluído' : 'Saídas Hoje'}
+            </span>
             <p className="text-xl font-black text-emerald-700">{completedQueue.length}</p>
           </div>
         </div>
@@ -486,12 +703,14 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
           </div>
         </div>
 
-        {/* 2. FILA EXTERNA (PÁTIO DE ESPERA) */}
+        {/* 2. FILA EXTERNA (PÁTIO DE ESPERA / CHEGADA TERMINAL VR) */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-3.5 bg-blue-600 text-white flex justify-between items-center">
             <div className="flex items-center gap-2">
               <Clock size={16} />
-              <h3 className="font-black text-xs uppercase tracking-wider">Fila Externa</h3>
+              <h3 className="font-black text-xs uppercase tracking-wider">
+                {isVR ? 'Chegada no Terminal' : 'Fila Externa'}
+              </h3>
             </div>
             <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
               {externalQueue.length}
@@ -501,7 +720,7 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
           <div className="p-3 space-y-3 max-h-[680px] overflow-y-auto">
             {externalQueue.length === 0 ? (
               <p className="text-center py-10 text-gray-400 text-xs italic">
-                Nenhum veículo aguardando no pátio externo
+                {isVR ? 'Nenhum veículo aguardando no terminal' : 'Nenhum veículo aguardando no pátio externo'}
               </p>
             ) : (
               externalQueue.map(item => (
@@ -544,32 +763,76 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (item.type === 'appointment') {
-                        onUpdateAppointmentStatus(String(item.id), 'em_operacao');
-                      } else {
-                        onQuickEntryStatusUpdate(item.id, 'entrada');
-                      }
-                    }}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <Play size={13} />
-                    <span>Registrar Entrada / Iniciar</span>
-                  </button>
+                  {item.isVR ? (
+                    <div className="space-y-2 pt-1 border-t border-gray-100">
+                      <div className="p-2.5 bg-blue-50/80 rounded-xl border border-blue-100 text-[10px] space-y-1">
+                        <div className="flex justify-between items-center text-blue-900 font-bold">
+                          <span>Chegada Terminal:</span>
+                          <span className="font-mono">{item.dataChegadaTerminal || '-'} {item.horaChegadaTerminal || ''}</span>
+                        </div>
+                        {item.status && (
+                          <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                            <span>Status:</span>
+                            <span className="font-bold text-titam-deep">{item.status}</span>
+                          </div>
+                        )}
+                        {(item.rawEntry?.letra || item.rawEntry?.turno || item.rawEntry?.local_descarga) && (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-bold text-gray-700 bg-white/90 px-2 py-0.5 rounded-md border border-gray-100 mt-1">
+                            {item.rawEntry?.letra && <span>Letra: <strong className="text-titam-deep">{item.rawEntry.letra}</strong></span>}
+                            {item.rawEntry?.turno && <span>• Turno: <strong className="text-titam-deep">{item.rawEntry.turno}</strong></span>}
+                            {item.rawEntry?.local_descarga && <span>• Local: <strong className="text-titam-deep">{item.rawEntry.local_descarga}</strong></span>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onQuickEntryStatusUpdate(item.id, 'saida_terminal')}
+                          className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <ArrowUpRight size={13} />
+                          <span>Registrar Saída Terminal</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenVREditModal(item)}
+                          title="Gerir horários do terminal"
+                          className="px-2.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+                        >
+                          <Edit3 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (item.type === 'appointment') {
+                          onUpdateAppointmentStatus(String(item.id), 'em_operacao');
+                        } else {
+                          onQuickEntryStatusUpdate(item.id, 'entrada');
+                        }
+                      }}
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Play size={13} />
+                      <span>Registrar Entrada / Iniciar</span>
+                    </button>
+                  )}
                 </div>
               ))
             )}
           </div>
         </div>
 
-        {/* 3. FILA INTERNA (EM OPERAÇÃO) */}
+        {/* 3. FILA INTERNA (EM OPERAÇÃO / SAÍDA TERMINAL VR) */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-3.5 bg-amber-500 text-white flex justify-between items-center">
             <div className="flex items-center gap-2">
               <Truck size={16} />
-              <h3 className="font-black text-xs uppercase tracking-wider">Fila Interna</h3>
+              <h3 className="font-black text-xs uppercase tracking-wider">
+                {isVR ? 'Saída Terminal (No Cliente)' : 'Fila Interna'}
+              </h3>
             </div>
             <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-black">
               {internalQueue.length}
@@ -579,7 +842,7 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
           <div className="p-3 space-y-3 max-h-[680px] overflow-y-auto">
             {internalQueue.length === 0 ? (
               <p className="text-center py-10 text-gray-400 text-xs italic">
-                Nenhum veículo em operação interna
+                {isVR ? 'Nenhum veículo em rota de saída para cliente' : 'Nenhum veículo em operação interna'}
               </p>
             ) : (
               internalQueue.map(item => (
@@ -622,39 +885,87 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (item.type === 'appointment' && item.rawAppointment) {
-                        await onUpdateAppointmentStatus(String(item.id), 'concluido');
-                        const isDescarga = item.operation === 'descarga';
-                        const promptMsg = isDescarga
-                          ? `Veículo liberado! Deseja lançar agora a ENTRADA deste material no Estoque?`
-                          : `Veículo liberado! Deseja lançar agora a SAÍDA / EMBARQUE deste material no Estoque?`;
-                        if (confirm(promptMsg)) {
-                          await onCreateEntryOrExitFromAppointment(item.rawAppointment);
+                  {item.isVR ? (
+                    <div className="space-y-2 pt-1 border-t border-gray-100">
+                      <div className="p-2.5 bg-amber-50/80 rounded-xl border border-amber-100 text-[10px] space-y-1">
+                        <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                          <span>Chegada:</span>
+                          <span className="font-mono">{item.dataChegadaTerminal || '-'} {item.horaChegadaTerminal || ''}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-amber-900 font-bold">
+                          <span>Saída Terminal:</span>
+                          <span className="font-mono">{item.dataSaidaTerminal || '-'} {item.horaSaidaTerminal || ''}</span>
+                        </div>
+                        {item.status && (
+                          <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                            <span>Status:</span>
+                            <span className="font-bold text-titam-deep">{item.status}</span>
+                          </div>
+                        )}
+                        {(item.rawEntry?.letra || item.rawEntry?.turno || item.rawEntry?.local_descarga) && (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-bold text-gray-700 bg-white/90 px-2 py-0.5 rounded-md border border-gray-100 mt-1">
+                            {item.rawEntry?.letra && <span>Letra: <strong className="text-titam-deep">{item.rawEntry.letra}</strong></span>}
+                            {item.rawEntry?.turno && <span>• Turno: <strong className="text-titam-deep">{item.rawEntry.turno}</strong></span>}
+                            {item.rawEntry?.local_descarga && <span>• Local: <strong className="text-titam-deep">{item.rawEntry.local_descarga}</strong></span>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onQuickEntryStatusUpdate(item.id, 'retorno_terminal')}
+                          className="flex-1 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1 shadow-sm"
+                        >
+                          <Check size={13} />
+                          <span>Registrar Retorno Terminal</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenVREditModal(item)}
+                          title="Gerir horários do terminal"
+                          className="px-2.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+                        >
+                          <Edit3 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (item.type === 'appointment' && item.rawAppointment) {
+                          await onUpdateAppointmentStatus(String(item.id), 'concluido');
+                          const isDescarga = item.operation === 'descarga';
+                          const promptMsg = isDescarga
+                            ? `Veículo liberado! Deseja lançar agora a ENTRADA deste material no Estoque?`
+                            : `Veículo liberado! Deseja lançar agora a SAÍDA / EMBARQUE deste material no Estoque?`;
+                          if (confirm(promptMsg)) {
+                            await onCreateEntryOrExitFromAppointment(item.rawAppointment);
+                          }
+                        } else {
+                          onQuickEntryStatusUpdate(item.id, 'saida');
                         }
-                      } else {
-                        onQuickEntryStatusUpdate(item.id, 'saida');
-                      }
-                    }}
-                    className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <Check size={13} />
-                    <span>Registrar Saída / Concluir</span>
-                  </button>
+                      }}
+                      className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <Check size={13} />
+                      <span>Registrar Saída / Concluir</span>
+                    </button>
+                  )}
                 </div>
               ))
             )}
           </div>
         </div>
 
-        {/* 4. SAÍDAS DE HOJE */}
+        {/* 4. SAÍDAS DE HOJE (RETORNO DO TERMINAL VR) */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-3.5 bg-titam-lime text-titam-deep flex justify-between items-center">
             <div className="flex items-center gap-2">
               <CheckCircle2 size={16} />
-              <h3 className="font-black text-xs uppercase tracking-wider">Saídas de Hoje</h3>
+              <h3 className="font-black text-xs uppercase tracking-wider">
+                {isVR ? 'Retorno Concluído (Entregue)' : 'Saídas de Hoje'}
+              </h3>
             </div>
             <span className="bg-titam-deep/10 px-2 py-0.5 rounded text-xs font-black">
               {completedQueue.length}
@@ -664,7 +975,7 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
           <div className="p-3 space-y-3 max-h-[680px] overflow-y-auto">
             {completedQueue.length === 0 ? (
               <p className="text-center py-10 text-gray-400 text-xs italic">
-                Nenhuma saída registrada hoje
+                {isVR ? 'Nenhum retorno de terminal registrado hoje' : 'Nenhuma saída registrada hoje'}
               </p>
             ) : (
               completedQueue.map(item => (
@@ -706,29 +1017,69 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
                     )}
                   </div>
 
-                  {/* Integração com Estoque */}
-                  {item.type === 'appointment' && item.rawAppointment && !item.stockCreated && (
-                    <button
-                      type="button"
-                      onClick={() => onCreateEntryOrExitFromAppointment(item.rawAppointment!)}
-                      className={`w-full py-1.5 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm ${
-                        item.operation === 'descarga'
-                          ? 'bg-emerald-600 hover:bg-emerald-700'
-                          : 'bg-blue-600 hover:bg-blue-700'
-                      }`}
-                    >
-                      <FileText size={12} />
-                      <span>
-                        {item.operation === 'descarga' ? 'Lançar Entrada no Estoque' : 'Lançar Saída de Estoque'}
-                      </span>
-                    </button>
-                  )}
-
-                  {item.stockCreated && (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                      <CheckCircle2 size={12} />
-                      <span>Registrado no Estoque</span>
+                  {item.isVR ? (
+                    <div className="space-y-2 pt-1 border-t border-gray-100">
+                      <div className="p-2.5 bg-teal-50/80 rounded-xl border border-teal-100 text-[10px] space-y-1">
+                        <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                          <span>Chegada:</span>
+                          <span className="font-mono">{item.dataChegadaTerminal || '-'} {item.horaChegadaTerminal || ''}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                          <span>Saída:</span>
+                          <span className="font-mono">{item.dataSaidaTerminal || '-'} {item.horaSaidaTerminal || ''}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-teal-900 font-bold">
+                          <span>Retorno Terminal:</span>
+                          <span className="font-mono">{item.dataRetornoTerminal || '-'} {item.horaRetornoTerminal || ''}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-gray-500 text-[9px]">
+                          <span>Status:</span>
+                          <span className="font-bold text-teal-700">Entregue ao cliente</span>
+                        </div>
+                        {(item.rawEntry?.letra || item.rawEntry?.turno || item.rawEntry?.local_descarga) && (
+                          <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-bold text-gray-700 bg-white/90 px-2 py-0.5 rounded-md border border-gray-100 mt-1">
+                            {item.rawEntry?.letra && <span>Letra: <strong className="text-titam-deep">{item.rawEntry.letra}</strong></span>}
+                            {item.rawEntry?.turno && <span>• Turno: <strong className="text-titam-deep">{item.rawEntry.turno}</strong></span>}
+                            {item.rawEntry?.local_descarga && <span>• Local: <strong className="text-titam-deep">{item.rawEntry.local_descarga}</strong></span>}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenVREditModal(item)}
+                        className="w-full py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-bold rounded-lg transition-colors uppercase flex items-center justify-center gap-1"
+                      >
+                        <Edit3 size={12} />
+                        <span>Ajustar Horários do Terminal</span>
+                      </button>
                     </div>
+                  ) : (
+                    <>
+                      {/* Integração com Estoque */}
+                      {item.type === 'appointment' && item.rawAppointment && !item.stockCreated && (
+                        <button
+                          type="button"
+                          onClick={() => onCreateEntryOrExitFromAppointment(item.rawAppointment!)}
+                          className={`w-full py-1.5 text-white text-[10px] font-black rounded-lg transition-colors uppercase flex items-center justify-center gap-1.5 shadow-sm ${
+                            item.operation === 'descarga'
+                              ? 'bg-emerald-600 hover:bg-emerald-700'
+                              : 'bg-blue-600 hover:bg-blue-700'
+                          }`}
+                        >
+                          <FileText size={12} />
+                          <span>
+                            {item.operation === 'descarga' ? 'Lançar Entrada no Estoque' : 'Lançar Saída de Estoque'}
+                          </span>
+                        </button>
+                      )}
+
+                      {item.stockCreated && (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
+                          <CheckCircle2 size={12} />
+                          <span>Registrado no Estoque</span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))
@@ -737,6 +1088,262 @@ export const VehicleFlowManager: React.FC<VehicleFlowManagerProps> = ({
         </div>
 
       </div>
+
+      {/* Modal de Gestão de Fluxo do Terminal - Volta Redonda */}
+      {editingVRFlowEntry && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-titam-lime bg-titam-deep px-2.5 py-0.5 rounded-full">
+                  Volta Redonda
+                </span>
+                <h3 className="text-base font-black text-titam-deep mt-1 flex items-center gap-2">
+                  <Clock size={18} className="text-titam-lime" />
+                  Fluxo do Terminal de Volta Redonda
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Container: <span className="font-bold text-gray-900">{editingVRFlowEntry.container || 'N/A'}</span> • NF: <span className="font-bold text-gray-900">{editingVRFlowEntry.nf_numero || 'S/N'}</span> • Placa: <span className="font-bold text-gray-900">{editingVRFlowEntry.placa_saida || editingVRFlowEntry.placa_veiculo || 'N/A'}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingVRFlowEntry(null)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+              {/* Campos Operacionais do Terminal: Letra, Turno e Local de Descarga */}
+              <div className="p-3.5 bg-gray-50/90 rounded-2xl border border-gray-200/90 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-titam-deep uppercase tracking-wider block">
+                    Letra
+                  </label>
+                  <input
+                    type="text"
+                    value={vrFlowForm.letra}
+                    onChange={(e) => setVrFlowForm(prev => ({ ...prev, letra: e.target.value.toUpperCase() }))}
+                    placeholder="Ex: A, B, C..."
+                    className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-titam-deep uppercase tracking-wider block">
+                    Turno
+                  </label>
+                  <input
+                    type="text"
+                    value={vrFlowForm.turno}
+                    onChange={(e) => setVrFlowForm(prev => ({ ...prev, turno: e.target.value }))}
+                    placeholder="Ex: 1º Turno, 2º Turno..."
+                    className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-titam-deep uppercase tracking-wider block">
+                    Local de Descarga
+                  </label>
+                  <input
+                    type="text"
+                    value={vrFlowForm.local_descarga}
+                    onChange={(e) => setVrFlowForm(prev => ({ ...prev, local_descarga: e.target.value }))}
+                    placeholder="Ex: Pátio, Galpão, Baia..."
+                    className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* 1. Chegada no Terminal */}
+              <div className="p-3.5 bg-blue-50/60 rounded-2xl border border-blue-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-blue-800 uppercase tracking-wider">
+                    Data e hora de Chegada No terminal
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      setVrFlowForm(prev => ({
+                        ...prev,
+                        data_chegada_terminal: now.toISOString().slice(0, 10),
+                        hora_chegada_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      }));
+                    }}
+                    className="text-[9px] font-black text-blue-700 bg-white hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded uppercase transition-colors"
+                  >
+                    Agora
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Data Chegada</label>
+                    <input
+                      type="date"
+                      value={vrFlowForm.data_chegada_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, data_chegada_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Hora Chegada</label>
+                    <input
+                      type="time"
+                      value={vrFlowForm.hora_chegada_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, hora_chegada_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Saída Terminal */}
+              <div className="p-3.5 bg-amber-50/60 rounded-2xl border border-amber-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-amber-800 uppercase tracking-wider">
+                    Data e hora Saída Terminal
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      setVrFlowForm(prev => ({
+                        ...prev,
+                        data_saida_terminal: now.toISOString().slice(0, 10),
+                        hora_saida_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      }));
+                      if (!vrFlowStatus || vrFlowStatus === 'Estoque (Cheio Terminal)' || vrFlowStatus === 'Trânsito Cheio') {
+                        setVrFlowStatus('Saída para descarga no cliente');
+                      }
+                    }}
+                    className="text-[9px] font-black text-amber-700 bg-white hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded uppercase transition-colors"
+                  >
+                    Agora
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Data Saída</label>
+                    <input
+                      type="date"
+                      value={vrFlowForm.data_saida_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, data_saida_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Hora Saída</label>
+                    <input
+                      type="time"
+                      value={vrFlowForm.hora_saida_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, hora_saida_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Retorno do terminal */}
+              <div className="p-3.5 bg-teal-50/60 rounded-2xl border border-teal-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-teal-800 uppercase tracking-wider">
+                    Data e Hora: Retorno do terminal
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      setVrFlowForm(prev => ({
+                        ...prev,
+                        data_retorno_terminal: now.toISOString().slice(0, 10),
+                        hora_retorno_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                      }));
+                      setVrFlowStatus('Entregue ao cliente');
+                    }}
+                    className="text-[9px] font-black text-teal-700 bg-white hover:bg-teal-100 border border-teal-200 px-2 py-0.5 rounded uppercase transition-colors"
+                  >
+                    Agora
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Data Retorno</label>
+                    <input
+                      type="date"
+                      value={vrFlowForm.data_retorno_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, data_retorno_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-500 uppercase">Hora Retorno</label>
+                    <input
+                      type="time"
+                      value={vrFlowForm.hora_retorno_terminal}
+                      onChange={(e) => setVrFlowForm(prev => ({ ...prev, hora_retorno_terminal: e.target.value }))}
+                      className="w-full mt-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-titam-lime outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Atual */}
+              <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 space-y-1.5">
+                <label className="text-[11px] font-black text-titam-deep uppercase tracking-wider">
+                  Status Atual
+                </label>
+                <select
+                  value={vrFlowStatus}
+                  onChange={(e) => setVrFlowStatus(e.target.value)}
+                  className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 focus:ring-2 focus:ring-titam-lime outline-none"
+                >
+                  <option value="Trânsito Cheio">Trânsito Cheio</option>
+                  <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                  <option value="Saída para descarga no cliente">Saída para descarga no cliente</option>
+                  <option value="Entregue ao cliente">Entregue ao cliente</option>
+                  <option value="Vazio Terminal">Vazio Terminal</option>
+                  <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                  <option value="Rejeitado">Rejeitado</option>
+                </select>
+                <p className="text-[10px] text-gray-500">
+                  Ao definir o status como <strong>"Entregue ao cliente"</strong>, o sistema cria automaticamente a linha de Vazio Terminal no pátio para o container correspondente.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setEditingVRFlowEntry(null)}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 text-xs font-bold transition-colors"
+                disabled={isSavingVRFlow}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveVRFlow}
+                disabled={isSavingVRFlow}
+                className="px-6 py-2 bg-titam-lime text-titam-deep rounded-xl hover:opacity-90 font-black text-xs transition-colors shadow-sm flex items-center gap-1.5"
+              >
+                {isSavingVRFlow ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-titam-deep/30 border-t-titam-deep rounded-full animate-spin" />
+                    <span>Salvando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={14} />
+                    <span>Salvar Horários do Terminal</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

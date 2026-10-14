@@ -200,6 +200,32 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
+    // Regras para movimentações internas do terminal
+    match /internal_movements/{movementId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_internal_movements/{movementId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para endereços e locais internos do terminal
+    match /yard_locations/{locationId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    match /app2_yard_locations/{locationId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Regras para despachos ferroviários (vagões e containers)
+    match /dispatches/{dispatchId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_dispatches/{dispatchId} {
+      allow read, write: if isAuthenticated();
+    }
+
     // Regras para janelas horárias de agendamento
     match /slot_configs/{configId} {
       allow read: if true;
@@ -228,6 +254,38 @@ service cloud.firestore {
     match /app2_settings/{settingId} {
       allow read: if true;
       allow write: if isAuthenticated();
+    }
+
+    // Regras para apontamentos de produção
+    match /production_kpis/{kpiId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_production_kpis/{kpiId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para ordens e ocorrências de manutenção
+    match /maintenance_kpis/{kpiId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_maintenance_kpis/{kpiId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para mestre de equipamentos e telemetria on-time
+    match /equipments/{equipId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_equipments/{equipId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Regras para alertas operacionais e mudanças de status em tempo real
+    match /operational_alerts/{alertId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /app2_operational_alerts/{alertId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

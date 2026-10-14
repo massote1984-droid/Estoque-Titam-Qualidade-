@@ -44,7 +44,19 @@ import {
   ShieldCheck,
   Shield,
   CalendarClock,
-  Smartphone
+  Smartphone,
+  ArrowLeftRight,
+  TrainTrack,
+  Gauge,
+  ChevronDown,
+  ChevronUp,
+  Wrench,
+  Factory,
+  Radio,
+  Layers,
+  HardHat,
+  Settings2,
+  Info
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import * as htmlToImage from 'html-to-image';
@@ -64,12 +76,17 @@ import {
   LabelList,
   ReferenceLine
 } from 'recharts';
-import { Entry, StockSummary, Container, Branch, SlotConfig, Appointment, AppointmentStatus, Transporter } from './types';
+import { Entry, StockSummary, Container, Branch, SlotConfig, Appointment, AppointmentStatus, Transporter, InternalMovement, YardLocation, RailDispatch, ProductionKpiEntry, MaintenanceKpiEntry, EquipmentMaster, OperationalAlert } from './types';
 import { useAuth } from './components/FirebaseProvider';
 import TitamPresentationView from './components/TitamPresentationView';
 import SchedulingManager from './components/scheduling/SchedulingManager';
 import TransporterPortal from './components/scheduling/TransporterPortal';
 import { VehicleFlowManager } from './components/VehicleFlowManager';
+import { InternalMovementsManager } from './components/InternalMovementsManager';
+import { RailDispatchManager } from './components/RailDispatchManager';
+import { ProductionMaintenanceKpiManager } from './components/ProductionMaintenanceKpiManager';
+import { initialEquipments, initialProductionKpis, initialMaintenanceKpis, initialOperationalAlerts } from './utils/kpiSeeds';
+import { playOperationalSound } from './utils/soundAlert';
 import { TransporterAccessModal } from './components/scheduling/TransporterAccessModal';
 import { isTransporterUrl } from './components/scheduling/schedulingUtils';
 import { 
@@ -155,8 +172,11 @@ const getStatusBadgeStyle = (status: string | undefined): string => {
   if (val.includes('estoque (cheio') || val === 'estoque') {
     return 'bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-500 group-hover:text-white group-hover:border-emerald-500';
   }
-  if (val.includes('descarga arcelor') || val.includes('descarga na arcelor') || val === 'em descarga') {
+  if (val.includes('descarga arcelor') || val.includes('descarga na arcelor') || val.includes('descarga no cliente') || val === 'em descarga') {
     return 'bg-amber-50 text-amber-700 border border-amber-200 group-hover:bg-amber-500 group-hover:text-white group-hover:border-amber-500';
+  }
+  if (val.includes('entregue ao cliente') || val.includes('retorno vazio') || val.includes('retorno vazio do cliente')) {
+    return 'bg-teal-50 text-teal-700 border border-teal-200 group-hover:bg-teal-500 group-hover:text-white group-hover:border-teal-500';
   }
   if (val.includes('trânsito cheio') || val.includes('transito cheio')) {
     return 'bg-blue-50 text-blue-700 border border-blue-200 group-hover:bg-blue-500 group-hover:text-white group-hover:border-blue-500';
@@ -259,12 +279,21 @@ function filterByBranch<T extends { branchId?: string | null }>(
   });
 }
 
-type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao' | 'agendamento';
+type Tab = 'dashboard' | 'entrada' | 'saida' | 'performance' | 'faturamento' | 'lista' | 'relatorios' | 'fluxo' | 'containers' | 'filiais' | 'cadastros' | 'apresentacao' | 'agendamento' | 'movimentacoes' | 'despacho' | 'kpis';
 
 export default function App() {
   const { user, loading: authLoading, login, logout, loginLoading, error: authError, errorCode } = useAuth();
   const [domainCopied, setDomainCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [kpiSubTab, setKpiSubTab] = useState<'ontime' | 'dashboard' | 'producao' | 'manutencao' | 'equipamentos' | 'guia'>('ontime');
+  const [openModules, setOpenModules] = useState<{ [key: string]: boolean }>({
+    gate: true,
+    intralogistica: true,
+    producao: true,
+    manutencao: true,
+    gestao: true
+  });
+  const [navSearch, setNavSearch] = useState<string>('');
   const [slotConfigs, setSlotConfigs] = useState<SlotConfig[]>(() => {
     try {
       const saved = localStorage.getItem('cached_slot_configs');
@@ -349,12 +378,96 @@ export default function App() {
       return [];
     }
   });
+  const [internalMovements, setInternalMovements] = useState<InternalMovement[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_internal_movements');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [yardLocations, setYardLocations] = useState<YardLocation[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_yard_locations');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [dispatches, setDispatches] = useState<RailDispatch[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_dispatches');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [productionKpis, setProductionKpis] = useState<ProductionKpiEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_production_kpis');
+      return saved ? JSON.parse(saved) : initialProductionKpis;
+    } catch {
+      return initialProductionKpis;
+    }
+  });
+  const [maintenanceKpis, setMaintenanceKpis] = useState<MaintenanceKpiEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_maintenance_kpis');
+      return saved ? JSON.parse(saved) : initialMaintenanceKpis;
+    } catch {
+      return initialMaintenanceKpis;
+    }
+  });
+  const [equipments, setEquipments] = useState<EquipmentMaster[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_equipments');
+      return saved ? JSON.parse(saved) : initialEquipments;
+    } catch {
+      return initialEquipments;
+    }
+  });
+
+  const [operationalAlerts, setOperationalAlerts] = useState<OperationalAlert[]>(() => {
+    try {
+      const saved = localStorage.getItem('cached_operational_alerts');
+      return saved ? JSON.parse(saved) : initialOperationalAlerts;
+    } catch {
+      return initialOperationalAlerts;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cached_production_kpis', JSON.stringify(productionKpis));
+    } catch {}
+  }, [productionKpis]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cached_maintenance_kpis', JSON.stringify(maintenanceKpis));
+    } catch {}
+  }, [maintenanceKpis]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cached_equipments', JSON.stringify(equipments));
+    } catch {}
+  }, [equipments]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cached_operational_alerts', JSON.stringify(operationalAlerts));
+    } catch {}
+  }, [operationalAlerts]);
+
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
     return localStorage.getItem('selected_branch_id') || 'all';
   });
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
+  const [editContext, setEditContext] = useState<'entrada' | 'saida' | 'faturamento' | 'geral'>('entrada');
+  const [modalTab, setModalTab] = useState<'entrada' | 'saida' | 'faturamento'>('entrada');
   const [importingNfe, setImportingNfe] = useState(false);
   const [nfeContent, setNfeContent] = useState('');
   const [formData, setFormData] = useState<Partial<Entry>>({});
@@ -472,7 +585,7 @@ export default function App() {
   const isExitEntry = React.useCallback((e: Entry | Partial<Entry> | null | undefined) => {
     if (!e || !e.status) return false;
     const isEntryVR = e.branchId ? branches.find(b => b.id === e.branchId)?.name?.toLowerCase().includes('volta redonda') : isVoltaRedonda;
-    if (isEntryVR && (e.status === 'Em descarga na Arcelor' || (e.status as any) === 'Em Descarga Arcelor')) {
+    if (isEntryVR && (e.status === 'Em descarga na Arcelor' || e.status === 'Saída para descarga no cliente' || e.status === 'Entregue ao cliente' || e.status === 'Retorno Vazio do cliente' || (e.status as any) === 'Em Descarga Arcelor')) {
       return true;
     }
     if (isTitam && e.descricao_produto && (e.descricao_produto === 'Bobina de Aço' || e.descricao_produto.toLowerCase().includes('bobina'))) {
@@ -722,8 +835,8 @@ export default function App() {
       date = e.data_faturamento_vli || e.data_posicionamento || '';
     }
     const isVR = e.branchId ? branches.find(b => b.id === e.branchId)?.name?.toLowerCase().includes('volta redonda') : isVoltaRedonda;
-    if (isVR && (e.status === 'Em descarga na Arcelor' || (e.status as any) === 'Em Descarga Arcelor')) {
-      date = e.data_carregamento_rodoviario || '';
+    if (isVR && (e.status === 'Em descarga na Arcelor' || e.status === 'Saída para descarga no cliente' || e.status === 'Entregue ao cliente' || e.status === 'Retorno Vazio do cliente' || (e.status as any) === 'Em Descarga Arcelor')) {
+      date = e.data_carregamento_rodoviario || e.data_descarga || '';
     }
     if (!date && includeDescargaFallback) {
       date = e.data_descarga || '';
@@ -786,14 +899,28 @@ export default function App() {
       const isVR = branches.find(b => b.id === selectedEntry.branchId)?.name?.toLowerCase().includes('volta redonda') || false;
       let status: any = selectedEntry.status;
       if (isVR && status) {
-        if (status === 'Em descarga') status = 'Em descarga na Arcelor';
+        if (status === 'Em descarga' || status === 'Em descarga na Arcelor') status = 'Saída para descarga no cliente';
+        if (status === 'Retorno Vazio do cliente' || status === 'retorno vazio ao cliente') status = 'Entregue ao cliente';
         if (status === 'Estoque') status = 'Estoque (Cheio Terminal)';
         if (status === 'Transito vazio' || status === 'Trânsito Vazio') status = 'Trânsito Vazio (Arcos)';
       }
       setEditFormData({
         ...selectedEntry,
+        origem: selectedEntry.origem || selectedEntry.fornecedor || '',
+        destinatario: selectedEntry.destinatario || selectedEntry.cliente || '',
+        fornecedor: selectedEntry.fornecedor || selectedEntry.origem || '',
+        cliente: selectedEntry.cliente || selectedEntry.destinatario || '',
         status,
-        modal: selectedEntry.modal || (isVR ? 'Rodoviário' : undefined)
+        modal: selectedEntry.modal || (isVR ? 'Rodoviário' : undefined),
+        letra: selectedEntry.letra || '',
+        turno: selectedEntry.turno || '',
+        local_descarga: selectedEntry.local_descarga || '',
+        data_chegada_terminal: selectedEntry.data_chegada_terminal || selectedEntry.data_chegada || '',
+        hora_chegada_terminal: selectedEntry.hora_chegada_terminal || selectedEntry.hora_chegada || '',
+        data_saida_terminal: selectedEntry.data_saida_terminal || '',
+        hora_saida_terminal: selectedEntry.hora_saida_terminal || '',
+        data_retorno_terminal: selectedEntry.data_retorno_terminal || '',
+        hora_retorno_terminal: selectedEntry.hora_retorno_terminal || ''
       });
     } else {
       setEditFormData({});
@@ -901,7 +1028,7 @@ export default function App() {
   const triggerTestAlert = () => {
     const alerts = isVoltaRedonda ? [
       { msg: "ALERTA CRÍTICO: Estoque (Cheio Terminal) de Cal Calcítico em Volta Redonda está abaixo do esperado!", type: 'critical' },
-      { msg: "AVISO: Caminhões aguardando descarga na Arcelor.", type: 'warning' },
+      { msg: "AVISO: Caminhões com saída para descarga no cliente.", type: 'warning' },
       { msg: "NOTIFICAÇÃO: Sincronização de Volta Redonda concluída com sucesso.", type: 'info' },
       { msg: "ERRO: Falha na sincronização de dados de Volta Redonda.", type: 'error' }
     ] : [
@@ -1102,7 +1229,8 @@ export default function App() {
               const { id, isPending, ...data } = ent;
               let finalStatus = data.status || 'Estoque';
               if (activeBranchIsVR) {
-                if (finalStatus === 'Em descarga') finalStatus = 'Em descarga na Arcelor';
+                if (finalStatus === 'Em descarga' || finalStatus === 'Em descarga na Arcelor') finalStatus = 'Saída para descarga no cliente';
+                if (finalStatus === 'Retorno Vazio do cliente' || finalStatus === 'retorno vazio ao cliente') finalStatus = 'Entregue ao cliente';
                 if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
                 if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
               }
@@ -1277,6 +1405,98 @@ export default function App() {
       setAppUsers(data);
     }, () => {});
 
+    // Fetch Internal Movements
+    const qMovements = collection(db, COLLECTIONS.internal_movements);
+    const unsubscribeMovements = onSnapshot(qMovements, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as InternalMovement[];
+      data.sort((a, b) => (b.data_movimentacao + (b.hora_movimentacao || '')).localeCompare(a.data_movimentacao + (a.hora_movimentacao || '')));
+      setInternalMovements(data);
+      try { localStorage.setItem('cached_internal_movements', JSON.stringify(data)); } catch {}
+    }, (error) => handleSnapshotError(error, 'internal_movements'));
+
+    // Fetch Yard Locations
+    const qLocations = collection(db, COLLECTIONS.yard_locations);
+    const unsubscribeLocations = onSnapshot(qLocations, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as YardLocation[];
+      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setYardLocations(data);
+      try { localStorage.setItem('cached_yard_locations', JSON.stringify(data)); } catch {}
+    }, (error) => handleSnapshotError(error, 'yard_locations'));
+
+    // Fetch Rail Dispatches
+    const qDispatches = collection(db, COLLECTIONS.dispatches);
+    const unsubscribeDispatches = onSnapshot(qDispatches, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as RailDispatch[];
+      data.sort((a, b) => (b.data_despacho + (b.hora_despacho || '')).localeCompare(a.data_despacho + (a.hora_despacho || '')));
+      setDispatches(data);
+      try { localStorage.setItem('cached_dispatches', JSON.stringify(data)); } catch {}
+    }, (error) => handleSnapshotError(error, 'dispatches'));
+
+    // Fetch Production KPIs
+    const qProdKpis = collection(db, COLLECTIONS.production_kpis);
+    const unsubscribeProdKpis = onSnapshot(qProdKpis, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as ProductionKpiEntry[];
+        data.sort((a, b) => b.data.localeCompare(a.data));
+        setProductionKpis(data);
+        try { localStorage.setItem('cached_production_kpis', JSON.stringify(data)); } catch {}
+      }
+    }, (error) => console.log('Notice: production_kpis snapshot fetch:', error.message));
+
+    // Fetch Maintenance KPIs
+    const qMaintKpis = collection(db, COLLECTIONS.maintenance_kpis);
+    const unsubscribeMaintKpis = onSnapshot(qMaintKpis, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as MaintenanceKpiEntry[];
+        data.sort((a, b) => b.data.localeCompare(a.data));
+        setMaintenanceKpis(data);
+        try { localStorage.setItem('cached_maintenance_kpis', JSON.stringify(data)); } catch {}
+      }
+    }, (error) => console.log('Notice: maintenance_kpis snapshot fetch:', error.message));
+
+    // Fetch Equipments
+    const qEquipments = collection(db, COLLECTIONS.equipments);
+    const unsubscribeEquipments = onSnapshot(qEquipments, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as EquipmentMaster[];
+        data.sort((a, b) => (a.tag || '').localeCompare(b.tag || ''));
+        setEquipments(data);
+        try { localStorage.setItem('cached_equipments', JSON.stringify(data)); } catch {}
+      }
+    }, (error) => console.log('Notice: equipments snapshot fetch:', error.message));
+
+    // Fetch Operational Alerts (Mudanças de Status em Tempo Real)
+    const qOperationalAlerts = collection(db, COLLECTIONS.operational_alerts);
+    const unsubscribeOperationalAlerts = onSnapshot(qOperationalAlerts, (snapshot) => {
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as OperationalAlert[];
+        data.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setOperationalAlerts(data);
+        try { localStorage.setItem('cached_operational_alerts', JSON.stringify(data)); } catch {}
+      }
+    }, (error) => console.log('Notice: operational_alerts snapshot fetch:', error.message));
+
     return () => {
       clearTimeout(loadingSafetyTimeout);
       unsubscribeBranches();
@@ -1288,6 +1508,13 @@ export default function App() {
       unsubscribeProducts();
       unsubscribeDestinations();
       unsubscribeUsers();
+      unsubscribeMovements();
+      unsubscribeLocations();
+      unsubscribeDispatches();
+      unsubscribeProdKpis();
+      unsubscribeMaintKpis();
+      unsubscribeEquipments();
+      unsubscribeOperationalAlerts();
     };
   }, [user]);
 
@@ -1671,7 +1898,7 @@ export default function App() {
         estoque: Math.round(supplierEntries.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(supplierEntries.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_vazio: Math.round(supplierEntries.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(supplierEntries.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(supplierEntries.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor' || e.status === 'Saída para descarga no cliente')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(supplierEntries.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(supplierEntries.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(supplierEntries.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -1704,7 +1931,7 @@ export default function App() {
         estoque: Math.round(filtered.filter(e => e && (e.status === 'Estoque' || e.status === 'Estoque (Cheio Terminal)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         vazio_terminal: Math.round(filtered.filter(e => e && e.status === 'Vazio Terminal').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_vazio: Math.round(filtered.filter(e => e && (e.status === 'Transito vazio' || e.status === 'Trânsito Vazio (Arcos)')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
-        em_descarga: Math.round(filtered.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
+        em_descarga: Math.round(filtered.filter(e => e && (e.status === 'Em descarga' || (e.status as any) === 'Em Descarga Arcelor' || e.status === 'Em descarga na Arcelor' || e.status === 'Saída para descarga no cliente')).reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         rejeitado: Math.round(filtered.filter(e => e && e.status === 'Rejeitado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         transito_cheio: Math.round(filtered.filter(e => e && e.status === 'Trânsito Cheio').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
         embarcado: Math.round(filtered.filter(e => e && e.status === 'Embarcado').reduce((sum, e) => sum + getVal(e), 0) * 100) / 100,
@@ -2132,18 +2359,33 @@ export default function App() {
     const formDataObj = new FormData(e.currentTarget);
     const rawData = Object.fromEntries(formDataObj.entries());
     
-    // Check for duplicate NF per supplier
-    const nf = rawData.nf_numero?.toString().trim();
-    const fornecedor = rawData.fornecedor?.toString().trim();
-    if (nf && fornecedor) {
+    // Processamento e compatibilidade de campos de NF, Origem e Destinatário
+    const rawChave = (rawData.chave_acesso || '').toString().trim();
+    const cleanChaveDigits = rawChave.replace(/\D/g, '');
+    let derivedNf = (rawData.nf_numero || '').toString().trim();
+    if (!derivedNf && cleanChaveDigits.length >= 34) {
+      derivedNf = cleanChaveDigits.substring(25, 34).replace(/^0+/, '');
+    }
+    if (!derivedNf && rawChave) {
+      derivedNf = rawChave.slice(-8);
+    }
+    if (!derivedNf) {
+      derivedNf = 'S/N';
+    }
+
+    const fornecedor = (rawData.origem || rawData.fornecedor || '').toString().trim();
+    const destinatario = (rawData.destinatario || rawData.cliente || '').toString().trim();
+    const nf = derivedNf;
+    if (nf && nf !== 'S/N' && fornecedor) {
       const isDuplicate = entries.some(entry => 
         entry.nf_numero && 
         entry.nf_numero.toString().trim() === nf && 
-        entry.fornecedor?.toString().trim().toLowerCase() === fornecedor.toLowerCase()
+        (entry.fornecedor?.toString().trim().toLowerCase() === fornecedor.toLowerCase() ||
+         entry.origem?.toString().trim().toLowerCase() === fornecedor.toLowerCase())
       );
       
       if (isDuplicate) {
-        addNotification(`A Nota Fiscal ${nf} já está cadastrada para o fornecedor ${fornecedor}!`, "error");
+        addNotification(`A Nota Fiscal ${nf} já está cadastrada para a origem/fornecedor ${fornecedor}!`, "error");
         setIsSaving(false);
         return;
       }
@@ -2151,7 +2393,8 @@ export default function App() {
 
     let finalStatus = rawData.status?.toString() || '';
     if (isVoltaRedonda && finalStatus) {
-      if (finalStatus === 'Em descarga') finalStatus = 'Em descarga na Arcelor';
+      if (finalStatus === 'Em descarga' || finalStatus === 'Em descarga na Arcelor') finalStatus = 'Saída para descarga no cliente';
+      if (finalStatus === 'Retorno Vazio do cliente' || finalStatus === 'retorno vazio ao cliente') finalStatus = 'Entregue ao cliente';
       if (finalStatus === 'Estoque') finalStatus = 'Estoque (Cheio Terminal)';
       if (finalStatus === 'Transito vazio' || finalStatus === 'Trânsito Vazio') finalStatus = 'Trânsito Vazio (Arcos)';
     }
@@ -2190,6 +2433,13 @@ export default function App() {
 
     const data: any = {
       ...rawData,
+      nf_numero: derivedNf,
+      fornecedor: fornecedor,
+      origem: fornecedor,
+      cliente: destinatario,
+      destinatario: destinatario,
+      motorista: (rawData.motorista || '').toString().trim(),
+      transportador: (rawData.transportador || '').toString().trim(),
       status: finalStatus || (isVoltaRedonda ? 'Trânsito Cheio' : 'Estoque'),
       valor: sanitizeNumeric(rawData.valor),
       tonelada: sanitizeNumeric(rawData.tonelada),
@@ -2205,6 +2455,36 @@ export default function App() {
       // Tentar disparar integração se já for criado como Embarcado
       if (data.status === 'Embarcado') {
         await triggerIntegration(docRef.id, data);
+      }
+
+      // Se for criado com status 'Entregue ao cliente' (ou 'Retorno Vazio do cliente'), sobe automaticamente a linha com status 'Vazio Terminal'
+      if ((data.status === 'Entregue ao cliente' || data.status === 'Retorno Vazio do cliente') && data.container) {
+        const cleanC = data.container.trim().toUpperCase();
+        try {
+          await addDoc(collection(db, COLLECTIONS.entries), {
+            container: cleanC,
+            status: 'Vazio Terminal',
+            descricao_produto: 'Vazio',
+            tonelada: 0,
+            valor: 0,
+            saldo_toneladas: 0,
+            fornecedor: data.fornecedor || 'Terminal Volta Redonda',
+            origem: data.cliente || data.destinatario || 'Cliente',
+            destino: 'Arcos - MG',
+            branchId: data.branchId || selectedBranchId,
+            parent_entry_id: docRef.id,
+            ref_nf: data.nf_numero || '',
+            data_descarga: new Date().toISOString().split('T')[0],
+            data_chegada: new Date().toISOString().split('T')[0],
+            created_at: new Date().toISOString(),
+            uid: user?.uid || 'system',
+            created_by_email: user?.email || '',
+            observacao: `Entregue ao Cliente - Container ${cleanC} (Ref. NF ${data.nf_numero || ''})`
+          });
+          addNotification(`Container ${cleanC} subiu automaticamente para a linha com status "Vazio Terminal"!`, "info");
+        } catch (errAuto) {
+          console.warn('Erro ao criar linha automática de Vazio Terminal:', errAuto);
+        }
       }
 
       addNotification("Registro salvo com sucesso!", "info");
@@ -2386,7 +2666,8 @@ export default function App() {
             sanitizedUpdates[key] = sanitizeNumeric(value);
           } else if (key === 'status' && isVR && value) {
             let finalVal = value.toString();
-            if (finalVal === 'Em descarga') finalVal = 'Em descarga na Arcelor';
+            if (finalVal === 'Em descarga' || finalVal === 'Em descarga na Arcelor') finalVal = 'Saída para descarga no cliente';
+            if (finalVal === 'Retorno Vazio do cliente' || finalVal === 'retorno vazio ao cliente') finalVal = 'Entregue ao cliente';
             if (finalVal === 'Estoque') finalVal = 'Estoque (Cheio Terminal)';
             if (finalVal === 'Transito vazio' || finalVal === 'Trânsito Vazio') finalVal = 'Trânsito Vazio (Arcos)';
             sanitizedUpdates[key] = finalVal;
@@ -2412,6 +2693,47 @@ export default function App() {
         await triggerIntegration(docId, sanitizedUpdates);
       } catch (intError) {
         console.error("[Update] Erro na integração (não fatal):", intError);
+      }
+
+      // Se o status foi alterado para 'Entregue ao cliente' (ou 'Retorno Vazio do cliente'), sobe automaticamente a linha com status 'Vazio Terminal'
+      if (sanitizedUpdates.status === 'Entregue ao cliente' || sanitizedUpdates.status === 'Retorno Vazio do cliente') {
+        const currentEntry = entries.find(e => String(e.id) === String(docId));
+        const cleanC = (updates.container || currentEntry?.container || '').trim().toUpperCase();
+        if (cleanC) {
+          const alreadyExists = entries.some(e => 
+            e.container?.trim().toUpperCase() === cleanC &&
+            e.status === 'Vazio Terminal' &&
+            (e.parent_entry_id === String(docId) || (e.ref_nf && e.ref_nf === (updates.nf_numero || currentEntry?.nf_numero)))
+          );
+
+          if (!alreadyExists) {
+            try {
+              await addDoc(collection(db, COLLECTIONS.entries), {
+                container: cleanC,
+                status: 'Vazio Terminal',
+                descricao_produto: 'Vazio',
+                tonelada: 0,
+                valor: 0,
+                saldo_toneladas: 0,
+                fornecedor: currentEntry?.fornecedor || 'Terminal Volta Redonda',
+                origem: currentEntry?.cliente || currentEntry?.destinatario || 'Cliente',
+                destino: 'Arcos - MG',
+                branchId: currentEntry?.branchId || selectedBranchId,
+                parent_entry_id: String(docId),
+                ref_nf: currentEntry?.nf_numero || updates.nf_numero || '',
+                data_descarga: new Date().toISOString().split('T')[0],
+                data_chegada: new Date().toISOString().split('T')[0],
+                created_at: new Date().toISOString(),
+                uid: user?.uid || 'system',
+                created_by_email: user?.email || '',
+                observacao: `Entregue ao Cliente - Container ${cleanC} (Ref. NF ${currentEntry?.nf_numero || updates.nf_numero || ''})`
+              });
+              addNotification(`Container ${cleanC} subiu automaticamente para a linha com status "Vazio Terminal"!`, "info");
+            } catch (autoErr) {
+              console.warn('Erro ao criar linha automática de Vazio Terminal:', autoErr);
+            }
+          }
+        }
       }
 
       addNotification(`Registro NF ${updates.nf_numero || 'selecionada'} atualizado com sucesso!`, "info");
@@ -2442,32 +2764,50 @@ export default function App() {
     }
   };
 
-  const handleQuickStatusUpdate = async (id: string | number, type: 'chegada' | 'entrada' | 'saida') => {
-    if (!user) return;
+  const handleQuickStatusUpdate = async (
+    id: string | number, 
+    type: 'chegada' | 'entrada' | 'saida' | 'chegada_terminal' | 'saida_terminal' | 'retorno_terminal',
+    customData?: { data?: string; hora?: string }
+  ) => {
+    if (!user) return false;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = customData?.hora || now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = customData?.data || now.toISOString().slice(0, 10);
     
-    const updates: Partial<Entry> = {
-      updated_at: serverTimestamp(),
-      updated_by_email: user.email || 'Usuário'
-    };
-    if (type === 'chegada') updates.hora_chegada = timeStr;
-    if (type === 'entrada') updates.hora_entrada = timeStr;
-    if (type === 'saida') {
+    const updates: Partial<Entry> = {};
+
+    if (type === 'chegada') {
+      updates.hora_chegada = timeStr;
+    } else if (type === 'entrada') {
+      updates.hora_entrada = timeStr;
+    } else if (type === 'saida') {
       updates.hora_saida = timeStr;
+    } else if (type === 'chegada_terminal') {
+      updates.data_chegada_terminal = dateStr;
+      updates.hora_chegada_terminal = timeStr;
+      updates.hora_chegada = timeStr;
+      updates.data_chegada = dateStr;
+    } else if (type === 'saida_terminal') {
+      updates.data_saida_terminal = dateStr;
+      updates.hora_saida_terminal = timeStr;
+      updates.hora_saida = timeStr;
+      updates.data_carregamento_rodoviario = dateStr;
+      updates.status = 'Saída para descarga no cliente';
+    } else if (type === 'retorno_terminal') {
+      updates.data_retorno_terminal = dateStr;
+      updates.hora_retorno_terminal = timeStr;
+      updates.status = 'Entregue ao cliente';
     }
 
-    try {
-      await updateDoc(doc(db, COLLECTIONS.entries, String(id)), updates);
-      
-      // Tentar disparar integração
-      await triggerIntegration(id, updates);
-
-      addNotification(`Horário de ${type} registrado: ${timeStr}`, "info");
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `entries/${id}`, user);
-      addNotification(`Erro ao registrar ${type}.`, "error");
+    const success = await handleUpdateEntry(id, updates);
+    if (success) {
+      const typeLabel = 
+        type === 'chegada_terminal' ? 'Chegada no terminal' :
+        type === 'saida_terminal' ? 'Saída terminal' :
+        type === 'retorno_terminal' ? 'Retorno do terminal' : type;
+      addNotification(`Registro de ${typeLabel} atualizado com sucesso (${timeStr})!`, "info");
     }
+    return success;
   };
 
   const handleCreateContainer = async (numero: string, status: Container['status'], observacao?: string, branchId?: string) => {
@@ -2871,16 +3211,18 @@ export default function App() {
   };
 
   const handleCreateDestination = async (name: string, branchId: string) => {
-    if (!user || !branchId) return;
+    const finalBranchId = branchId || (selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id);
+    if (!user || !finalBranchId || !name?.trim()) return;
     setIsProcessing(true);
     try {
+      const cleanName = name.trim().toUpperCase();
       await addDoc(collection(db, COLLECTIONS.destinations), {
-        name,
-        branchId,
+        name: cleanName,
+        branchId: finalBranchId,
         uid: user.uid,
         created_at: serverTimestamp()
       });
-      addNotification(`Destino ${name} cadastrado com sucesso!`, "info");
+      addNotification(`Destino ${cleanName} cadastrado com sucesso!`, "info");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'destinations', user);
       addNotification(`Erro ao cadastrar destino: ${err.message}`, "error");
@@ -2890,15 +3232,17 @@ export default function App() {
   };
 
   const handleUpdateDestination = async (id: string, name: string, branchId: string) => {
-    if (!user || !branchId) return;
+    const finalBranchId = branchId || (selectedBranchId !== 'all' ? selectedBranchId : branches[0]?.id);
+    if (!user || !finalBranchId || !name?.trim()) return;
     setIsProcessing(true);
     try {
+      const cleanName = name.trim().toUpperCase();
       await updateDoc(doc(db, COLLECTIONS.destinations, id), {
-        name,
-        branchId,
+        name: cleanName,
+        branchId: finalBranchId,
         updated_at: serverTimestamp()
       });
-      addNotification(`Destino ${name} atualizado com sucesso!`, "info");
+      addNotification(`Destino ${cleanName} atualizado com sucesso!`, "info");
       setEditingRegistration(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, 'destinations', user);
@@ -2961,6 +3305,433 @@ export default function App() {
     }
   };
 
+  const handleAddInternalMovement = async (movementData: Omit<InternalMovement, 'id' | 'created_at' | 'uid'>) => {
+    try {
+      await addDoc(collection(db, COLLECTIONS.internal_movements), {
+        ...movementData,
+        created_at: new Date().toISOString(),
+        created_by_email: user?.email || '',
+        uid: user?.uid || 'system'
+      });
+      addNotification(`Movimentação gravada: ${movementData.origem_local} ➔ ${movementData.destino_local}`, 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao adicionar movimentação:', err);
+      addNotification(`Erro ao gravar movimentação: ${err.message}`, 'error');
+      return false;
+    }
+  };
+
+  const handleDeleteInternalMovement = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.internal_movements, id));
+      addNotification('Movimentação interna excluída.', 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao excluir movimentação:', err);
+      addNotification('Erro ao remover movimentação.', 'error');
+      return false;
+    }
+  };
+
+  const handleAddYardLocation = async (locationData: Omit<YardLocation, 'id' | 'created_at' | 'uid'>) => {
+    try {
+      await addDoc(collection(db, COLLECTIONS.yard_locations), {
+        ...locationData,
+        created_at: new Date().toISOString(),
+        uid: user?.uid || 'system'
+      });
+      addNotification(`Endereço "${locationData.name}" cadastrado com sucesso!`, 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao cadastrar endereço do pátio:', err);
+      addNotification('Erro ao cadastrar endereço interno.', 'error');
+      return false;
+    }
+  };
+
+  const handleDeleteYardLocation = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.yard_locations, id));
+      addNotification('Endereço do pátio removido.', 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao excluir endereço do pátio:', err);
+      addNotification('Erro ao remover endereço interno.', 'error');
+      return false;
+    }
+  };
+
+  const handleUpdateEntryLocation = async (entryId: string | number, newLocation: string) => {
+    try {
+      await updateDoc(doc(db, COLLECTIONS.entries, String(entryId)), {
+        localizacao_atual: newLocation,
+        updated_at: new Date().toISOString(),
+        updated_by_email: user?.email || ''
+      });
+      return true;
+    } catch (err) {
+      console.error('Erro ao atualizar localização da carga:', err);
+      return false;
+    }
+  };
+
+  const handleCreateFractionedExit = async (parentEntry: Entry, exitData: Partial<Entry>) => {
+    try {
+      const pesoSaida = Number(exitData.tonelada || 0);
+      const currentSaldo = parentEntry.saldo_toneladas !== undefined 
+        ? Number(parentEntry.saldo_toneladas) 
+        : Number(parentEntry.tonelada || 0);
+      
+      const newSaldo = Math.max(0, Number((currentSaldo - pesoSaida).toFixed(3)));
+      const newExpedido = Number(((parentEntry.total_expedido || 0) + pesoSaida).toFixed(3));
+      const newStatus = newSaldo <= 0.001 ? 'Embarcado Total' : 'Embarcado Parcial';
+
+      // 1. Cria a Saída Fracionada vinculada
+      const newExitDoc = {
+        ...parentEntry,
+        ...exitData,
+        parent_entry_id: String(parentEntry.id),
+        tonelada: pesoSaida,
+        status: 'Embarcado',
+        created_at: new Date().toISOString(),
+        created_by_email: user?.email || '',
+        uid: user?.uid || 'system',
+        branchId: parentEntry.branchId || selectedBranchId
+      };
+      delete (newExitDoc as any).id;
+
+      await addDoc(collection(db, COLLECTIONS.entries), newExitDoc);
+
+      // 2. Atualiza a Entrada Principal com saldo e status
+      await updateDoc(doc(db, COLLECTIONS.entries, String(parentEntry.id)), {
+        saldo_toneladas: newSaldo,
+        total_expedido: newExpedido,
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+        updated_by_email: user?.email || ''
+      });
+
+      // 3. Registra movimentação de saída para rastreabilidade
+      await addDoc(collection(db, COLLECTIONS.internal_movements), {
+        entryId: String(parentEntry.id),
+        nf_numero: parentEntry.nf_numero || '',
+        id_lote: parentEntry.id_lote || '',
+        descricao_produto: parentEntry.descricao_produto || '',
+        tipo_movimentacao: 'outro',
+        tipo_movimentacao_label: `Expedição Fracionada: ${pesoSaida.toLocaleString('pt-BR')} t`,
+        origem_local: parentEntry.localizacao_atual || 'Pátio',
+        destino_local: exitData.destino || 'Expedição',
+        container_origem: parentEntry.container || '',
+        container_destino: exitData.container || parentEntry.container || '',
+        vagao_origem: parentEntry.numero_vagao || '',
+        vagao_destino: exitData.numero_vagao || '',
+        toneladas_movimentadas: pesoSaida,
+        data_movimentacao: exitData.data_carregamento_rodoviario || exitData.data_posicionamento || new Date().toISOString().split('T')[0],
+        hora_movimentacao: exitData.horario_posicionamento || new Date().toTimeString().slice(0, 5),
+        responsavel_operador: user?.email?.split('@')[0] || '',
+        observacoes: `Saída expedida (${exitData.modal || 'Rodoviário'}). Placa/Vagão: ${exitData.placa_saida || exitData.numero_vagao || 'N/A'}. Saldo restante da carga: ${newSaldo.toLocaleString('pt-BR')} t.`,
+        branchId: parentEntry.branchId || selectedBranchId,
+        created_at: new Date().toISOString(),
+        created_by_email: user?.email || '',
+        uid: user?.uid || 'system'
+      });
+
+      addNotification(`Saída fracionada de ${pesoSaida.toLocaleString('pt-BR')} t registrada! Saldo restante: ${newSaldo.toLocaleString('pt-BR')} t.`, 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao registrar saída fracionada:', err);
+      addNotification(`Erro ao gerar saída fracionada: ${err.message}`, 'error');
+      return false;
+    }
+  };
+
+  const handleSaveRailDispatch = async (dispatchData: Omit<RailDispatch, 'id' | 'created_at' | 'uid'>) => {
+    try {
+      await addDoc(collection(db, COLLECTIONS.dispatches), {
+        ...dispatchData,
+        created_at: new Date().toISOString(),
+        created_by_email: user?.email || '',
+        uid: user?.uid || 'system'
+      });
+
+      // Atualiza o status dos containers despachados em Estoque para 'Embarcado'
+      const c1 = dispatchData.container_1?.trim().toUpperCase();
+      const c2 = dispatchData.container_2?.trim().toUpperCase();
+
+      const entriesToUpdate = entries.filter(e => {
+        if (!e.container) return false;
+        const upper = e.container.trim().toUpperCase();
+        const isMatch = (c1 && upper === c1) || (c2 && upper === c2);
+        const isStock = (e.status || '').toLowerCase().includes('estoque');
+        return isMatch && isStock;
+      });
+
+      for (const entry of entriesToUpdate) {
+        try {
+          await updateDoc(doc(db, COLLECTIONS.entries, String(entry.id)), {
+            status: 'Embarcado',
+            numero_vagao: dispatchData.numero_vagao,
+            destino: dispatchData.destino || entry.destino,
+            data_faturamento_vli: dispatchData.data_despacho,
+            updated_at: new Date().toISOString(),
+            updated_by_email: user?.email || ''
+          });
+        } catch (uErr) {
+          console.warn('Erro ao atualizar status da entrada para Embarcado:', uErr);
+        }
+      }
+
+      addNotification(`Vagão ${dispatchData.numero_vagao} com containers ${dispatchData.container_1} e ${dispatchData.container_2} despachado com sucesso!`, 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao salvar despacho ferroviário:', err);
+      addNotification(`Erro ao despachar vagão: ${err.message}`, 'error');
+      return false;
+    }
+  };
+
+  const handleDeleteRailDispatch = async (id: string) => {
+    try {
+      const dispatchToDelete = dispatches.find(d => d.id === id);
+      await deleteDoc(doc(db, COLLECTIONS.dispatches, id));
+
+      if (dispatchToDelete) {
+        const c1 = dispatchToDelete.container_1?.trim().toUpperCase();
+        const c2 = dispatchToDelete.container_2?.trim().toUpperCase();
+
+        const entriesToRestore = entries.filter(e => {
+          if (!e.container) return false;
+          const upper = e.container.trim().toUpperCase();
+          const isMatch = (c1 && upper === c1) || (c2 && upper === c2);
+          return isMatch && e.status === 'Embarcado' && e.numero_vagao === dispatchToDelete.numero_vagao;
+        });
+
+        for (const entry of entriesToRestore) {
+          try {
+            await updateDoc(doc(db, COLLECTIONS.entries, String(entry.id)), {
+              status: 'Estoque',
+              numero_vagao: '',
+              updated_at: new Date().toISOString(),
+              updated_by_email: user?.email || ''
+            });
+          } catch (rErr) {
+            console.warn('Erro ao restaurar status da entrada para Estoque:', rErr);
+          }
+        }
+      }
+
+      addNotification('Despacho de vagão excluído com sucesso.', 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao excluir despacho:', err);
+      addNotification('Erro ao remover despacho ferroviário.', 'error');
+      return false;
+    }
+  };
+
+  const handleUpdateRailDispatchStatus = async (id: string, status: RailDispatch['status']) => {
+    try {
+      await updateDoc(doc(db, COLLECTIONS.dispatches, id), {
+        status,
+        updated_at: new Date().toISOString(),
+        updated_by_email: user?.email || ''
+      });
+      addNotification(`Status do vagão atualizado para "${status}".`, 'info');
+      return true;
+    } catch (err: any) {
+      console.error('Erro ao atualizar status do despacho:', err);
+      addNotification('Erro ao atualizar status do vagão.', 'error');
+      return false;
+    }
+  };
+
+  const handleAddProductionKpi = async (entry: Omit<ProductionKpiEntry, 'id' | 'created_at'>) => {
+    const id = `prod-${Date.now()}`;
+    const newEntry: ProductionKpiEntry = {
+      ...entry,
+      id,
+      created_at: new Date().toISOString(),
+      created_by_email: user?.email || '',
+      uid: user?.uid || 'system'
+    };
+    setProductionKpis(prev => [newEntry, ...prev]);
+    addNotification('Apontamento de produção registrado com sucesso!', 'info');
+    if (user) {
+      try {
+        await setDoc(doc(db, COLLECTIONS.production_kpis, id), newEntry);
+      } catch (err: any) {
+        console.error('Erro ao salvar produção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleUpdateProductionKpi = async (id: string, updates: Partial<ProductionKpiEntry>) => {
+    setProductionKpis(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    addNotification('Apontamento de produção atualizado.', 'info');
+    if (user) {
+      try {
+        await updateDoc(doc(db, COLLECTIONS.production_kpis, id), {
+          ...updates,
+          updated_at: serverTimestamp()
+        });
+      } catch (err: any) {
+        console.error('Erro ao atualizar produção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleDeleteProductionKpi = async (id: string) => {
+    setProductionKpis(prev => prev.filter(p => p.id !== id));
+    addNotification('Apontamento de produção removido.', 'info');
+    if (user) {
+      try {
+        await deleteDoc(doc(db, COLLECTIONS.production_kpis, id));
+      } catch (err: any) {
+        console.error('Erro ao remover produção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleAddMaintenanceKpi = async (entry: Omit<MaintenanceKpiEntry, 'id' | 'created_at'>) => {
+    const id = `mnt-${Date.now()}`;
+    const newEntry: MaintenanceKpiEntry = {
+      ...entry,
+      id,
+      created_at: new Date().toISOString(),
+      created_by_email: user?.email || '',
+      uid: user?.uid || 'system'
+    };
+    setMaintenanceKpis(prev => [newEntry, ...prev]);
+    addNotification('Ordem de manutenção registrada com sucesso!', 'info');
+    if (user) {
+      try {
+        await setDoc(doc(db, COLLECTIONS.maintenance_kpis, id), newEntry);
+      } catch (err: any) {
+        console.error('Erro ao salvar manutenção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleUpdateMaintenanceKpi = async (id: string, updates: Partial<MaintenanceKpiEntry>) => {
+    setMaintenanceKpis(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
+    addNotification('Ordem de manutenção atualizada.', 'info');
+    if (user) {
+      try {
+        await updateDoc(doc(db, COLLECTIONS.maintenance_kpis, id), {
+          ...updates,
+          updated_at: serverTimestamp()
+        });
+      } catch (err: any) {
+        console.error('Erro ao atualizar manutenção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleDeleteMaintenanceKpi = async (id: string) => {
+    setMaintenanceKpis(prev => prev.filter(m => m.id !== id));
+    addNotification('Ordem de manutenção removida.', 'info');
+    if (user) {
+      try {
+        await deleteDoc(doc(db, COLLECTIONS.maintenance_kpis, id));
+      } catch (err: any) {
+        console.error('Erro ao remover manutenção no Firestore:', err);
+      }
+    }
+  };
+
+  const handleAddEquipment = async (equipment: Omit<EquipmentMaster, 'id'>) => {
+    const id = `eq-${Date.now()}`;
+    const newEquip: EquipmentMaster = {
+      ...equipment,
+      id,
+      created_at: new Date().toISOString(),
+      created_by_email: user?.email || '',
+      uid: user?.uid || 'system'
+    };
+    setEquipments(prev => [...prev, newEquip]);
+    addNotification(`Equipamento ${equipment.tag} cadastrado!`, 'info');
+    if (user) {
+      try {
+        await setDoc(doc(db, COLLECTIONS.equipments, id), newEquip);
+      } catch (err: any) {
+        console.error('Erro ao cadastrar equipamento no Firestore:', err);
+      }
+    }
+  };
+
+  const handleUpdateEquipment = async (id: string, updates: Partial<EquipmentMaster>) => {
+    setEquipments(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    addNotification('Cadastro do equipamento atualizado.', 'info');
+    if (user) {
+      try {
+        await updateDoc(doc(db, COLLECTIONS.equipments, id), {
+          ...updates,
+          updated_at: serverTimestamp()
+        });
+      } catch (err: any) {
+        console.error('Erro ao atualizar equipamento no Firestore:', err);
+      }
+    }
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    setEquipments(prev => prev.filter(e => e.id !== id));
+    addNotification('Equipamento removido.', 'info');
+    if (user) {
+      try {
+        await deleteDoc(doc(db, COLLECTIONS.equipments, id));
+      } catch (err: any) {
+        console.error('Erro ao remover equipamento no Firestore:', err);
+      }
+    }
+  };
+
+  const handleResetSeedExamples = () => {
+    setProductionKpis(initialProductionKpis);
+    setMaintenanceKpis(initialMaintenanceKpis);
+    setEquipments(initialEquipments);
+    setOperationalAlerts(initialOperationalAlerts);
+    addNotification('Exemplos operacionais de Produção, Manutenção e Alertas restaurados com sucesso!', 'info');
+  };
+
+  const handleTriggerOperationalAlert = async (alert: Omit<OperationalAlert, 'id' | 'timestamp'>) => {
+    const id = `op-alert-${Date.now()}`;
+    const newAlert: OperationalAlert = {
+      ...alert,
+      id,
+      timestamp: new Date().toISOString(),
+      autor_email: user?.email || alert.autor_email || 'sistema'
+    };
+
+    setOperationalAlerts(prev => [newAlert, ...prev]);
+
+    const notifType = newAlert.severidade === 'critica' ? 'critical' : newAlert.severidade === 'alta' ? 'warning' : 'info';
+    addNotification(`[ALERTA OPERACIONAL] ${newAlert.titulo}: ${newAlert.mensagem}`, notifType as any, newAlert.severidade === 'critica');
+    playOperationalSound(newAlert.severidade === 'critica' ? 'critical' : newAlert.severidade === 'alta' ? 'warning' : 'info');
+
+    if (user) {
+      try {
+        await setDoc(doc(db, COLLECTIONS.operational_alerts, id), newAlert);
+      } catch (err: any) {
+        console.error('Erro ao registrar alerta no Firestore:', err);
+      }
+    }
+  };
+
+  const handleMarkAlertAsRead = async (alertId: string) => {
+    setOperationalAlerts(prev => prev.map(a => a.id === alertId ? { ...a, lido: true } : a));
+    if (user) {
+      try {
+        await updateDoc(doc(db, COLLECTIONS.operational_alerts, alertId), { lido: true });
+      } catch {}
+    }
+  };
+
+  const handleMarkAllAlertsAsRead = async () => {
+    setOperationalAlerts(prev => prev.map(a => ({ ...a, lido: true })));
+  };
+
   const handleUpdateContainer = async (id: string, updates: Partial<Container>) => {
     if (!user) return;
     try {
@@ -2990,17 +3761,72 @@ export default function App() {
 
   const yardEntries = React.useMemo(() => {
     if (!Array.isArray(filteredEntriesForDashboard)) return [];
+    const today = new Date().toISOString().split('T')[0];
     return filteredEntriesForDashboard.filter(e => {
-      const today = new Date().toISOString().split('T')[0];
-      const isToday = e.data_descarga === today || e.data_posicionamento === today;
-      const isInYard = e.hora_chegada && !e.hora_saida;
-      return isToday || isInYard;
+      if (!e) return false;
+      const isToday = 
+        e.data_descarga === today || 
+        e.data_posicionamento === today ||
+        e.data_carregamento_rodoviario === today ||
+        e.data_chegada_terminal === today ||
+        e.data_saida_terminal === today ||
+        e.data_retorno_terminal === today;
+      const isInYard = (e.hora_chegada || e.hora_chegada_terminal) && (!e.hora_saida && !e.hora_retorno_terminal);
+      const isVROpen = isVoltaRedonda && (
+        (e.status === 'Saída para descarga no cliente' && !e.hora_retorno_terminal) ||
+        (Boolean(e.hora_chegada_terminal || e.data_chegada_terminal) && !e.hora_retorno_terminal) ||
+        (e.status === 'Estoque (Cheio Terminal)' && !e.hora_retorno_terminal) ||
+        (e.status === 'Trânsito Cheio' && !e.hora_retorno_terminal) ||
+        (e.data_retorno_terminal === today) ||
+        (e.status === 'Entregue ao cliente' && (e.data_retorno_terminal === today || !e.data_retorno_terminal))
+      );
+      return isToday || isInYard || isVROpen;
     }).sort((a, b) => {
-      const timeA = a.hora_chegada || '99:99';
-      const timeB = b.hora_chegada || '99:99';
+      const timeA = a.hora_chegada_terminal || a.hora_chegada || '99:99';
+      const timeB = b.hora_chegada_terminal || b.hora_chegada || '99:99';
       return timeA.localeCompare(timeB);
     });
-  }, [filteredEntriesForDashboard]);
+  }, [filteredEntriesForDashboard, isVoltaRedonda]);
+
+  // Contadores operacionais dinâmicos para a nova estrutura modular do Menu Lateral
+  const navStats = React.useMemo(() => {
+    const branchEntries = filterByBranch(entries, selectedBranchId, branches);
+    const branchAppointments = filterByBranch(appointments, selectedBranchId, branches);
+    const branchContainers = filterByBranch(containers, selectedBranchId, branches);
+    const branchDispatches = filterByBranch(dispatches, selectedBranchId, branches);
+    const branchMovements = filterByBranch(internalMovements, selectedBranchId, branches);
+    const branchEquipments = filterByBranch(equipments, selectedBranchId, branches);
+    const branchMaintenance = filterByBranch(maintenanceKpis, selectedBranchId, branches);
+    const branchProduction = filterByBranch(productionKpis, selectedBranchId, branches);
+
+    const veiculosNoPatio = branchEntries.filter(e => 
+      (e.hora_chegada || e.hora_chegada_terminal) && (!e.hora_saida && !e.hora_retorno_terminal)
+    ).length;
+    const agendamentosPendentes = branchAppointments.filter(a => a.status === 'agendado').length;
+    const totalCont = branchContainers.length;
+    const totalDesp = branchDispatches.length;
+    const totalMovs = branchMovements.length;
+    const totalFrota = branchEquipments.length;
+    const frotaOperando = branchEquipments.filter(e => e.status === 'Operando').length;
+    const frotaCorretiva = branchEquipments.filter(e => e.status === 'Manutenção Corretiva').length;
+    const osAbertas = branchMaintenance.filter(m => m.status !== 'Concluída').length;
+    const totalProdRegistros = branchProduction.length;
+    const totalAlertasCriticos = operationalAlerts.filter(a => !a.lido && a.severidade === 'critica').length;
+
+    return {
+      veiculosNoPatio,
+      agendamentosPendentes,
+      totalCont,
+      totalDesp,
+      totalMovs,
+      totalFrota,
+      frotaOperando,
+      frotaCorretiva,
+      osAbertas,
+      totalProdRegistros,
+      totalAlertasCriticos
+    };
+  }, [entries, appointments, containers, dispatches, internalMovements, equipments, maintenanceKpis, productionKpis, operationalAlerts, selectedBranchId, branches]);
 
   const handleDeleteEntry = (id: string | number) => {
     setDeleteConfirmation(id);
@@ -3233,8 +4059,8 @@ export default function App() {
       }}
     >
       {/* Sidebar */}
-      <aside className="w-64 bg-titam-deep text-white flex flex-col shadow-xl transition-all duration-700">
-        <div className="p-8 border-b border-white/5">
+      <aside className="w-72 bg-titam-deep text-white flex flex-col shadow-2xl transition-all duration-700 select-none">
+        <div className="p-6 border-b border-white/5">
           {!isTitam ? (
             <div className="w-full px-2">
               {/* Multitex Logo - Original appearance restored */}
@@ -3279,9 +4105,10 @@ export default function App() {
           )}
         </div>
         
+        {/* Filial Ativa */}
         <div className="px-4 py-2 border-b border-white/10">
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider ml-2">Filial Ativa</label>
+            <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider ml-1">Filial Ativa</label>
             <select 
               value={selectedBranchId}
               onChange={(e) => {
@@ -3300,77 +4127,311 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-2 mt-4">
-          <NavItem 
-            icon={<LayoutDashboard size={18} />} 
-            label="Painel" 
-            active={activeTab === 'dashboard'} 
-            onClick={() => setActiveTab('dashboard')} 
-          />
-          <NavItem 
-            icon={<ArrowDownLeft size={18} />} 
-            label="Entrada" 
-            active={activeTab === 'entrada'} 
-            onClick={() => setActiveTab('entrada')} 
-          />
-          <NavItem 
-            icon={<ArrowUpRight size={18} />} 
-            label="Saída" 
-            active={activeTab === 'saida'} 
-            onClick={() => setActiveTab('saida')} 
-          />
-          <NavItem 
-            icon={<Activity size={18} />} 
-            label="Fluxo de Veículos" 
-            active={activeTab === 'fluxo'} 
-            onClick={() => setActiveTab('fluxo')} 
-          />
-          <NavItem 
-            icon={<CalendarClock size={18} />} 
-            label="Agendamentos" 
-            active={activeTab === 'agendamento'} 
-            onClick={() => setActiveTab('agendamento')} 
-          />
-          <NavItem 
-            icon={<FileText size={18} />} 
-            label="Faturamento" 
-            active={activeTab === 'faturamento'} 
-            onClick={() => setActiveTab('faturamento')} 
-          />
-          <NavItem 
-            icon={<Truck size={18} />} 
-            label="Todos os Registros" 
-            active={activeTab === 'lista'} 
-            onClick={() => setActiveTab('lista')} 
-          />
-          <NavItem 
-            icon={<FileJson size={18} />} 
-            label="Relatórios" 
-            active={activeTab === 'relatorios'} 
-            onClick={() => setActiveTab('relatorios')} 
-          />
-          <NavItem 
-            icon={<Package size={18} />} 
-            label="Contêineres" 
-            active={activeTab === 'containers'} 
-            onClick={() => setActiveTab('containers')} 
-          />
+        {/* Busca Rápida & Recolher/Expandir Módulos */}
+        <div className="px-3 py-2 border-b border-white/10 flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
+            <input
+              type="text"
+              value={navSearch}
+              onChange={(e) => setNavSearch(e.target.value)}
+              placeholder="Buscar função..."
+              className="w-full bg-white/5 text-white placeholder-white/30 text-xs pl-8 pr-6 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:ring-1 focus:ring-titam-lime"
+            />
+            {navSearch && (
+              <button 
+                onClick={() => setNavSearch('')} 
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              const allOpen = Object.values(openModules).every(v => v);
+              setOpenModules({
+                gate: !allOpen,
+                intralogistica: !allOpen,
+                producao: !allOpen,
+                manutencao: !allOpen,
+                gestao: !allOpen
+              });
+            }}
+            title={Object.values(openModules).every(v => v) ? "Recolher todos os módulos" : "Expandir todos os módulos"}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/10 transition shrink-0"
+          >
+            {Object.values(openModules).every(v => v) ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        </div>
 
-          {isAdmin && (
-            <>
-              <NavItem 
-                icon={<Building2 size={18} />} 
-                label="Gestão de Filiais" 
-                active={activeTab === 'filiais'} 
-                onClick={() => setActiveTab('filiais')} 
-              />
-              <NavItem 
-                icon={<Users size={18} />} 
-                label="Base de Cadastros" 
-                active={activeTab === 'cadastros'} 
-                onClick={() => setActiveTab('cadastros')} 
-              />
-            </>
+        {/* Navegação Modular Reestruturada */}
+        <nav className="flex-1 p-3 space-y-2.5 overflow-y-auto custom-scrollbar">
+          {/* MÓDULO 1: GATE */}
+          {(!navSearch || ['gate', 'portaria', 'triagem', 'entrada', 'saida', 'fluxo', 'agendamento', 'balanca', 'pesagem'].some(k => k.includes(navSearch.toLowerCase()) || navSearch.toLowerCase().includes(k))) && (
+            <NavModule
+              title="1. GATE"
+              subtitle="Portaria, Triagem & Balança"
+              icon={<ShieldCheck size={16} />}
+              isOpen={Boolean(openModules.gate || navSearch)}
+              onToggle={() => setOpenModules(prev => ({ ...prev, gate: !prev.gate }))}
+              hasActiveChild={['entrada', 'saida', 'fluxo', 'agendamento'].includes(activeTab)}
+              badgeText={navStats.veiculosNoPatio > 0 ? `${navStats.veiculosNoPatio} no pátio` : undefined}
+              badgeColor="bg-sky-500/20 text-sky-300 border border-sky-500/30"
+            >
+              {(!navSearch || 'entrada pesagem inicial check-in'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<ArrowDownLeft size={14} />}
+                  label="Entrada & Pesagem Inicial"
+                  active={activeTab === 'entrada'}
+                  onClick={() => setActiveTab('entrada')}
+                />
+              )}
+              {(!navSearch || 'saida pesagem final checkout'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<ArrowUpRight size={14} />}
+                  label="Saída & Pesagem Final"
+                  active={activeTab === 'saida'}
+                  onClick={() => setActiveTab('saida')}
+                />
+              )}
+              {(!navSearch || 'fluxo veiculos patio tempo real'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Activity size={14} />}
+                  label="Fluxo de Veículos On-Time"
+                  active={activeTab === 'fluxo'}
+                  onClick={() => setActiveTab('fluxo')}
+                  badge={navStats.veiculosNoPatio}
+                  badgeColor="bg-emerald-500/20 text-emerald-300"
+                />
+              )}
+              {(!navSearch || 'agendamento cargas portaria agendados'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<CalendarClock size={14} />}
+                  label="Agendamento de Cargas"
+                  active={activeTab === 'agendamento'}
+                  onClick={() => setActiveTab('agendamento')}
+                  badge={navStats.agendamentosPendentes}
+                  badgeColor="bg-sky-500/20 text-sky-300"
+                />
+              )}
+            </NavModule>
+          )}
+
+          {/* MÓDULO 2: INTRALOGÍSTICA */}
+          {(!navSearch || ['intralogistica', 'patio', 'pilhas', 'movimentacoes', 'containers', 'despacho', 'ferrovia', 'vagoes', 'registros', 'cargas'].some(k => k.includes(navSearch.toLowerCase()) || navSearch.toLowerCase().includes(k))) && (
+            <NavModule
+              title="2. INTRALOGÍSTICA"
+              subtitle="Pátio, Pilhas & Ferrovia"
+              icon={<Boxes size={16} />}
+              isOpen={Boolean(openModules.intralogistica || navSearch)}
+              onToggle={() => setOpenModules(prev => ({ ...prev, intralogistica: !prev.intralogistica }))}
+              hasActiveChild={['movimentacoes', 'containers', 'despacho', 'lista'].includes(activeTab)}
+              badgeText={navStats.totalCont > 0 ? `${navStats.totalCont} cntrs` : undefined}
+              badgeColor="bg-purple-500/20 text-purple-300 border border-purple-500/30"
+            >
+              {(!navSearch || 'movimentacoes internas pilhas armazem'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<ArrowLeftRight size={14} />}
+                  label="Movimentações Internas"
+                  active={activeTab === 'movimentacoes'}
+                  onClick={() => setActiveTab('movimentacoes')}
+                  badge={navStats.totalMovs}
+                />
+              )}
+              {(!navSearch || 'gestao conteineres containers estufagem desova'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Package size={14} />}
+                  label="Gestão de Contêineres"
+                  active={activeTab === 'containers'}
+                  onClick={() => setActiveTab('containers')}
+                  badge={navStats.totalCont}
+                  badgeColor="bg-purple-500/20 text-purple-300"
+                />
+              )}
+              {(!navSearch || 'despacho ferroviario vli vagoes composicao'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<TrainTrack size={14} />}
+                  label="Despacho Ferroviário (VLI)"
+                  active={activeTab === 'despacho'}
+                  onClick={() => setActiveTab('despacho')}
+                  badge={navStats.totalDesp}
+                />
+              )}
+              {(!navSearch || 'todos registros cargas historico geral'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Truck size={14} />}
+                  label="Registros Gerais de Cargas"
+                  active={activeTab === 'lista'}
+                  onClick={() => setActiveTab('lista')}
+                />
+              )}
+            </NavModule>
+          )}
+
+          {/* MÓDULO 3: PRODUÇÃO */}
+          {(!navSearch || ['producao', 'turnos', 'oee', 'apontamentos', 'metas', 'paradas', 'rendimento', 'kpi'].some(k => k.includes(navSearch.toLowerCase()) || navSearch.toLowerCase().includes(k))) && (
+            <NavModule
+              title="3. PRODUÇÃO"
+              subtitle="Turnos, OEE & Metas"
+              icon={<Factory size={16} />}
+              isOpen={Boolean(openModules.producao || navSearch)}
+              onToggle={() => setOpenModules(prev => ({ ...prev, producao: !prev.producao }))}
+              hasActiveChild={activeTab === 'kpis' && ['producao', 'dashboard', 'guia'].includes(kpiSubTab)}
+              badgeText={navStats.totalProdRegistros > 0 ? `${navStats.totalProdRegistros} reg.` : undefined}
+              badgeColor="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+            >
+              {(!navSearch || 'apontamentos producao turnos realizado meta'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<TrendingUp size={14} />}
+                  label="Apontamentos de Produção"
+                  active={activeTab === 'kpis' && kpiSubTab === 'producao'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('producao');
+                  }}
+                  badge={navStats.totalProdRegistros}
+                  badgeColor="bg-emerald-500/20 text-emerald-300"
+                />
+              )}
+              {(!navSearch || 'painel desempenho oee graficos indicadores'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<BarChart3 size={14} />}
+                  label="Painel de Desempenho & OEE"
+                  active={activeTab === 'kpis' && kpiSubTab === 'dashboard'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('dashboard');
+                  }}
+                />
+              )}
+              {(!navSearch || 'guia operacional metas instrucoes'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Info size={14} />}
+                  label="Guia Operacional & Metas"
+                  active={activeTab === 'kpis' && kpiSubTab === 'guia'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('guia');
+                  }}
+                />
+              )}
+            </NavModule>
+          )}
+
+          {/* MÓDULO 4: MANUTENÇÃO */}
+          {(!navSearch || ['manutencao', 'pcm', 'os', 'frota', 'maquinas', 'horimetro', 'ontime', 'telemetria', 'parada'].some(k => k.includes(navSearch.toLowerCase()) || navSearch.toLowerCase().includes(k))) && (
+            <NavModule
+              title="4. MANUTENÇÃO"
+              subtitle="PCM, OS & Telemetria"
+              icon={<Wrench size={16} />}
+              isOpen={Boolean(openModules.manutencao || navSearch)}
+              onToggle={() => setOpenModules(prev => ({ ...prev, manutencao: !prev.manutencao }))}
+              hasActiveChild={activeTab === 'kpis' && ['ontime', 'manutencao', 'equipamentos'].includes(kpiSubTab)}
+              badgeText={
+                navStats.frotaCorretiva > 0 
+                  ? `${navStats.frotaCorretiva} corretiva` 
+                  : `${navStats.frotaOperando}/${navStats.totalFrota} ativos`
+              }
+              badgeColor={
+                navStats.frotaCorretiva > 0 
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              }
+            >
+              {(!navSearch || 'status on-time frota maquinas telemetria'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Radio size={14} className={navStats.frotaCorretiva > 0 ? 'text-rose-400 animate-pulse' : 'text-emerald-400'} />}
+                  label="Status On-Time da Frota"
+                  active={activeTab === 'kpis' && kpiSubTab === 'ontime'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('ontime');
+                  }}
+                  badge={navStats.frotaCorretiva > 0 ? `${navStats.frotaCorretiva} PARADA` : `${navStats.frotaOperando} OK`}
+                  badgeColor={navStats.frotaCorretiva > 0 ? 'bg-rose-600 text-white animate-pulse' : 'bg-emerald-600/30 text-emerald-300'}
+                  isDotAlert={navStats.frotaCorretiva > 0}
+                />
+              )}
+              {(!navSearch || 'ordens servico os corretiva preventiva paradas'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Settings2 size={14} />}
+                  label="Ordens de Serviço (OS)"
+                  active={activeTab === 'kpis' && kpiSubTab === 'manutencao'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('manutencao');
+                  }}
+                  badge={navStats.osAbertas > 0 ? `${navStats.osAbertas} em and.` : undefined}
+                  badgeColor="bg-amber-500/20 text-amber-300"
+                />
+              )}
+              {(!navSearch || 'cadastro maquinas frota equipamentos horimetro'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Truck size={14} />}
+                  label="Cadastro de Máquinas & Frota"
+                  active={activeTab === 'kpis' && kpiSubTab === 'equipamentos'}
+                  onClick={() => {
+                    setActiveTab('kpis');
+                    setKpiSubTab('equipamentos');
+                  }}
+                  badge={navStats.totalFrota}
+                />
+              )}
+            </NavModule>
+          )}
+
+          {/* MÓDULO 5: GESTÃO & SUPORTE */}
+          {(!navSearch || ['gestao', 'adm', 'dashboard', 'painel', 'faturamento', 'relatorios', 'bi', 'filiais', 'cadastros'].some(k => k.includes(navSearch.toLowerCase()) || navSearch.toLowerCase().includes(k))) && (
+            <NavModule
+              title="5. GESTÃO & ADM"
+              subtitle="BI, Faturamento & Filiais"
+              icon={<LayoutDashboard size={16} />}
+              isOpen={Boolean(openModules.gestao || navSearch)}
+              onToggle={() => setOpenModules(prev => ({ ...prev, gestao: !prev.gestao }))}
+              hasActiveChild={['dashboard', 'faturamento', 'relatorios', 'filiais', 'cadastros'].includes(activeTab)}
+            >
+              {(!navSearch || 'painel geral executivo dashboard visao geral'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<LayoutDashboard size={14} />}
+                  label="Painel Geral Executivo"
+                  active={activeTab === 'dashboard'}
+                  onClick={() => setActiveTab('dashboard')}
+                />
+              )}
+              {(!navSearch || 'faturamento intermodal faturadas receitas'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<FileText size={14} />}
+                  label="Faturamento Intermodal"
+                  active={activeTab === 'faturamento'}
+                  onClick={() => setActiveTab('faturamento')}
+                />
+              )}
+              {(!navSearch || 'relatorios gerenciais bi exportacao excel pdf'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<FileJson size={14} />}
+                  label="Relatórios Gerenciais & BI"
+                  active={activeTab === 'relatorios'}
+                  onClick={() => setActiveTab('relatorios')}
+                />
+              )}
+              {isAdmin && (!navSearch || 'gestao filiais unidades filial'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Building2 size={14} />}
+                  label="Gestão de Filiais"
+                  active={activeTab === 'filiais'}
+                  onClick={() => setActiveTab('filiais')}
+                />
+              )}
+              {isAdmin && (!navSearch || 'base cadastros mestres fornecedores clientes transportadoras'.includes(navSearch.toLowerCase())) && (
+                <NavSubItem
+                  icon={<Users size={14} />}
+                  label="Base de Cadastros"
+                  active={activeTab === 'cadastros'}
+                  onClick={() => setActiveTab('cadastros')}
+                />
+              )}
+            </NavModule>
           )}
         </nav>
 
@@ -3449,8 +4510,37 @@ export default function App() {
         <header className="flex justify-between items-center mb-10">
           <div className="flex items-center gap-6">
             <div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-titam-deep/10 text-titam-deep">
+                  {['entrada', 'saida', 'fluxo', 'agendamento'].includes(activeTab) ? 'Módulo 1 • GATE' :
+                   ['movimentacoes', 'containers', 'despacho', 'lista'].includes(activeTab) ? 'Módulo 2 • INTRALOGÍSTICA' :
+                   activeTab === 'kpis' && ['producao', 'dashboard', 'guia'].includes(kpiSubTab) ? 'Módulo 3 • PRODUÇÃO' :
+                   activeTab === 'kpis' && ['ontime', 'manutencao', 'equipamentos'].includes(kpiSubTab) ? 'Módulo 4 • MANUTENÇÃO' :
+                   'Módulo 5 • GESTÃO & ADM'}
+                </span>
+              </div>
               <h1 className="text-3xl font-light text-gray-900 tracking-tight capitalize mb-1">
-                {activeTab === 'dashboard' ? 'Painel Informativo' : activeTab}
+                {activeTab === 'dashboard' ? 'Painel Geral Executivo' :
+                 activeTab === 'entrada' ? 'Entrada & Pesagem Inicial' :
+                 activeTab === 'saida' ? 'Saída & Pesagem Final' :
+                 activeTab === 'fluxo' ? 'Fluxo de Veículos On-Time' :
+                 activeTab === 'agendamento' ? 'Agendamentos de Cargas' :
+                 activeTab === 'movimentacoes' ? 'Movimentações Internas' :
+                 activeTab === 'containers' ? 'Gestão de Contêineres' :
+                 activeTab === 'despacho' ? 'Despacho Ferroviário (VLI)' :
+                 activeTab === 'lista' ? 'Registro Geral de Cargas' :
+                 activeTab === 'faturamento' ? 'Faturamento Intermodal' :
+                 activeTab === 'relatorios' ? 'Relatórios Gerenciais & BI' :
+                 activeTab === 'filiais' ? 'Gestão de Filiais' :
+                 activeTab === 'cadastros' ? 'Base de Cadastros' :
+                 activeTab === 'kpis' ? (
+                   kpiSubTab === 'ontime' ? 'Status On-Time da Frota & Máquinas' :
+                   kpiSubTab === 'producao' ? 'Apontamentos de Produção & Turnos' :
+                   kpiSubTab === 'manutencao' ? 'Ordens de Serviço (OS)' :
+                   kpiSubTab === 'equipamentos' ? 'Parque de Máquinas & Horímetros' :
+                   kpiSubTab === 'dashboard' ? 'Indicadores Industriais & OEE' :
+                   'Guia Operacional & Metas'
+                 ) : activeTab}
               </h1>
               <div className="flex items-center gap-3">
                 <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Titam Intermodais</p>
@@ -3507,12 +4597,21 @@ export default function App() {
               </button>
 
               <button 
-                onClick={triggerTestAlert}
+                onClick={() => {
+                  setActiveTab('kpis');
+                  const unreadOp = operationalAlerts.filter(a => !a.lido).length;
+                  if (unreadOp > 0) {
+                    addNotification(`${unreadOp} alerta(s) de mudança operacional ativo(s) no pátio.`, "warning");
+                  } else {
+                    addNotification("Central de Alertas & Operação On-Time Titam aberta.", "info");
+                  }
+                }}
                 className="p-2.5 text-gray-400 hover:text-titam-deep hover:bg-gray-50 rounded-lg transition-all relative"
+                title="Central de Alertas Operacionais & Status da Frota"
               >
-                <Bell size={18} />
-                {notifications.length > 0 && (
-                  <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-red-500 rounded-full ring-2 ring-white" />
+                <Bell size={18} className={operationalAlerts.some(a => !a.lido && a.severidade === 'critica') ? 'text-rose-600 animate-bounce' : operationalAlerts.some(a => !a.lido) ? 'text-amber-500' : ''} />
+                {operationalAlerts.some(a => !a.lido) && (
+                  <span className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white animate-pulse" />
                 )}
               </button>
             </div>
@@ -4517,8 +5616,15 @@ export default function App() {
                   { key: 'data_nf', label: 'Data NF' },
                   { key: 'nf_numero', label: 'N.F' },
                   { key: 'id_lote', label: 'ID Lote' },
+                  ...(isVoltaRedonda ? [
+                    { key: 'letra' as any, label: 'Letra' },
+                    { key: 'turno' as any, label: 'Turno' },
+                    { key: 'local_descarga' as any, label: 'Local Descarga' },
+                  ] : []),
                   { key: 'data_descarga', label: 'Data Descarga' },
+                  { key: 'localizacao_atual' as any, label: 'Local Pátio' },
                   { key: 'tonelada', label: 'Tonelada' },
+                  { key: 'saldo_toneladas' as any, label: 'Saldo Disp.' },
                   { key: 'valor', label: 'Valor' },
                   { key: 'fornecedor', label: 'Fornecedor' },
                   { key: 'container', label: 'Container' },
@@ -4529,12 +5635,38 @@ export default function App() {
                   { key: 'descarga_time' as any, label: 'Tempo Descarga' },
                   { key: 'status', label: 'Status' }
                 ]}
-                onEdit={setSelectedEntry}
+                onEdit={(entry) => {
+                  setEditContext('entrada');
+                  setSelectedEntry(entry);
+                }}
                 onDelete={handleDeleteEntry}
                 onBulkDelete={handleBulkDeleteEntries}
               />
           </div>
         )}
+
+          {activeTab === 'movimentacoes' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <InternalMovementsManager
+                entries={entries}
+                movements={internalMovements}
+                yardLocations={yardLocations}
+                selectedBranchId={selectedBranchId}
+                branches={branches}
+                isAdmin={isAdmin}
+                userEmail={user?.email || ''}
+                onAddMovement={handleAddInternalMovement}
+                onDeleteMovement={handleDeleteInternalMovement}
+                onAddLocation={handleAddYardLocation}
+                onDeleteLocation={handleDeleteYardLocation}
+                onCreateFractionedExit={handleCreateFractionedExit}
+                onUpdateEntryLocation={handleUpdateEntryLocation}
+              />
+            </motion.div>
+          )}
 
           {activeTab === 'saida' && (
             <div className="space-y-6">
@@ -4572,6 +5704,11 @@ export default function App() {
                   { key: 'data_posicionamento', label: 'Data Posicionamento' },
                   { key: 'nf_numero', label: 'N.F' },
                   { key: 'id_lote', label: 'ID Lote' },
+                  ...(isVoltaRedonda ? [
+                    { key: 'letra' as any, label: 'Letra' },
+                    { key: 'turno' as any, label: 'Turno' },
+                    { key: 'local_descarga' as any, label: 'Local Descarga' },
+                  ] : []),
                   { key: 'descricao_produto', label: 'Produto' },
                   { key: 'tonelada', label: 'Tonelada' },
                   { key: 'container', label: 'Container' },
@@ -4587,11 +5724,34 @@ export default function App() {
                   { key: 'fornecedor', label: 'Fornecedor' },
                   { key: 'status', label: 'Status' }
                 ]}
-                onEdit={setSelectedEntry}
+                onEdit={(entry) => {
+                  setEditContext('saida');
+                  setSelectedEntry(entry);
+                }}
                 onDelete={handleDeleteEntry}
                 onBulkDelete={handleBulkDeleteEntries}
               />
             </div>
+          )}
+
+          {activeTab === 'despacho' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <RailDispatchManager
+                dispatches={dispatches}
+                containers={containers}
+                entries={entries}
+                selectedBranchId={selectedBranchId}
+                branches={branches}
+                isAdmin={isAdmin}
+                userEmail={user?.email || ''}
+                onSaveDispatch={handleSaveRailDispatch}
+                onDeleteDispatch={handleDeleteRailDispatch}
+                onUpdateDispatchStatus={handleUpdateRailDispatchStatus}
+              />
+            </motion.div>
           )}
 
           {activeTab === 'faturamento' && (
@@ -4609,7 +5769,10 @@ export default function App() {
                 { key: 'data_titam', label: 'Data TITAM' },
                 { key: 'faturamento_titam', label: 'Faturamento Titam' }
               ]}
-              onEdit={setSelectedEntry}
+              onEdit={(entry) => {
+                setEditContext('faturamento');
+                setSelectedEntry(entry);
+              }}
               onDelete={handleDeleteEntry}
               onBulkDelete={handleBulkDeleteEntries}
             />
@@ -4630,7 +5793,10 @@ export default function App() {
                 { key: 'created_by_email' as any, label: 'Usuário' },
                 { key: 'data_nf', label: 'Data NF' }
               ]}
-              onEdit={setSelectedEntry}
+              onEdit={(entry) => {
+                setEditContext('geral');
+                setSelectedEntry(entry);
+              }}
               onDelete={handleDeleteEntry}
               onBulkDelete={handleBulkDeleteEntries}
             />
@@ -4661,7 +5827,15 @@ export default function App() {
                 appointments={appointments}
                 selectedBranchId={selectedBranchId}
                 branches={branches}
+                isVoltaRedonda={isVoltaRedonda}
                 onQuickEntryStatusUpdate={handleQuickStatusUpdate}
+                onUpdateVRTerminalFlow={async (id, updates) => {
+                  return await handleUpdateEntry(id, updates);
+                }}
+                onOpenEditEntry={(entry) => {
+                  setEditContext('geral');
+                  setSelectedEntry(entry);
+                }}
                 onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
                 onCreateEntryOrExitFromAppointment={handleCreateEntryFromAppointment}
                 onOpenTransporterAccessModal={() => setIsTransporterAccessModalOpen(true)}
@@ -5087,6 +6261,9 @@ export default function App() {
                       'Rejeitado': 'bg-red-50 text-red-700 border-red-100',
                       'Em descarga': 'bg-purple-50 text-purple-700 border-purple-100',
                       'Em descarga na Arcelor': 'bg-purple-50 text-purple-700 border-purple-100',
+                      'Saída para descarga no cliente': 'bg-purple-50 text-purple-700 border-purple-100',
+                      'Entregue ao cliente': 'bg-teal-50 text-teal-700 border-teal-100',
+                      'Retorno Vazio do cliente': 'bg-teal-50 text-teal-700 border-teal-100',
                     };
 
                     const badgeClass = statusColors[result.currentStatus] || 'bg-gray-50 text-gray-600 border-gray-100';
@@ -5119,7 +6296,7 @@ export default function App() {
                           <div className="flex justify-between text-[10px]">
                             <span className="text-gray-400 font-medium uppercase tracking-wider">Status Atual:</span>
                             <span className={`px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                              {result.currentStatus}
+                              {result.currentStatus === 'Retorno Vazio do cliente' || result.currentStatus === 'retorno vazio ao cliente' ? 'Entregue ao cliente' : result.currentStatus}
                             </span>
                           </div>
 
@@ -5827,6 +7004,10 @@ export default function App() {
                           key={`dest-name-${editingRegistration?.id || 'new'}`}
                           className="w-full px-4 py-2 text-xs font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-titam-lime/20 outline-none uppercase" 
                         />
+                        <button type="submit" disabled={isProcessing} className="w-full py-2.5 bg-titam-deep text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-titam-deep/90 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                          {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : (editingRegistration?.type === 'destinations' ? <Check size={14} /> : <Plus size={14} />)} 
+                          {editingRegistration?.type === 'destinations' ? 'Salvar Alterações' : 'Adicionar Destino'}
+                        </button>
                       </form>
                     </div>
                   </div>
@@ -6209,6 +7390,42 @@ export default function App() {
               />
             </motion.div>
           )}
+
+          {activeTab === 'kpis' && (
+            <motion.div 
+              key="kpis"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <ProductionMaintenanceKpiManager
+                productionKpis={productionKpis}
+                maintenanceKpis={maintenanceKpis}
+                equipments={equipments}
+                branches={branches}
+                selectedBranchId={selectedBranchId}
+                isAdmin={isAdmin}
+                userEmail={user?.email || ''}
+                initialTab={kpiSubTab}
+                onTabChange={setKpiSubTab}
+                operationalAlerts={operationalAlerts}
+                onTriggerOperationalAlert={handleTriggerOperationalAlert}
+                onMarkAlertAsRead={handleMarkAlertAsRead}
+                onMarkAllAlertsAsRead={handleMarkAllAlertsAsRead}
+                onAddProductionKpi={handleAddProductionKpi}
+                onUpdateProductionKpi={handleUpdateProductionKpi}
+                onDeleteProductionKpi={handleDeleteProductionKpi}
+                onAddMaintenanceKpi={handleAddMaintenanceKpi}
+                onUpdateMaintenanceKpi={handleUpdateMaintenanceKpi}
+                onDeleteMaintenanceKpi={handleDeleteMaintenanceKpi}
+                onAddEquipment={handleAddEquipment}
+                onUpdateEquipment={handleUpdateEquipment}
+                onDeleteEquipment={handleDeleteEquipment}
+                onResetSeedExamples={handleResetSeedExamples}
+              />
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Edit Confirmation Modal */}
@@ -6408,177 +7625,325 @@ export default function App() {
                 onSubmit={handleCreateEntry} 
                 className="p-8 space-y-8"
               >
-                {!isVoltaRedonda ? (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
-                      <input 
-                        name="mes" 
-                        required 
-                        defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
-                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                      />
-                    </div>
-                    <Input label="Chave de Acesso NF" name="chave_acesso" required defaultValue={formData.chave_acesso} />
-                    <Input label="N.F" name="nf_numero" required defaultValue={formData.nf_numero} />
-                    <Input 
-                      label="Tonelada" 
-                      name="tonelada" 
-                      type="text" 
+                {/* Formulário com a ordem exata solicitada: 
+                    1. Mês de Referência, 2. Chave de Acesso NF, 3. Data N.F, 4. Origem, 5. Destinatário, 6. Destino,
+                    7. Descrição Produto, 8. Tonelada, 9. Valor, 10. ID do Lote / Nº do Pedido, 
+                    11. Data do Posicionamento / Chegada, 12. Data da Descarga, 13. Transportador, 
+                    14. Motorista, 15. Placa do Veículo, 16. Nº Vagão, 17. Container, 18. Status */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* 1. Mês de Referência */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                    <input 
+                      name="mes" 
                       required 
-                      defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                      placeholder="0,00" 
+                      defaultValue={formData.mes || getMonthName(formData.data_nf || formData.data_posicionamento || new Date().toISOString().split('T')[0])} 
+                      className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-medium"
+                      placeholder="Ex: Janeiro, Fevereiro..."
                     />
-                    <Input 
-                      label="Valor" 
-                      name="valor" 
-                      type="text" 
-                      maxLength={12} 
-                      required 
-                      defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                      placeholder="0,00" 
-                    />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
-                        <option value="" disabled>Selecione o produto</option>
-                        <option value="Cal Dolomítico">Cal Dolomítico</option>
-                        <option value="Cal Calcítico">Cal Calcítico</option>
-                        <option value="Bobina de Aço">Bobina de Aço</option>
-                        {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
-                        {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <Input label="ID do Lote / Nº do Pedido" name="id_lote" defaultValue={formData.id_lote} placeholder="Ex: PED-10492 ou Lote 88" />
-                    <Input label="Data N.F" name="data_nf" type="date" required defaultValue={formData.data_nf} />
-                    <Input label="Data Descarga" name="data_descarga" type="date" required defaultValue={formData.data_descarga} />
-                    <Input label="Data de Posicionamento" name="data_posicionamento" type="date" defaultValue={formData.data_posicionamento} />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                      <select name="status" defaultValue={formData.status || (isTitam ? "Em descarga" : "Estoque")} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="Estoque">Estoque</option>
-                        <option value="Em descarga">Em descarga</option>
-                        <option value="Trânsito Cheio">Trânsito Cheio</option>
-                        <option value="Rejeitado">Rejeitado</option>
-                        <option value="Embarcado">Embarcado</option>
-                        <option value="Devolvido">Devolvido</option>
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider font-bold">Fornecedor</label>
-                      <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="" disabled>Selecione o fornecedor</option>
-                        {filteredSuppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                      </select>
-                    </div>
-                    <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
-                    <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} placeholder="Ex: VAG-1234" />
-                    <ContainerSearchField 
-                      label="Container" 
-                      name="container" 
-                      defaultValue={formData.container} 
-                      branchId={selectedBranchId || ''}
-                      containers={containers}
-                      branches={branches}
-                    />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                      <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
-                        <option value="" disabled>Selecione o destino</option>
-                        <option value="Serra - ES">Serra - ES</option>
-                        <option value="Resende - RJ">Resende - RJ</option>
-                        <option value="Cosmorama - SP">Cosmorama - SP</option>
-                        {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
-                        {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                        {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                      </select>
-                    </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
-                      <input 
-                        name="mes" 
-                        defaultValue={formData.mes || getMonthName(formData.data_nf || new Date().toISOString().split('T')[0])} 
-                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                      />
-                    </div>
-                    <Input label="Chave de Acesso NF" name="chave_acesso" defaultValue={formData.chave_acesso} />
-                    <Input label="N.F" name="nf_numero" defaultValue={formData.nf_numero} />
-                    <Input 
-                      label="Tonelada" 
-                      name="tonelada" 
-                      type="text" 
-                      defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                      placeholder="0,00" 
+
+                  {/* 2. Chave de Acesso NF */}
+                  <Input 
+                    label="Chave de Acesso NF" 
+                    name="chave_acesso" 
+                    required 
+                    defaultValue={formData.chave_acesso || formData.nf_numero} 
+                    placeholder="44 dígitos da NF-e ou número"
+                  />
+
+                  {/* 3. Data N.F */}
+                  <Input 
+                    label="Data N.F" 
+                    name="data_nf" 
+                    type="date" 
+                    required 
+                    defaultValue={formData.data_nf || new Date().toISOString().split('T')[0]} 
+                  />
+
+                  {/* 4. Origem */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Origem</label>
+                    <input 
+                      list="origem-list"
+                      name="origem"
+                      required
+                      defaultValue={formData.origem || formData.fornecedor || ""}
+                      placeholder="Selecione ou digite a Origem"
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                     />
-                    <Input 
-                      label="Valor" 
-                      name="valor" 
-                      type="text" 
-                      maxLength={12} 
-                      defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
-                      placeholder="0,00" 
+                    <datalist id="origem-list">
+                      {filteredSuppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      <option value="Arcos - MG" />
+                      <option value="Matozinhos - MG" />
+                      <option value="Itaúna - MG" />
+                      <option value="Sete Lagoas - MG" />
+                      <option value="Titam Logística" />
+                    </datalist>
+                  </div>
+
+                  {/* 5. Destinatário */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destinatário</label>
+                    <input 
+                      list="destinatario-list"
+                      name="destinatario"
+                      defaultValue={formData.destinatario || formData.cliente || ""}
+                      placeholder="Selecione ou digite o Destinatário"
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                     />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                      <select name="descricao_produto" defaultValue={formData.descricao_produto || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" required>
-                        <option value="" disabled>Selecione o produto</option>
-                        <option value="Cal Dolomítico">Cal Dolomítico</option>
-                        <option value="Cal Calcítico">Cal Calcítico</option>
-                        <option value="Bobina de Aço">Bobina de Aço</option>
-                        <option value="Vazio">Vazio</option>
-                        {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <Input label="ID do Lote / Nº do Pedido" name="id_lote" defaultValue={formData.id_lote} placeholder="Ex: PED-10492 ou Lote 88" />
-                    <Input label="Data N.F" name="data_nf" type="date" defaultValue={formData.data_nf} />
-                    <Input label="Data Descarga" name="data_descarga" type="date" defaultValue={formData.data_descarga} />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
-                      <select name="status" defaultValue={(formData.status as any) === 'Em descarga' ? 'Em descarga na Arcelor' : ((formData.status as any) === 'Estoque' ? 'Estoque (Cheio Terminal)' : ((formData.status as any) === 'Transito vazio' || (formData.status as any) === 'Trânsito Vazio' ? 'Trânsito Vazio (Arcos)' : (formData.status || "Trânsito Cheio")))} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="Trânsito Cheio">Trânsito Cheio</option>
-                        <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
-                        <option value="Em descarga na Arcelor">Em descarga na Arcelor</option>
-                        <option value="Vazio Terminal">Vazio Terminal</option>
-                        <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
-                        <option value="Rejeitado">Rejeitado</option>
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Fornecedor</label>
-                      <select name="fornecedor" defaultValue={formData.fornecedor || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="" disabled>Selecione o fornecedor</option>
-                        {filteredSuppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                      <select name="destino" defaultValue={formData.destino || ""} className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" required>
-                        <option value="" disabled>Selecione o destino</option>
-                        <option value="Arcos - MG">Arcos - MG</option>
-                        {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                      </select>
-                    </div>
-                    <ContainerSearchField 
-                      label="Container" 
-                      name="container" 
-                      defaultValue={formData.container} 
-                      branchId={selectedBranchId || ''}
-                      containers={containers}
-                      branches={branches}
+                    <datalist id="destinatario-list">
+                      {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      <option value="ArcelorMittal" />
+                      <option value="Gerdau" />
+                      <option value="CSN" />
+                      <option value="Usiminas" />
+                      <option value="Titam Logística" />
+                    </datalist>
+                  </div>
+
+                  {/* 6. Destino */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                    <select 
+                      name="destino" 
+                      defaultValue={formData.destino || (!isVoltaRedonda ? "Serra - ES" : "Arcos - MG")} 
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" 
+                      required
+                    >
+                      <option value="" disabled>Selecione o destino</option>
+                      {!isVoltaRedonda ? (
+                        <>
+                          <option value="Serra - ES">Serra - ES</option>
+                          <option value="Resende - RJ">Resende - RJ</option>
+                          <option value="Cosmorama - SP">Cosmorama - SP</option>
+                          {isTitam && <option value="Timoteo - MG">Timoteo - MG</option>}
+                          {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                          {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </>
+                      ) : (
+                        <>
+                          <option value="Arcos - MG">Arcos - MG</option>
+                          {filteredDestinations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                          {filteredCustomers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* 7. Descrição Produto */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                    <select 
+                      name="descricao_produto" 
+                      defaultValue={formData.descricao_produto || ""} 
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase" 
+                      required
+                    >
+                      <option value="" disabled>Selecione o produto</option>
+                      <option value="Cal Dolomítico">Cal Dolomítico</option>
+                      <option value="Cal Calcítico">Cal Calcítico</option>
+                      <option value="Bobina de Aço">Bobina de Aço</option>
+                      {isVoltaRedonda && <option value="Vazio">Vazio</option>}
+                      {isTitam && <option value="Minério de Ferro">Minério de Ferro</option>}
+                      {filteredProducts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* 8. Tonelada */}
+                  <Input 
+                    label="Tonelada" 
+                    name="tonelada" 
+                    type="text" 
+                    required 
+                    defaultValue={formData.tonelada !== undefined ? Number(formData.tonelada).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                    placeholder="0,00" 
+                  />
+
+                  {/* 9. Valor */}
+                  <Input 
+                    label="Valor" 
+                    name="valor" 
+                    type="text" 
+                    maxLength={12} 
+                    required 
+                    defaultValue={formData.valor !== undefined ? Number(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''} 
+                    placeholder="0,00" 
+                  />
+
+                  {/* 10. ID do Lote / Nº do Pedido */}
+                  <Input 
+                    label="ID do Lote / Nº do Pedido" 
+                    name="id_lote" 
+                    defaultValue={formData.id_lote} 
+                    placeholder="Ex: PED-10492 ou Lote 88" 
+                  />
+
+                  {/* 11. Data do Posicionamento / Chegada */}
+                  <Input 
+                    label="Data do Posicionamento / Chegada" 
+                    name="data_posicionamento" 
+                    type="date" 
+                    defaultValue={formData.data_posicionamento || formData.data_chegada} 
+                  />
+
+                  {/* 12. Data da Descarga */}
+                  <Input 
+                    label="Data da Descarga" 
+                    name="data_descarga" 
+                    type="date" 
+                    required 
+                    defaultValue={formData.data_descarga || new Date().toISOString().split('T')[0]} 
+                  />
+
+                  {/* 13. Transportador */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
+                    <input 
+                      list="transportador-list"
+                      name="transportador"
+                      defaultValue={formData.transportador || ""}
+                      placeholder="Ex: VLI, MRS, Transnorte..."
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
                     />
-                    <Input label="Placa do Veículo" name="placa_veiculo" defaultValue={formData.placa_veiculo} />
-                    <Input label="Nº Vagão" name="numero_vagao" defaultValue={formData.numero_vagao} placeholder="Ex: VAG-1234" />
+                    <datalist id="transportador-list">
+                      {filteredTransporters.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                      <option value="VLI" />
+                      <option value="MRS Logística" />
+                      <option value="Transnorte" />
+                      <option value="Titam Logística" />
+                    </datalist>
+                  </div>
+
+                  {/* 14. Motorista */}
+                  <Input 
+                    label="Motorista" 
+                    name="motorista" 
+                    defaultValue={formData.motorista} 
+                    placeholder="Nome do Motorista" 
+                  />
+
+                  {/* 15. Placa do Veículo */}
+                  <Input 
+                    label="Placa do Veículo" 
+                    name="placa_veiculo" 
+                    defaultValue={formData.placa_veiculo} 
+                    placeholder="Ex: ABC-1234 / ABC1D23" 
+                  />
+
+                  {/* 16. Nº Vagão */}
+                  <Input 
+                    label="Nº Vagão" 
+                    name="numero_vagao" 
+                    defaultValue={formData.numero_vagao} 
+                    placeholder="Ex: VAG-1234" 
+                  />
+
+                  {/* 17. Container */}
+                  <ContainerSearchField 
+                    label="Container" 
+                    name="container" 
+                    defaultValue={formData.container} 
+                    branchId={selectedBranchId || ''}
+                    containers={containers}
+                    branches={branches}
+                  />
+
+                  {/* 18. Status */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
+                    <select 
+                      name="status" 
+                      defaultValue={formData.status || (isVoltaRedonda ? "Trânsito Cheio" : (isTitam ? "Em descarga" : "Estoque"))} 
+                      className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" 
+                      required
+                    >
+                      {!isVoltaRedonda ? (
+                        <>
+                          <option value="Estoque">Estoque</option>
+                          <option value="Em descarga">Em descarga</option>
+                          <option value="Trânsito Cheio">Trânsito Cheio</option>
+                          <option value="Rejeitado">Rejeitado</option>
+                          <option value="Embarcado">Embarcado</option>
+                          <option value="Devolvido">Devolvido</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Trânsito Cheio">Trânsito Cheio</option>
+                          <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                          <option value="Saída para descarga no cliente">Saída para descarga no cliente</option>
+                          <option value="Entregue ao cliente">Entregue ao cliente</option>
+                          <option value="Vazio Terminal">Vazio Terminal</option>
+                          <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                          <option value="Rejeitado">Rejeitado</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {isVoltaRedonda && (
+                  <div className="col-span-1 md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white rounded-2xl border border-gray-200 shadow-2xs">
+                    <Input label="Letra" name="letra" defaultValue={formData.letra} placeholder="Ex: A, B, C..." />
+                    <Input label="Turno" name="turno" defaultValue={formData.turno} placeholder="Ex: 1º Turno, 2º Turno..." />
+                    <Input label="Local de Descarga" name="local_descarga" defaultValue={formData.local_descarga} placeholder="Ex: Pátio, Galpão, Baia..." />
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
-                  <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
-                  <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
-                  <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
-                </div>
+                {isVoltaRedonda ? (
+                  <div className="col-span-1 md:col-span-3 bg-gray-50/80 p-4 rounded-2xl border border-gray-200/80 space-y-3 pt-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-titam-deep uppercase tracking-wider flex items-center gap-1.5">
+                        <Clock size={14} className="text-titam-lime" />
+                        Fluxo do Terminal (Volta Redonda)
+                      </span>
+                      <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-white px-2.5 py-0.5 rounded-full border border-gray-100 shadow-2xs">
+                        Gerido no Fluxo de Veículos
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* 1. Chegada no terminal */}
+                      <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                        <label className="text-[10px] font-black text-blue-700 uppercase tracking-wider block">
+                          Data e hora de Chegada No terminal
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input label="Data Chegada" name="data_chegada_terminal" type="date" defaultValue={formData.data_chegada_terminal} />
+                          <Input label="Hora Chegada" name="hora_chegada_terminal" type="time" defaultValue={formData.hora_chegada_terminal} />
+                        </div>
+                      </div>
+
+                      {/* 2. Saída Terminal */}
+                      <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                        <label className="text-[10px] font-black text-amber-700 uppercase tracking-wider block">
+                          Data e hora Saída Terminal
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input label="Data Saída" name="data_saida_terminal" type="date" defaultValue={formData.data_saida_terminal} />
+                          <Input label="Hora Saída" name="hora_saida_terminal" type="time" defaultValue={formData.hora_saida_terminal} />
+                        </div>
+                      </div>
+
+                      {/* 3. Retorno do terminal */}
+                      <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                        <label className="text-[10px] font-black text-teal-700 uppercase tracking-wider block">
+                          Data e Hora: Retorno do terminal
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input label="Data Retorno" name="data_retorno_terminal" type="date" defaultValue={formData.data_retorno_terminal} />
+                          <Input label="Hora Retorno" name="hora_retorno_terminal" type="time" defaultValue={formData.hora_retorno_terminal} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                    <Input label="Hora Chegada" name="hora_chegada" type="time" defaultValue={formData.hora_chegada} />
+                    <Input label="Hora Entrada" name="hora_entrada" type="time" defaultValue={formData.hora_entrada} />
+                    <Input label="Hora Saída" name="hora_saida" type="time" defaultValue={formData.hora_saida} />
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-3 mt-4 border-t border-gray-100 pt-6">
                   <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors" disabled={isSaving}>Cancelar</button>
@@ -6668,410 +8033,750 @@ export default function App() {
           </div>
         )}
 
-        {/* Edit Modal (Generic for Exit, Performance, Billing) */}
+        {/* Edit Modal */}
         {selectedEntry && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto transition-all duration-700"
+              className={`bg-white rounded-2xl shadow-2xl w-full ${editContext === 'entrada' || modalTab === 'entrada' ? 'max-w-4xl' : 'max-w-2xl'} max-h-[90vh] overflow-auto transition-all duration-700`}
             >
               <div className="p-6 border-b border-gray-100 bg-white flex justify-between items-center sticky top-0 backdrop-blur-md z-10 transition-all duration-700">
-                <h2 className="text-xl font-semibold text-gray-900">Atualizar Registro: NF {selectedEntry.nf_numero}</h2>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {editContext === 'entrada' 
+                      ? 'Atualizar Entrada de Produto' 
+                      : editContext === 'saida' 
+                        ? 'Atualizar Saída de Produto' 
+                        : editContext === 'faturamento' 
+                          ? 'Atualizar Faturamento / CTE' 
+                          : 'Atualizar Registro'}
+                    <span className="text-titam-deep ml-2">NF {editFormData.nf_numero || editFormData.chave_acesso || selectedEntry.nf_numero || ''}</span>
+                  </h2>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                    {editContext === 'entrada' 
+                      ? 'Gestão de Entrada — Exibindo apenas os dados do Novo Registro' 
+                      : editContext === 'saida'
+                        ? 'Gestão de Saídas — Dados de expedição e transporte'
+                        : editContext === 'faturamento'
+                          ? 'Faturamento — Dados fiscais e CTEs'
+                          : 'Todos os Registros'}
+                  </p>
+                </div>
                 <button onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <X size={24} />
                 </button>
               </div>
+
+              {/* Se for edição geral, exibe abas para alternar */}
+              {editContext === 'geral' && (
+                <div className="px-8 pt-4 flex gap-2 border-b border-gray-100 bg-gray-50/50">
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('entrada')}
+                    className={`pb-2 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${modalTab === 'entrada' ? 'border-titam-lime text-titam-deep' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+                  >
+                    Entrada (Novo Registro)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('saida')}
+                    className={`pb-2 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${modalTab === 'saida' ? 'border-titam-lime text-titam-deep' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+                  >
+                    Saída
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('faturamento')}
+                    className={`pb-2 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${modalTab === 'faturamento' ? 'border-titam-lime text-titam-deep' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+                  >
+                    Faturamento
+                  </button>
+                </div>
+              )}
+
               <div className="p-8 space-y-8">
                 {(() => {
                   const editBranch = branches.find(b => b.id === editFormData.branchId);
                   const isVREdit = editBranch?.name?.toLowerCase().includes('volta redonda') || false;
                   const isTitamEdit = editBranch?.name?.toLowerCase().includes('titam') || false;
+                  const currentSection = editContext === 'geral' ? modalTab : editContext;
+
                   return (
                     <>
-                {/* Section: Entrada */}
-                <section className="space-y-4">
-                  <h3 className="text-sm font-bold text-titam-lime uppercase tracking-widest">Informações de Entrada</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <Input 
-                      label="Número NF" 
-                      value={editFormData.nf_numero || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, nf_numero: e.target.value }))}
-                    />
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Fornecedor</label>
-                      <select 
-                        value={editFormData.fornecedor || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, fornecedor: e.target.value }))}
-                        className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
-                      >
-                        <option value="">Selecione o fornecedor</option>
-                        {suppliers.filter(s => s.branchId === editFormData.branchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                        {!suppliers.filter(s => s.branchId === editFormData.branchId).find(s => s.name === editFormData.fornecedor) && editFormData.fornecedor && (
-                          <option value={editFormData.fornecedor}>{editFormData.fornecedor}</option>
-                        )}
-                      </select>
-                    </div>
-                    {!isVREdit && (
-                      <>
-                        <Input 
-                          label="Placa Veículo" 
-                          value={editFormData.placa_veiculo || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
-                        />
-                        <Input 
-                          label="Nº Vagão" 
-                          value={editFormData.numero_vagao || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
-                        />
-                      </>
-                    )}
-                    <Input 
-                      label="Data NF" 
-                      type="date"
-                      value={editFormData.data_nf || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
-                    />
-                    <Input 
-                      label="Data Descarga" 
-                      type="date"
-                      value={editFormData.data_descarga || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
-                    />
-                    <div className="col-span-2 md:col-span-3">
-                      <Input 
-                        label="Chave de Acesso" 
-                        value={editFormData.chave_acesso || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, chave_acesso: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                </section>
+                      {/* Visualização de Entrada (NOVO REGISTRO) */}
+                      {currentSection === 'entrada' && (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* 1. Mês de Referência */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
+                              <input 
+                                value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_posicionamento || '')} 
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, mes: e.target.value }))}
+                                className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-medium"
+                                placeholder="Ex: Janeiro, Fevereiro..."
+                              />
+                            </div>
 
-                {/* Section: Informações Gerais */}
-                <section className="space-y-4">
-                  <h3 className="text-sm font-bold text-gray-600 uppercase tracking-widest">Informações Gerais</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Mês de Referência</label>
-                      <input 
-                        value={editFormData.mes || getMonthName(editFormData.data_nf || editFormData.data_posicionamento)}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, mes: e.target.value }))}
-                        className="border border-gray-200 bg-gray-50 text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
-                      <select 
-                        value={editFormData.descricao_produto || ''}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
-                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
-                      >
-                        <option value="">Selecione o produto</option>
-                        <option value="Cal Dolomítico">Cal Dolomítico</option>
-                        <option value="Cal Calcítico">Cal Calcítico</option>
-                        <option value="Bobina de Aço">Bobina de Aço</option>
-                        {isVREdit && <option value="Vazio">Vazio</option>}
-                        {isTitamEdit && <option value="Minério de Ferro">Minério de Ferro</option>}
-                        {products.filter(p => p.branchId === editFormData.branchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                        {/* Fallback for existing value not in list */}
-                        {editFormData.descricao_produto && 
-                         !["Cal Dolomítico", "Cal Calcítico", "Bobina de Aço", "Vazio", "Minério de Ferro"].includes(editFormData.descricao_produto) &&
-                         !products.some(p => p.name === editFormData.descricao_produto && p.branchId === editFormData.branchId) && (
-                           <option key="current" value={editFormData.descricao_produto}>{editFormData.descricao_produto}</option>
-                        )}
-                      </select>
-                    </div>
-                    <Input 
-                      label="ID do Lote / Nº do Pedido" 
-                      value={editFormData.id_lote || ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, id_lote: e.target.value }))}
-                      placeholder="Ex: PED-10492 ou Lote 88"
-                    />
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
-                      <select 
-                        value={editFormData.destino || ''}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, destino: e.target.value }))}
-                        className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
-                      >
-                        <option value="">Selecione o destino</option>
-                        <option value="Serra - ES">Serra - ES</option>
-                        <option value="Resende - RJ">Resende - RJ</option>
-                        <option value="Cosmorama - SP">Cosmorama - SP</option>
-                        {(branches.find(b => b.id === editFormData.branchId)?.name?.toLowerCase().includes('titam') || isTitam) && <option value="Timoteo - MG">Timoteo - MG</option>}
-                        {isVREdit && <option value="Arcos - MG">Arcos - MG</option>}
-                        {destinations.filter(d => d.branchId === editFormData.branchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                        {customers
-                          .filter(c => c.branchId === editFormData.branchId)
-                          .filter(c => isVREdit ? c.name !== "ARCELORMITTAL SUL FLUMINENSE S.A" : true)
-                          .map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.destino) && 
-                         !destinations.filter(d => d.branchId === editFormData.branchId).find(d => d.name === editFormData.destino) && 
-                         editFormData.destino && !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG", "Arcos - MG"].includes(editFormData.destino) && (
-                          <option value={editFormData.destino}>{editFormData.destino}</option>
-                        )}
-                      </select>
-                    </div>
-                    <ContainerSearchField 
-                      label="Container" 
-                      name="container" 
-                      value={editFormData.container || ''} 
-                      onChange={(val) => setEditFormData(prev => ({ ...prev, container: val }))}
-                      branchId={editFormData.branchId || ''}
-                      containers={containers}
-                      branches={branches}
-                    />
-                    <Input 
-                      label="Tonelada" 
-                      type="text"
-                      value={editFormData.tonelada !== undefined ? (typeof editFormData.tonelada === 'number' ? editFormData.tonelada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.tonelada) : ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
-                    />
-                    <Input 
-                      label="Valor" 
-                      type="text"
-                      value={editFormData.valor !== undefined ? (typeof editFormData.valor === 'number' ? editFormData.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.valor) : ''} 
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
-                    />
-                    {!isVREdit && (
-                      <>
-                        <Input 
-                          label="Hora Chegada" 
-                          type="time" 
-                          value={editFormData.hora_chegada || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
-                        />
-                        <Input 
-                          label="Hora Entrada" 
-                          type="time" 
-                          value={editFormData.hora_entrada || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
-                        />
-                        <Input 
-                          label="Hora Saída" 
-                          type="time" 
-                          value={editFormData.hora_saida || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
-                        />
-                      </>
-                    )}
-                  </div>
-                </section>
+                            {/* 2. Chave de Acesso NF */}
+                            <Input 
+                              label="Chave de Acesso NF" 
+                              value={editFormData.chave_acesso || editFormData.nf_numero || ''} 
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const clean = val.replace(/\D/g, '');
+                                let derivedNf = val.trim();
+                                if (clean.length === 44) {
+                                  derivedNf = String(parseInt(clean.substring(25, 34), 10));
+                                }
+                                setEditFormData(prev => ({
+                                  ...prev,
+                                  chave_acesso: val,
+                                  nf_numero: derivedNf || prev.nf_numero
+                                }));
+                              }}
+                              placeholder="44 dígitos da NF-e ou número"
+                            />
 
-                {/* Section: Saída */}
-                <section className="space-y-4">
-                  <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
-                  
-                  {isVREdit && (
-                    <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 mb-4">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Modal de Transporte</label>
-                      <div className="flex gap-4 mt-2">
-                        <button 
-                          type="button"
-                          onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Rodoviário' }))}
-                          className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Rodoviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
-                        >
-                          Rodoviário
-                        </button>
-                        <button 
-                          type="button"
-                          onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Ferroviário' }))}
-                          className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Ferroviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
-                        >
-                          Ferroviário
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                            {/* 3. Data N.F */}
+                            <Input 
+                              label="Data N.F" 
+                              type="date" 
+                              value={editFormData.data_nf || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_nf: e.target.value }))}
+                            />
 
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    {(!isVREdit || editFormData.modal === 'Rodoviário') && (
-                      <>
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Transportador</label>
-                          <select 
-                            value={editFormData.transportador || ''} 
-                            onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
-                            className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
-                          >
-                            <option value="">Selecione o transportador</option>
-                            {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                            {!transporters.filter(t => t.branchId === editFormData.branchId).find(t => t.name === editFormData.transportador) && editFormData.transportador && (
-                              <option value={editFormData.transportador}>{editFormData.transportador}</option>
-                            )}
-                          </select>
+                            {/* 4. Origem */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Origem</label>
+                              <input 
+                                list="origem-edit-list"
+                                value={editFormData.origem || editFormData.fornecedor || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, origem: e.target.value, fornecedor: e.target.value }))}
+                                placeholder="Selecione ou digite a Origem"
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-medium"
+                              />
+                              <datalist id="origem-edit-list">
+                                {suppliers.filter(s => s.branchId === editFormData.branchId).map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                <option value="Arcos - MG" />
+                                <option value="Matozinhos - MG" />
+                                <option value="Itaúna - MG" />
+                                <option value="Sete Lagoas - MG" />
+                                <option value="Titam Logística" />
+                              </datalist>
+                            </div>
+
+                            {/* 5. Destinatário */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destinatário</label>
+                              <input 
+                                list="destinatario-edit-list"
+                                value={editFormData.destinatario || editFormData.cliente || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, destinatario: e.target.value, cliente: e.target.value }))}
+                                placeholder="Selecione ou digite o Destinatário"
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-medium"
+                              />
+                              <datalist id="destinatario-edit-list">
+                                {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                <option value="ArcelorMittal" />
+                                <option value="Gerdau" />
+                                <option value="CSN" />
+                                <option value="Usiminas" />
+                                <option value="Titam Logística" />
+                              </datalist>
+                            </div>
+
+                            {/* 6. Destino */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Destino</label>
+                              <select 
+                                value={editFormData.destino || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, destino: e.target.value }))}
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
+                              >
+                                <option value="">Selecione o destino</option>
+                                {!isVREdit ? (
+                                  <>
+                                    <option value="Serra - ES">Serra - ES</option>
+                                    <option value="Resende - RJ">Resende - RJ</option>
+                                    <option value="Cosmorama - SP">Cosmorama - SP</option>
+                                    {isTitamEdit && <option value="Timoteo - MG">Timoteo - MG</option>}
+                                    {destinations.filter(d => d.branchId === editFormData.branchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                                    {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="Arcos - MG">Arcos - MG</option>
+                                    {destinations.filter(d => d.branchId === editFormData.branchId).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                                    {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                  </>
+                                )}
+                                {editFormData.destino && 
+                                 !["Serra - ES", "Resende - RJ", "Cosmorama - SP", "Timoteo - MG", "Arcos - MG"].includes(editFormData.destino) &&
+                                 !destinations.some(d => d.name === editFormData.destino && d.branchId === editFormData.branchId) &&
+                                 !customers.some(c => c.name === editFormData.destino && c.branchId === editFormData.branchId) && (
+                                  <option value={editFormData.destino}>{editFormData.destino}</option>
+                                )}
+                              </select>
+                            </div>
+
+                            {/* 7. Descrição Produto */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Descrição Produto</label>
+                              <select 
+                                value={editFormData.descricao_produto || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, descricao_produto: e.target.value }))}
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-bold uppercase"
+                              >
+                                <option value="">Selecione o produto</option>
+                                <option value="Cal Dolomítico">Cal Dolomítico</option>
+                                <option value="Cal Calcítico">Cal Calcítico</option>
+                                <option value="Bobina de Aço">Bobina de Aço</option>
+                                {isVREdit && <option value="Vazio">Vazio</option>}
+                                {isTitamEdit && <option value="Minério de Ferro">Minério de Ferro</option>}
+                                {products.filter(p => p.branchId === editFormData.branchId).map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                {editFormData.descricao_produto && 
+                                 !["Cal Dolomítico", "Cal Calcítico", "Bobina de Aço", "Vazio", "Minério de Ferro"].includes(editFormData.descricao_produto) &&
+                                 !products.some(p => p.name === editFormData.descricao_produto && p.branchId === editFormData.branchId) && (
+                                  <option value={editFormData.descricao_produto}>{editFormData.descricao_produto}</option>
+                                )}
+                              </select>
+                            </div>
+
+                            {/* 8. Tonelada */}
+                            <Input 
+                              label="Tonelada" 
+                              type="text" 
+                              value={editFormData.tonelada !== undefined && editFormData.tonelada !== null ? (typeof editFormData.tonelada === 'number' ? editFormData.tonelada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.tonelada) : ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, tonelada: e.target.value as any }))}
+                              placeholder="0,00" 
+                            />
+
+                            {/* 9. Valor */}
+                            <Input 
+                              label="Valor" 
+                              type="text" 
+                              value={editFormData.valor !== undefined && editFormData.valor !== null ? (typeof editFormData.valor === 'number' ? editFormData.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : editFormData.valor) : ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, valor: e.target.value as any }))}
+                              placeholder="0,00" 
+                            />
+
+                            {/* 10. ID do Lote / Nº do Pedido */}
+                            <Input 
+                              label="ID do Lote / Nº do Pedido" 
+                              value={editFormData.id_lote || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, id_lote: e.target.value }))}
+                              placeholder="Ex: PED-10492 ou Lote 88" 
+                            />
+
+                            {/* 11. Data do Posicionamento / Chegada */}
+                            <Input 
+                              label="Data do Posicionamento / Chegada" 
+                              type="date" 
+                              value={editFormData.data_posicionamento || editFormData.data_chegada || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value, data_chegada: e.target.value }))}
+                            />
+
+                            {/* 12. Data da Descarga */}
+                            <Input 
+                              label="Data da Descarga" 
+                              type="date" 
+                              value={editFormData.data_descarga || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_descarga: e.target.value }))}
+                            />
+
+                            {/* 13. Transportador */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transportador</label>
+                              <input 
+                                list="transportador-edit-list"
+                                value={editFormData.transportador || ''}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                                placeholder="Ex: VLI, MRS, Transnorte..."
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700 font-medium"
+                              />
+                              <datalist id="transportador-edit-list">
+                                {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                <option value="VLI" />
+                                <option value="MRS Logística" />
+                                <option value="Transnorte" />
+                                <option value="Titam Logística" />
+                              </datalist>
+                            </div>
+
+                            {/* 14. Motorista */}
+                            <Input 
+                              label="Motorista" 
+                              value={editFormData.motorista || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, motorista: e.target.value }))}
+                              placeholder="Nome do Motorista" 
+                            />
+
+                            {/* 15. Placa do Veículo */}
+                            <Input 
+                              label="Placa do Veículo" 
+                              value={editFormData.placa_veiculo || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, placa_veiculo: e.target.value }))}
+                              placeholder="Ex: ABC-1234 / ABC1D23" 
+                            />
+
+                            {/* 16. Nº Vagão */}
+                            <Input 
+                              label="Nº Vagão" 
+                              value={editFormData.numero_vagao || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
+                              placeholder="Ex: VAG-1234" 
+                            />
+
+                            {/* 17. Container */}
+                            <ContainerSearchField 
+                              label="Container" 
+                              name="container" 
+                              value={editFormData.container || ''} 
+                              onChange={(val) => setEditFormData(prev => ({ ...prev, container: val }))}
+                              branchId={editFormData.branchId || selectedBranchId || ''}
+                              containers={containers}
+                              branches={branches}
+                            />
+
+                            {/* 18. Status */}
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</label>
+                              <select 
+                                value={editFormData.status || ''} 
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" 
+                              >
+                                {!isVREdit ? (
+                                  <>
+                                    <option value="Estoque">Estoque</option>
+                                    <option value="Em descarga">Em descarga</option>
+                                    <option value="Trânsito Cheio">Trânsito Cheio</option>
+                                    <option value="Rejeitado">Rejeitado</option>
+                                    <option value="Embarcado">Embarcado</option>
+                                    <option value="Devolvido">Devolvido</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="Trânsito Cheio">Trânsito Cheio</option>
+                                    <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                                    <option value="Saída para descarga no cliente">Saída para descarga no cliente</option>
+                                    <option value="Entregue ao cliente">Entregue ao cliente</option>
+                                    {((editFormData.status as string) === 'Retorno Vazio do cliente' || (editFormData.status as string) === 'retorno vazio ao cliente') && (
+                                      <option value="Retorno Vazio do cliente">Entregue ao cliente</option>
+                                    )}
+                                    {(editFormData.status as string) === 'Em descarga na Arcelor' && (
+                                      <option value="Em descarga na Arcelor">Saída para descarga no cliente</option>
+                                    )}
+                                    <option value="Vazio Terminal">Vazio Terminal</option>
+                                    <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                                    <option value="Rejeitado">Rejeitado</option>
+                                  </>
+                                )}
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Horários */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-gray-100">
+                            <Input 
+                              label="Hora Chegada" 
+                              type="time" 
+                              value={editFormData.hora_chegada || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada: e.target.value }))}
+                            />
+                            <Input 
+                              label="Hora Entrada" 
+                              type="time" 
+                              value={editFormData.hora_entrada || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, hora_entrada: e.target.value }))}
+                            />
+                            <Input 
+                              label="Hora Saída" 
+                              type="time" 
+                              value={editFormData.hora_saida || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida: e.target.value }))}
+                            />
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente</label>
-                          <select 
-                            value={editFormData.cliente || ''} 
-                            onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
-                            className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
-                          >
-                            <option value="">Selecione o cliente</option>
-                            {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                            {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.cliente) && editFormData.cliente && (
-                              <option value={editFormData.cliente}>{editFormData.cliente}</option>
+                      )}
+
+                      {/* Visualização de Saída */}
+                      {currentSection === 'saida' && (
+                        <section className="space-y-4">
+                          <h3 className="text-sm font-bold text-titam-deep uppercase tracking-widest">Informações de Saída</h3>
+                          
+                          {isVREdit && (
+                            <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 mb-4">
+                              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Modal de Transporte</label>
+                              <div className="flex gap-4 mt-2">
+                                <button 
+                                  type="button"
+                                  onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Rodoviário' }))}
+                                  className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Rodoviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
+                                >
+                                  Rodoviário
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setEditFormData(prev => ({ ...prev, modal: 'Ferroviário' }))}
+                                  className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all flex items-center justify-center gap-2 text-xs font-bold ${editFormData.modal === 'Ferroviário' ? 'border-titam-lime bg-titam-lime/5 text-titam-deep' : 'border-gray-100 bg-white text-gray-400 hover:border-gray-200'}`}
+                                >
+                                  Ferroviário
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            {(!isVREdit || editFormData.modal === 'Rodoviário') && (
+                              <>
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Transportador</label>
+                                  <select 
+                                    value={editFormData.transportador || ''} 
+                                    onChange={(e) => setEditFormData(prev => ({ ...prev, transportador: e.target.value }))}
+                                    className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                                  >
+                                    <option value="">Selecione o transportador</option>
+                                    {transporters.filter(t => t.branchId === editFormData.branchId).map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                    {!transporters.filter(t => t.branchId === editFormData.branchId).find(t => t.name === editFormData.transportador) && editFormData.transportador && (
+                                      <option value={editFormData.transportador}>{editFormData.transportador}</option>
+                                    )}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Cliente</label>
+                                  <select 
+                                    value={editFormData.cliente || ''} 
+                                    onChange={(e) => setEditFormData(prev => ({ ...prev, cliente: e.target.value }))}
+                                    className="border border-gray-100 bg-gray-50/50 text-gray-900 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-titam-lime/30 focus:border-titam-lime focus:bg-white outline-none transition-all font-bold uppercase"
+                                  >
+                                    <option value="">Selecione o cliente</option>
+                                    {customers.filter(c => c.branchId === editFormData.branchId).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                                    {!customers.filter(c => c.branchId === editFormData.branchId).find(c => c.name === editFormData.cliente) && editFormData.cliente && (
+                                      <option value={editFormData.cliente}>{editFormData.cliente}</option>
+                                    )}
+                                  </select>
+                                </div>
+                                <Input 
+                                  label="Data Carregamento Rodoviário" 
+                                  type="date" 
+                                  value={editFormData.data_carregamento_rodoviario || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, data_carregamento_rodoviario: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Placa Veículo (Saída)" 
+                                  value={editFormData.placa_saida || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, placa_saida: e.target.value }))}
+                                />
+                              </>
                             )}
-                          </select>
-                        </div>
-                        <Input 
-                          label="Data Carregamento Rodoviário" 
-                          type="date"
-                          value={editFormData.data_carregamento_rodoviario || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_carregamento_rodoviario: e.target.value }))}
-                        />
-                        <Input 
-                          label="Placa Veículo (Saída)" 
-                          value={editFormData.placa_saida || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, placa_saida: e.target.value }))}
-                        />
-                      </>
-                    )}
 
-                    {(!isVREdit || editFormData.modal === 'Ferroviário') && (
-                      <>
-                        <Input 
-                          label="Data de Posicionamento" 
-                          type="date" 
-                          value={editFormData.data_posicionamento || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
-                        />
-                        <Input 
-                          label="Horário de Posicionamento" 
-                          type="time"
-                          value={editFormData.horario_posicionamento || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
-                        />
-                        <Input 
-                          label="Data Final Carregamento" 
-                          type="date"
-                          value={editFormData.data_final_carregamento || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, data_final_carregamento: e.target.value }))}
-                        />
-                        <Input 
-                          label="Horário Final Carregamento" 
-                          type="time"
-                          value={editFormData.horario_final_carregamento || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, horario_final_carregamento: e.target.value }))}
-                        />
-                        <Input 
-                          label="Nº Vagão" 
-                          value={editFormData.numero_vagao || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
-                        />
-                        <Input 
-                          label="Número do Container" 
-                          value={editFormData.container || ''} 
-                          onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
-                        />
-                      </>
-                    )}
+                            {(!isVREdit || editFormData.modal === 'Ferroviário') && (
+                              <>
+                                <Input 
+                                  label="Data de Posicionamento" 
+                                  type="date" 
+                                  value={editFormData.data_posicionamento || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, data_posicionamento: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Horário de Posicionamento" 
+                                  type="time" 
+                                  value={editFormData.horario_posicionamento || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, horario_posicionamento: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Data Final Carregamento" 
+                                  type="date" 
+                                  value={editFormData.data_final_carregamento || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, data_final_carregamento: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Horário Final Carregamento" 
+                                  type="time" 
+                                  value={editFormData.horario_final_carregamento || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, horario_final_carregamento: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Nº Vagão" 
+                                  value={editFormData.numero_vagao || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, numero_vagao: e.target.value }))}
+                                />
+                                <Input 
+                                  label="Número do Container" 
+                                  value={editFormData.container || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, container: e.target.value }))}
+                                />
+                              </>
+                            )}
 
-                    {!isVREdit && (
-                      <Input 
-                        label="Data Faturamento VLI" 
-                        type="date" 
-                        value={editFormData.data_faturamento_vli || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
-                      />
-                    )}
-                    {!isVREdit && (
-                      <Input 
-                        label="Horário de Faturamento" 
-                        type="time"
-                        value={editFormData.horario_faturamento || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
-                      />
-                    )}
+                            {!isVREdit && (
+                              <Input 
+                                label="Data Faturamento VLI" 
+                                type="date" 
+                                value={editFormData.data_faturamento_vli || ''} 
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, data_faturamento_vli: e.target.value }))}
+                              />
+                            )}
+                            {!isVREdit && (
+                              <Input 
+                                label="Horário de Faturamento" 
+                                type="time" 
+                                value={editFormData.horario_faturamento || ''} 
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, horario_faturamento: e.target.value }))}
+                              />
+                            )}
 
-                     <div className="flex flex-col gap-1">
-                       <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
-                       <select 
-                         value={editFormData.status || ''}
-                         onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                         className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700"
-                       >
-                         {isVREdit ? (
-                           <>
-                             <option value="Trânsito Cheio">Trânsito Cheio</option>
-                             <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
-                             <option value="Em descarga na Arcelor">Em descarga na Arcelor</option>
-                             <option value="Vazio Terminal">Vazio Terminal</option>
-                             <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
-                             <option value="Rejeitado">Rejeitado</option>
-                           </>
-                         ) : (
-                           <>
-                             <option value="Estoque">Estoque</option>
-                             <option value="Em descarga">Em descarga</option>
-                             <option value="Trânsito Cheio">Trânsito Cheio</option>
-                             <option value="Rejeitado">Rejeitado</option>
-                             <option value="Embarcado">Embarcado</option>
-                             <option value="Devolvido">Devolvido</option>
-                           </>
-                         )}
-                       </select>
-                     </div>
-                  </div>
-                </section>
+                            {isVREdit && (
+                              <div className="col-span-2 lg:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white rounded-2xl border border-gray-200 shadow-2xs">
+                                <Input 
+                                  label="Letra" 
+                                  value={editFormData.letra || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, letra: e.target.value.toUpperCase() }))}
+                                  placeholder="Ex: A, B, C..."
+                                />
+                                <Input 
+                                  label="Turno" 
+                                  value={editFormData.turno || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, turno: e.target.value }))}
+                                  placeholder="Ex: 1º Turno, 2º Turno..."
+                                />
+                                <Input 
+                                  label="Local de Descarga" 
+                                  value={editFormData.local_descarga || ''} 
+                                  onChange={(e) => setEditFormData(prev => ({ ...prev, local_descarga: e.target.value }))}
+                                  placeholder="Ex: Pátio, Galpão, Baia..."
+                                />
+                              </div>
+                            )}
 
-                {/* Section: Faturamento */}
-                {!isVREdit && (
-                  <section className="space-y-4">
-                    <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Input 
-                        label="Data Emissão NF" 
-                        type="date" 
-                        value={editFormData.data_emissao_nf || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
-                      />
-                      <Input 
-                        label="Emissão CTE Intertex" 
-                        type="date" 
-                        value={editFormData.data_emissao_cte || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
-                      />
-                      <Input 
-                        label="CTE Intertex" 
-                        value={editFormData.cte_intertex || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
-                      />
-                      <Input 
-                        label="Emissão CTE Transp." 
-                        type="date" 
-                        value={editFormData.data_emissao_cte_transp || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
-                      />
-                      <Input 
-                        label="CTE Transportador" 
-                        value={editFormData.cte_transportador || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
-                      />
-                      <Input 
-                        label="Data TITAM" 
-                        type="date"
-                        value={editFormData.data_titam || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
-                      />
-                      <Input 
-                        label="Faturamento Titam" 
-                        value={editFormData.faturamento_titam || ''} 
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
-                      />
-                    </div>
-                  </section>
-                )}
+                            {isVREdit && (
+                              <div className="col-span-2 lg:col-span-4 bg-gray-50/80 p-4 rounded-2xl border border-gray-200/80 space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-black text-titam-deep uppercase tracking-wider flex items-center gap-1.5">
+                                    <Clock size={14} className="text-titam-lime" />
+                                    Fluxo do Terminal (Volta Redonda)
+                                  </span>
+                                  <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-white px-2.5 py-0.5 rounded-full border border-gray-100 shadow-2xs">
+                                    Gerido no Fluxo de Veículos
+                                  </span>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  {/* 1. Chegada no terminal */}
+                                  <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-[10px] font-black text-blue-700 uppercase tracking-wider">
+                                        Data e hora de Chegada No terminal
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const now = new Date();
+                                          setEditFormData(prev => ({
+                                            ...prev,
+                                            data_chegada_terminal: now.toISOString().slice(0, 10),
+                                            hora_chegada_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                          }));
+                                        }}
+                                        className="text-[9px] font-black text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded uppercase transition-colors"
+                                      >
+                                        Agora
+                                      </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input 
+                                        label="Data Chegada" 
+                                        type="date" 
+                                        value={editFormData.data_chegada_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_chegada_terminal: e.target.value }))}
+                                      />
+                                      <Input 
+                                        label="Hora Chegada" 
+                                        type="time" 
+                                        value={editFormData.hora_chegada_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_chegada_terminal: e.target.value }))}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* 2. Saída Terminal */}
+                                  <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-[10px] font-black text-amber-700 uppercase tracking-wider">
+                                        Data e hora Saída Terminal
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const now = new Date();
+                                          setEditFormData(prev => ({
+                                            ...prev,
+                                            data_saida_terminal: now.toISOString().slice(0, 10),
+                                            hora_saida_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                                            data_carregamento_rodoviario: prev.data_carregamento_rodoviario || now.toISOString().slice(0, 10),
+                                            status: prev.status === 'Estoque (Cheio Terminal)' || prev.status === 'Trânsito Cheio' ? 'Saída para descarga no cliente' : prev.status
+                                          }));
+                                        }}
+                                        className="text-[9px] font-black text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded uppercase transition-colors"
+                                      >
+                                        Agora
+                                      </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input 
+                                        label="Data Saída" 
+                                        type="date" 
+                                        value={editFormData.data_saida_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_saida_terminal: e.target.value }))}
+                                      />
+                                      <Input 
+                                        label="Hora Saída" 
+                                        type="time" 
+                                        value={editFormData.hora_saida_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_saida_terminal: e.target.value }))}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* 3. Retorno do terminal */}
+                                  <div className="bg-white p-3 rounded-xl border border-gray-200/80 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-[10px] font-black text-teal-700 uppercase tracking-wider">
+                                        Data e Hora: Retorno do terminal
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const now = new Date();
+                                          setEditFormData(prev => ({
+                                            ...prev,
+                                            data_retorno_terminal: now.toISOString().slice(0, 10),
+                                            hora_retorno_terminal: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                                            status: 'Entregue ao cliente'
+                                          }));
+                                        }}
+                                        className="text-[9px] font-black text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-1.5 py-0.5 rounded uppercase transition-colors"
+                                      >
+                                        Agora
+                                      </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input 
+                                        label="Data Retorno" 
+                                        type="date" 
+                                        value={editFormData.data_retorno_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, data_retorno_terminal: e.target.value }))}
+                                      />
+                                      <Input 
+                                        label="Hora Retorno" 
+                                        type="time" 
+                                        value={editFormData.hora_retorno_terminal || ''} 
+                                        onChange={(e) => setEditFormData(prev => ({ ...prev, hora_retorno_terminal: e.target.value }))}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Atual</label>
+                              <select 
+                                value={editFormData.status || ''} 
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                                className="border border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-titam-lime outline-none transition-all duration-700" 
+                              >
+                                {isVREdit ? (
+                                  <>
+                                    <option value="Trânsito Cheio">Trânsito Cheio</option>
+                                    <option value="Estoque (Cheio Terminal)">Estoque (Cheio Terminal)</option>
+                                    <option value="Saída para descarga no cliente">Saída para descarga no cliente</option>
+                                    <option value="Entregue ao cliente">Entregue ao cliente</option>
+                                    {((editFormData.status as string) === 'Retorno Vazio do cliente' || (editFormData.status as string) === 'retorno vazio ao cliente') && (
+                                      <option value="Retorno Vazio do cliente">Entregue ao cliente</option>
+                                    )}
+                                    {(editFormData.status as string) === 'Em descarga na Arcelor' && (
+                                      <option value="Em descarga na Arcelor">Saída para descarga no cliente</option>
+                                    )}
+                                    <option value="Vazio Terminal">Vazio Terminal</option>
+                                    <option value="Trânsito Vazio (Arcos)">Trânsito Vazio (Arcos)</option>
+                                    <option value="Rejeitado">Rejeitado</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="Estoque">Estoque</option>
+                                    <option value="Em descarga">Em descarga</option>
+                                    <option value="Trânsito Cheio">Trânsito Cheio</option>
+                                    <option value="Rejeitado">Rejeitado</option>
+                                    <option value="Embarcado">Embarcado</option>
+                                    <option value="Devolvido">Devolvido</option>
+                                  </>
+                                )}
+                              </select>
+                            </div>
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Visualização de Faturamento */}
+                      {currentSection === 'faturamento' && !isVREdit && (
+                        <section className="space-y-4">
+                          <h3 className="text-sm font-bold text-emerald-600 uppercase tracking-widest">Faturamento</h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            <Input 
+                              label="Data Emissão NF" 
+                              type="date" 
+                              value={editFormData.data_emissao_nf || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_nf: e.target.value }))}
+                            />
+                            <Input 
+                              label="Emissão CTE Intertex" 
+                              type="date" 
+                              value={editFormData.data_emissao_cte || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte: e.target.value }))}
+                            />
+                            <Input 
+                              label="CTE Intertex" 
+                              value={editFormData.cte_intertex || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, cte_intertex: e.target.value }))}
+                            />
+                            <Input 
+                              label="Emissão CTE Transp." 
+                              type="date" 
+                              value={editFormData.data_emissao_cte_transp || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_emissao_cte_transp: e.target.value }))}
+                            />
+                            <Input 
+                              label="CTE Transportador" 
+                              value={editFormData.cte_transportador || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, cte_transportador: e.target.value }))}
+                            />
+                            <Input 
+                              label="Data TITAM" 
+                              type="date" 
+                              value={editFormData.data_titam || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, data_titam: e.target.value }))}
+                            />
+                            <Input 
+                              label="Faturamento Titam" 
+                              value={editFormData.faturamento_titam || ''} 
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, faturamento_titam: e.target.value }))}
+                            />
+                          </div>
+                        </section>
+                      )}
                     </>
                   );
                 })()}
 
-                <div className="flex justify-end gap-3 pt-4">
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                   <button 
                     onClick={() => { setSelectedEntry(null); setShowEditConfirm(false); }} 
-                    className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                    className="px-6 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors font-medium"
                   >
                     Cancelar
                   </button>
@@ -8214,6 +9919,129 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
+function NavSubItem({ 
+  icon, 
+  label, 
+  active, 
+  onClick, 
+  badge, 
+  badgeColor, 
+  isDotAlert 
+}: { 
+  icon: React.ReactNode; 
+  label: string; 
+  active: boolean; 
+  onClick: () => void; 
+  badge?: string | number | null; 
+  badgeColor?: string; 
+  isDotAlert?: boolean; 
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left group ${
+        active
+          ? 'bg-titam-lime text-titam-deep font-bold shadow-sm'
+          : 'text-white/65 hover:text-white hover:bg-white/5 font-medium'
+      }`}
+    >
+      <div className={`shrink-0 transition-transform duration-200 ${active ? 'text-titam-deep scale-110' : 'text-white/50 group-hover:text-titam-lime'}`}>
+        {icon}
+      </div>
+      <span className="truncate text-left text-[11px] font-semibold tracking-wide flex-1">{label}</span>
+      {isDotAlert && !active && (
+        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+      )}
+      {badge !== undefined && badge !== null && (
+        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full shrink-0 ${
+          active
+            ? 'bg-titam-deep text-titam-lime'
+            : badgeColor || 'bg-white/10 text-white/80'
+        }`}>
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function NavModule({
+  title,
+  subtitle,
+  icon,
+  isOpen,
+  onToggle,
+  badgeText,
+  badgeColor,
+  hasActiveChild,
+  children
+}: {
+  title: string;
+  subtitle?: string;
+  icon: React.ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  badgeText?: string;
+  badgeColor?: string;
+  hasActiveChild: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-2xl transition-all border ${
+      hasActiveChild 
+        ? 'bg-white/[0.04] border-white/10 shadow-sm' 
+        : 'border-transparent hover:bg-white/[0.02]'
+    }`}>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between p-2.5 text-left rounded-2xl transition group select-none"
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
+            hasActiveChild 
+              ? 'bg-titam-lime/20 text-titam-lime ring-1 ring-titam-lime/40' 
+              : 'bg-white/5 text-white/60 group-hover:bg-white/10 group-hover:text-white'
+          }`}>
+            {icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[11px] font-black uppercase tracking-wider truncate ${
+                hasActiveChild ? 'text-titam-lime' : 'text-white/90 group-hover:text-white'
+              }`}>
+                {title}
+              </span>
+              {hasActiveChild && (
+                <span className="w-1.5 h-1.5 rounded-full bg-titam-lime animate-pulse shrink-0" />
+              )}
+            </div>
+            {subtitle && (
+              <p className="text-[9px] text-white/45 truncate leading-none mt-0.5 font-medium">{subtitle}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0 ml-1">
+          {badgeText && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${badgeColor || 'bg-white/10 text-white/70'}`}>
+              {badgeText}
+            </span>
+          )}
+          <div className="text-white/40 group-hover:text-white transition-transform">
+            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </div>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="mt-0.5 mb-2 ml-3.5 pl-2.5 border-l border-white/15 space-y-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatCard({ title, value, subtitle, icon }: { title: string, value: number | string, subtitle: string, icon: React.ReactNode }) {
   const brandDeep = '#1E3932';
   
@@ -8405,8 +10233,13 @@ function DataView({ title, entries, columns, onEdit, onDelete, onBulkDelete, rea
     const searchStr = searchTerm.toLowerCase();
     const searchableFields = [
       entry.nf_numero,
+      entry.chave_acesso,
       entry.container,
       entry.fornecedor,
+      entry.origem,
+      entry.destinatario,
+      entry.cliente,
+      entry.motorista,
       entry.descricao_produto,
       entry.placa_veiculo,
       entry.placa_saida,
